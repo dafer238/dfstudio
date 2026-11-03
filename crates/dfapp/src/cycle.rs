@@ -73,6 +73,7 @@ pub const GROUPS: [Group; 10] = [
 ];
 
 impl Kind {
+    #[cfg(test)]
     pub const ALL: [Kind; 26] = [
         Kind::Turbine,
         Kind::Compressor,
