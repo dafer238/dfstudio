@@ -15,6 +15,8 @@ use std::collections::HashMap;
 struct ProjectState {
     unit_system: Option<UnitSystem>,
     display_units: HashMap<String, String>,
+    /// Display preset and per-quantity units (absent in files before 0.2.2).
+    unit_prefs: crate::units_ui::UnitPrefs,
     live_solve: Option<bool>,
     table: ParamTable,
     goal: GoalForm,
@@ -31,6 +33,7 @@ pub fn to_df(s: &Settings, analysis: Option<&Analysis>, files: &[Artifact], meta
     let st = ProjectState {
         unit_system: Some(s.unit_system.clone()),
         display_units: s.display_units.clone(),
+        unit_prefs: s.unit_prefs.clone(),
         live_solve: Some(s.live_solve),
         table: s.table.clone(),
         goal: s.goal.clone(),
@@ -50,7 +53,8 @@ pub fn to_df(s: &Settings, analysis: Option<&Analysis>, files: &[Artifact], meta
     // parametric results as a numeric table (inputs, outputs, converged flag)
     let t = &s.table;
     if t.rows() > 0 && t.results.iter().any(|r| r.is_some()) {
-        let unit = |n: &str| analysis.and_then(|a| a.model.var(n).map(|v| crate::studies_ui::conv(&a.model, &s.display_units, v).1.symbol)).unwrap_or_default();
+        let du = analysis.map(|a| s.units_for(&a.model)).unwrap_or_default();
+        let unit = |n: &str| analysis.and_then(|a| a.model.var(n).map(|v| crate::studies_ui::conv(&a.model, &du, v).1.symbol)).unwrap_or_default();
         let mut columns: Vec<(String, String)> = t.inputs.iter().chain(&t.outputs).map(|n| (n.clone(), unit(n))).collect();
         columns.push(("converged".into(), String::new()));
         let mut data = Vec::with_capacity(t.rows() * columns.len());
@@ -77,6 +81,7 @@ pub fn apply_df(f: DfFile, s: &mut Settings) -> Vec<Artifact> {
         s.unit_system = u;
     }
     s.display_units = st.display_units;
+    s.unit_prefs = st.unit_prefs;
     if let Some(l) = st.live_solve {
         s.live_solve = l;
     }
@@ -107,10 +112,25 @@ mod tests {
     use super::*;
     use crate::analysis::{run, Request};
 
+    /// Files written before per-quantity units (no `unit_prefs`) keep their
+    /// per-variable units and get no preset.
+    #[test]
+    fn old_project_state_loads() {
+        let old = r#"{"display_units":{"m_dot":"kg/h","T[1]":"K"},"live_solve":true}"#;
+        let mut f = DfFile::new("x = 1".to_string());
+        f.project = Some(old.into());
+        let mut s = Settings::default();
+        apply_df(f, &mut s);
+        assert_eq!(s.display_units.get("m_dot").map(String::as_str), Some("kg/h"));
+        assert!(s.unit_prefs.is_empty());
+    }
+
     #[test]
     fn project_round_trip() {
         let mut s = Settings::default();
         s.display_units.insert("t[3]".into(), "K".into());
+        s.unit_prefs.set_preset(crate::units_ui::DisplayPreset::Engineering);
+        s.unit_prefs.quantities.insert("mass_flow".into(), "t/h".into());
         s.table.inputs = vec!["P[2]".into()];
         s.table.outputs = vec!["eta_th".into()];
         s.table.cells = vec![vec!["20".into()], vec!["40".into()]];
@@ -131,6 +151,7 @@ mod tests {
         let files2 = apply_df(g, &mut s2);
         assert_eq!(s2.text, s.text);
         assert_eq!(s2.display_units.get("t[3]").map(String::as_str), Some("K"));
+        assert_eq!(s2.unit_prefs, s.unit_prefs);
         assert_eq!(s2.table.results, s.table.results);
         assert_eq!(s2.table.converged, vec![true, false]);
         assert_eq!(files2, files);

@@ -735,10 +735,19 @@ pub fn builtin_const(name: &str, us: &UnitSystem) -> Option<f64> {
     })
 }
 
+/// Dimension of the built-in constants that carry one, for the unit check
+/// and the inferred display units: R#/molarmass(N2) is a specific entropy.
+pub fn builtin_const_dim(name: &str) -> Option<Dim> {
+    match name {
+        "r#" => Some(Dim::MOLAR_ENTROPY),
+        _ => None,
+    }
+}
+
 pub const BUILTIN_CONSTS: &[(&str, &str)] = &[
     ("pi", "π = 3.14159…"),
     ("g#", "Standard gravity 9.80665 m/s²"),
-    ("R#", "Universal gas constant 8.314462618 J/mol-K (in model units)"),
+    ("R#", "Universal gas constant 8.314462618 J/mol-K, in model units (8.314 kJ/kmol-K in Engineering)"),
     ("sigma#", "Stefan–Boltzmann constant 5.670374419e-8 W/m²-K⁴"),
     ("k#", "Boltzmann constant 1.380649e-23 J/K"),
     ("N_A#", "Avogadro constant 6.02214076e23 1/mol"),
@@ -887,7 +896,11 @@ impl Lower<'_, '_> {
                         return Ok(t.constant(*v));
                     }
                     if let Some(c) = builtin_const(name, &self.b.m.unit_system) {
-                        return Ok(t.constant(c));
+                        let n = t.constant(c);
+                        if let Some(d) = builtin_const_dim(name) {
+                            self.const_dims.push((n, d));
+                        }
+                        return Ok(n);
                     }
                 }
                 if self.slots.is_some() {
@@ -1191,7 +1204,10 @@ impl Lower<'_, '_> {
             if trivial {
                 use crate::funcs::ExtFn;
                 let v = pc.eval(&[]).map_err(|e| err(e, span))?;
-                return Ok(Some(t.constant(v)));
+                let n = t.constant(v);
+                // molarmass(Fluid) is kg/kmol, Tcrit a temperature, ...
+                self.const_dims.push((n, out.dim()));
+                return Ok(Some(n));
             }
             return Ok(Some(ext(t, Arc::new(pc), &nodes)));
         }

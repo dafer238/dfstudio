@@ -147,7 +147,14 @@ SI = a·value + b, so it costs one multiply-add, and the derivative of the
 conversion (a) is applied to the property gradients.
 
 Each variable may also have a **display unit**, applied only when a value is
-shown. Display units never change the numbers the solver works with.
+shown. Display units never change the numbers the solver works with. The
+application resolves it per variable, then per quantity (dimension), then
+from the last display preset, then from the script (`units_ui.rs`).
+
+Amount of substance is counted in kmol in the metric systems (lbmol in
+Imperial), the unit of the molar mass, so that the model units of a product
+are the product of the model units: h [kJ/kg] · M [kg/kmol] is in kJ/kmol,
+the unit the system gives to energy per amount of substance.
 
 **Dimensional inference** (`dims.rs`) propagates dimensions through the
 equations until nothing changes: both sides of an equation and all additive

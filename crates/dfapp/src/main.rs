@@ -45,7 +45,7 @@ fn report(args: &[String]) -> std::process::ExitCode {
         init: Default::default(),
     });
     let converged = a.solution.as_ref().is_some_and(|x| x.converged);
-    let bytes = cycle::report_pdf(&s.cycle, &cycle::CycleInputs { analysis: &a, display_units: &s.display_units, script: &s.text });
+    let bytes = cycle::report_pdf(&s.cycle, &cycle::CycleInputs { analysis: &a, display_units: &s.units_for(&a.model), script: &s.text });
     if let Err(e) = std::fs::write(out, bytes) {
         eprintln!("{out}: {e}");
         return ExitCode::from(1);
@@ -90,7 +90,7 @@ fn write_examples(args: &[String]) -> i32 {
             code = 1;
         }
         // solve the parametric table so its plots show when the example opens
-        let du = s.display_units.clone();
+        let du = s.units_for(&a.model);
         match s.table.solve_now(&a, &du) {
             Ok(()) if s.table.converged.iter().all(|c| *c) => {}
             Ok(()) => eprintln!("{}: some parametric rows did not converge", t.name),
