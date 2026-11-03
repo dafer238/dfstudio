@@ -46,7 +46,7 @@ chmod +x "$app/AppRun"
 
 tool=$(command -v appimagetool || true)
 if [ -z "$tool" ]; then
-    tool="$out/appimagetool-$arch.AppImage"
+    tool="${TMPDIR:-/tmp}/appimagetool-$arch.AppImage"
     [ -x "$tool" ] || { curl -fsSL -o "$tool" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$arch.AppImage"; chmod +x "$tool"; }
 fi
 # no FUSE needed (CI containers)
