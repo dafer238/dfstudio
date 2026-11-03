@@ -1,0 +1,264 @@
+"DF Studio / EES cross-check model
+
+ Runs unchanged in EES (paste into the Equations window) and in DF Studio.
+ Compare the results listed in docs/VERIFICATION.md. All numbers are in the
+ model units below, without bracketed units, because EES does not convert
+ bracketed literals and DF Studio does: plain numbers mean the same in both.
+ Absolute h and s of R134a, CO2 and humid air depend on each program's
+ reference state, so compare differences, temperatures, flows, powers and
+ efficiencies; water (IAPWS-95) and air (Lemmon) use the same reference.
+
+ Features: Function with If/Else and a Repeat loop, Procedure and Call,
+ Duplicate loops, arrays, Sum, min/max, ln/log10/sqrt/abs, convert,
+ converttemp, pi; properties of Water, R134a, CarbonDioxide, Air_ha and
+ AirH2O (h, s, T, P, x, rho, cp, mu, k, Pr, T_sat, P_sat, latent heat);
+ implicit equations (LMTD condenser, Colebrook friction factor)."
+
+$UnitSystem SI MASS DEG KPA C KJ
+
+"---------------------------------------------------------------- functions"
+
+Function lmtd(dTa, dTb)
+  "log-mean temperature difference, safe when both ends are equal"
+  If (abs(dTa - dTb) < 1e-6) Then
+    lmtd := dTa
+  Else
+    lmtd := (dTa - dTb)/ln(dTa/dTb)
+  EndIf
+End
+
+Function f_colebrook(Re, rr)
+  "Colebrook-White friction factor by fixed-point iteration"
+  f := 0.02
+  Repeat
+    f_old := f
+    f := (-2*log10(rr/3.7 + 2.51/(Re*sqrt(f_old))))^(-2)
+  Until (abs(f - f_old) < 1e-12)
+  f_colebrook := f
+End
+
+Procedure split(m, y : m_a, m_b)
+  "splits a flow m into the fractions y and 1-y"
+  m_a := y*m
+  m_b := (1 - y)*m
+End
+
+"------------------------------------- A. reheat-regenerative Rankine (water)
+
+ 1 condenser outlet, 2 pump 1 outlet, 3 open feedwater heater outlet,
+ 4 pump 2 outlet, 5 HP turbine inlet, 6 HP turbine outlet (to reheat and
+ bleed), 7 LP turbine inlet, 8 bleed after the first LP stage, 9 LP outlet"
+
+m_dot = 100
+P_hi = 15000
+P_rh = 3000
+P_fw = 600
+P_cond = 8
+T_max = 550
+eta_t = 0.88
+eta_p = 0.80
+
+P[1] = P_cond
+P[2] = P_fw
+P[3] = P_fw
+P[4] = P_hi
+P[5] = P_hi
+P[6] = P_rh
+P[7] = P_rh
+P[8] = P_fw
+P[9] = P_cond
+
+h[1] = enthalpy(Water, P=P[1], x=0)
+s[1] = entropy(Water, P=P[1], x=0)
+v[1] = volume(Water, P=P[1], x=0)
+h[2] = h[1] + v[1]*(P[2] - P[1])/eta_p
+h[3] = enthalpy(Water, P=P[3], x=0)
+s[3] = entropy(Water, P=P[3], x=0)
+h_s[4] = enthalpy(Water, P=P[4], s=s[3])
+h[4] = h[3] + (h_s[4] - h[3])/eta_p
+h[5] = enthalpy(Water, T=T_max, P=P[5])
+s[5] = entropy(Water, T=T_max, P=P[5])
+h_s[6] = enthalpy(Water, P=P[6], s=s[5])
+h[6] = h[5] - eta_t*(h[5] - h_s[6])
+h[7] = enthalpy(Water, T=T_max, P=P[7])
+s[7] = entropy(Water, T=T_max, P=P[7])
+h_s[8] = enthalpy(Water, P=P[8], s=s[7])
+h[8] = h[7] - eta_t*(h[7] - h_s[8])
+s[8] = entropy(Water, P=P[8], h=h[8])
+h_s[9] = enthalpy(Water, P=P[9], s=s[8])
+h[9] = h[8] - eta_t*(h[8] - h_s[9])
+
+"open feedwater heater: y of the flow is bled at state 8"
+y*h[8] + (1 - y)*h[2] = h[3]
+Call split(m_dot, y : m_bleed, m_lp)
+
+Duplicate i = 1, 9
+  T[i] = temperature(Water, P=P[i], h=h[i])
+End
+s[9] = entropy(Water, P=P[9], h=h[9])
+x[9] = quality(Water, P=P[9], h=h[9])
+s[2] = entropy(Water, P=P[2], h=h[2])
+s[4] = entropy(Water, P=P[4], h=h[4])
+s[6] = entropy(Water, P=P[6], h=h[6])
+
+W_hp = m_dot*(h[5] - h[6])
+W_lp = m_dot*(h[7] - h[8]) + m_lp*(h[8] - h[9])
+W_pumps = m_lp*(h[2] - h[1]) + m_dot*(h[4] - h[3])
+Q_boiler = m_dot*(h[5] - h[4]) + m_dot*(h[7] - h[6])
+Q_cond = m_lp*(h[9] - h[1])
+W_net = W_hp + W_lp - W_pumps
+eta_th = W_net/Q_boiler
+balance_A = Q_boiler - Q_cond - W_net
+T_sat_cond = T_sat(Water, P=P_cond)
+h_fg_cond = enthalpy_vaporization(Water, T=T_sat_cond)
+
+"Carnot efficiency between the mean temperatures of heat addition and rejection"
+T_in_mean = Q_boiler/(m_dot*(s[5] - s[4]) + m_dot*(s[7] - s[6]))
+T_out_mean = converttemp(C, K, T_sat_cond)
+eta_carnot_mean = 1 - T_out_mean/T_in_mean
+
+"condenser: cooling water 20 C in, UA given; the outlet temperature is implicit"
+UA_cond = 12000
+T_cw_in = 20
+cp_cw = cp(Water, T=25, P=101.325)
+Q_cond = UA_cond*lmtd(T_sat_cond - T_cw_in, T_sat_cond - T_cw_out)
+Q_cond = m_cw*cp_cw*(T_cw_out - T_cw_in)
+
+"feedwater pipe (state 4): Colebrook friction factor, implicit and by a loop"
+D_pipe = 0.2
+L_pipe = 150
+rough = 4.5e-5
+rho_fw = density(Water, P=P[4], h=h[4])
+mu_fw = viscosity(Water, P=P[4], h=h[4])
+k_fw = conductivity(Water, P=P[4], h=h[4])
+Pr_fw = prandtl(Water, P=P[4], h=h[4])
+vel_fw = m_dot/(rho_fw*pi*D_pipe^2/4)
+Re_fw = rho_fw*vel_fw*D_pipe/mu_fw
+"Colebrook-White, implicit. Solved for a_fw = 1/sqrt(f_fw): the residual is
+ nearly linear in a_fw and has no square root of an unknown, so Newton's
+ method cannot step to a negative friction factor from a guess of 1."
+a_fw = -2*log10(rough/D_pipe/3.7 + 2.51*a_fw/Re_fw)
+f_fw = 1/a_fw^2
+f_loop = f_colebrook(Re_fw, rough/D_pipe)
+DELTAP_fw = f_fw*L_pipe/D_pipe*rho_fw*vel_fw^2/2*convert(Pa, kPa)
+Nu_fw = 0.023*Re_fw^0.8*Pr_fw^0.4
+htc_fw = Nu_fw*k_fw/D_pipe
+
+"--------------------------------- B. R134a refrigeration with an air cooler
+
+ evaporator at -5 C with 5 K superheat, condenser at 40 C with 3 K
+ subcooling; it cools moist air from 30 C, 50 % to 14 C saturated"
+
+T_evap = -5
+T_cnd = 40
+DT_sh = 5
+DT_sc = 3
+eta_comp = 0.75
+P_ev = P_sat(R134a, T=T_evap)
+P_cd = P_sat(R134a, T=T_cnd)
+T_r[1] = T_evap + DT_sh
+h_r[1] = enthalpy(R134a, T=T_r[1], P=P_ev)
+s_r[1] = entropy(R134a, T=T_r[1], P=P_ev)
+h_rs[2] = enthalpy(R134a, P=P_cd, s=s_r[1])
+h_r[2] = h_r[1] + (h_rs[2] - h_r[1])/eta_comp
+T_r[2] = temperature(R134a, P=P_cd, h=h_r[2])
+T_r[3] = T_cnd - DT_sc
+h_r[3] = enthalpy(R134a, T=T_r[3], P=P_cd)
+h_r[4] = h_r[3]
+x_r[4] = quality(R134a, P=P_ev, h=h_r[4])
+COP = (h_r[1] - h_r[4])/(h_r[2] - h_r[1])
+COP_carnot = converttemp(C, K, T_evap)/(T_cnd - T_evap)
+
+P_atm = 101.325
+m_air = 2
+T_a1 = 30
+T_a2 = 14
+w_a1 = humrat(AirH2O, T=T_a1, P=P_atm, R=0.5)
+w_a2 = humrat(AirH2O, T=T_a2, P=P_atm, R=1)
+h_a1 = enthalpy(AirH2O, T=T_a1, P=P_atm, w=w_a1)
+h_a2 = enthalpy(AirH2O, T=T_a2, P=P_atm, w=w_a2)
+T_wb1 = wetbulb(AirH2O, T=T_a1, P=P_atm, w=w_a1)
+T_dp1 = dewpoint(AirH2O, T=T_a1, P=P_atm, w=w_a1)
+h_cond_w = enthalpy(Water, T=T_a2, P=P_atm)
+m_water = m_air*(w_a1 - w_a2)
+Q_evap = m_air*(h_a1 - h_a2) - m_water*h_cond_w
+m_r = Q_evap/(h_r[1] - h_r[4])
+W_comp = m_r*(h_r[2] - h_r[1])
+Q_cd = m_r*(h_r[2] - h_r[3])
+balance_B = Q_cd - Q_evap - W_comp
+SHR = m_air*cp(AirH2O, T=T_a1, P=P_atm, w=w_a1)*(T_a1 - T_a2)/Q_evap
+
+"------------------------------------ C. recuperated CO2 Brayton cycle
+
+ 1 compressor inlet, 2 compressor outlet, 3 recuperator cold outlet,
+ 4 turbine inlet, 5 turbine outlet, 6 recuperator hot outlet"
+
+N_c = 6
+m_c = 50
+P_c[1] = 7800
+T_c[1] = 35
+P_c[2] = 20000
+T_c[4] = 500
+eta_cc = 0.85
+eta_tc = 0.90
+eps_rc = 0.90
+P_c[3] = P_c[2]
+P_c[4] = P_c[2]
+P_c[5] = P_c[1]
+P_c[6] = P_c[1]
+h_c[1] = enthalpy(CarbonDioxide, T=T_c[1], P=P_c[1])
+s_c[1] = entropy(CarbonDioxide, T=T_c[1], P=P_c[1])
+h_cs[2] = enthalpy(CarbonDioxide, P=P_c[2], s=s_c[1])
+h_c[2] = h_c[1] + (h_cs[2] - h_c[1])/eta_cc
+h_c[4] = enthalpy(CarbonDioxide, T=T_c[4], P=P_c[4])
+s_c[4] = entropy(CarbonDioxide, T=T_c[4], P=P_c[4])
+h_cs[5] = enthalpy(CarbonDioxide, P=P_c[5], s=s_c[4])
+h_c[5] = h_c[4] - eta_tc*(h_c[4] - h_cs[5])
+T_c[2] = temperature(CarbonDioxide, P=P_c[2], h=h_c[2])
+T_c[3] = temperature(CarbonDioxide, P=P_c[3], h=h_c[3])
+T_c[5] = temperature(CarbonDioxide, P=P_c[5], h=h_c[5])
+T_c[6] = temperature(CarbonDioxide, P=P_c[6], h=h_c[6])
+Duplicate j = 1, N_c
+  rho_c[j] = density(CarbonDioxide, P=P_c[j], h=h_c[j])
+End
+"recuperator effectiveness: Q = eps Q_max, with Q_max the smaller of the
+ duties that bring either stream to the other's inlet temperature"
+h_c3max = enthalpy(CarbonDioxide, T=T_c[5], P=P_c[3])
+h_c6min = enthalpy(CarbonDioxide, T=T_c[2], P=P_c[6])
+Q_max_rc = min(h_c3max - h_c[2], h_c[5] - h_c6min)
+h_c[3] = h_c[2] + eps_rc*Q_max_rc
+h_c[6] = h_c[5] - (h_c[3] - h_c[2])
+W_tc = m_c*(h_c[4] - h_c[5])
+W_cc = m_c*(h_c[2] - h_c[1])
+Q_hc = m_c*(h_c[4] - h_c[3])
+eta_c = (W_tc - W_cc)/Q_hc
+DT_pinch_hot = T_c[5] - T_c[3]
+DT_pinch_cold = T_c[6] - T_c[2]
+DT_min_rc = min(DT_pinch_hot, DT_pinch_cold)
+cp_c1 = cp(CarbonDioxide, T=T_c[1], P=P_c[1])
+
+"---------------------------------------- D. real-fluid air compressor
+
+ Air_ha: Lemmon et al. (2000) real fluid, as CoolProp Air"
+
+N_st = 3
+T_air[1] = 15
+P_air[1] = 101.325
+PR_st = 2.5
+eta_st = 0.86
+Duplicate k = 1, N_st
+  P_air[k+1] = P_air[k]*PR_st
+  h_air[k] = enthalpy(Air_ha, T=T_air[k], P=P_air[k])
+  s_air[k] = entropy(Air_ha, T=T_air[k], P=P_air[k])
+  h_airs[k] = enthalpy(Air_ha, P=P_air[k+1], s=s_air[k])
+  h_out[k] = h_air[k] + (h_airs[k] - h_air[k])/eta_st
+  T_out[k] = temperature(Air_ha, P=P_air[k+1], h=h_out[k])
+  w_st[k] = h_out[k] - h_air[k]
+End
+"intercooling back to 15 C before stages 2 and 3"
+T_air[2] = 15
+T_air[3] = 15
+w_total = Sum(w_st[k], k=1, N_st)
+T_out_max = max(T_out[1], T_out[2], T_out[3])
+R_air = 8.314462618/28.9586
+Z_out = P_air[4]/(density(Air_ha, T=T_out[3], P=P_air[4])*R_air*converttemp(C, K, T_out[3]))

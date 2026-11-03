@@ -36,6 +36,25 @@ All notable changes to DF Studio are listed here. The format follows
   picker, the value each variable started from and its source; saved in the
   project.
 
+### Verification
+- Tests of the property pipeline against IAPWS-95 (Tables 7 and 8),
+  IAPWS-IF97 (Tables 5 and 15), NIST-JANAF and exact thermodynamic
+  identities in five unit systems; solver tests against closed-form
+  solutions and a direct CoolProp calculation. See `docs/VERIFICATION.md`.
+- `examples/ees_crosscheck.dfs`: a 199-equation model that runs unchanged in
+  EES, for comparing the two programs.
+
+### Fixed
+- The solver could report convergence at a spurious root created by
+  clearing a denominator (for example an LMTD at dT1 = dT2, where the
+  equation is 0/0), with an infinite residual. Such points are refused, the
+  block is retried on the equations as written, and a solution whose
+  residual cannot be evaluated is never reported as converged.
+- `Steam_IAPWS` (EES) now maps to IAPWS-95 like `Water`, as in EES; it was
+  read as IAPWS-IF97. `R718` is accepted as water.
+- `converttemp(...)` results were labelled and display-converted as model
+  temperatures; they are plain numbers now.
+
 
 ### Cycle diagram
 - Component library in collapsible groups with monochrome icons that follow
@@ -58,6 +77,7 @@ All notable changes to DF Studio are listed here. The format follows
   starting its workers: creating a state now has exclusive access to
   CoolProp. The states of a worker thread are released when it ends, so
   repeated studies no longer accumulate memory.
+
 
 
 - Right sidebar with *KPI* and *States* tabs, and below them all the

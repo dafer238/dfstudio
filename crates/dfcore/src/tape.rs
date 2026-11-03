@@ -37,6 +37,9 @@ pub enum F1 {
     Trunc,
     Step,
     Not,
+    /// Identity whose result has no physical dimension for the unit
+    /// inference (a number in another scale, e.g. converttemp).
+    Opaque,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,6 +307,7 @@ pub fn f1(f: F1, a: f64) -> f64 {
         F1::Trunc => a.trunc(),
         F1::Step => (a >= 0.0) as i32 as f64,
         F1::Not => (a == 0.0) as i32 as f64,
+        F1::Opaque => a,
     }
 }
 
@@ -331,6 +335,7 @@ fn d1(f: F1, a: f64, y: f64) -> f64 {
                 -1.0
             }
         }
+        F1::Opaque => 1.0,
         _ => 0.0,
     }
 }
