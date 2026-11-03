@@ -54,6 +54,8 @@ Newton block, how many iterations each block took and its residual. When a
 model fails, the message names the block and the variables that did not
 converge.
 
+![Dependency view: how h[4] is computed, its Newton block and the solve path](docs/img/dependencies.png)
+
 **A solver you can read.** Exact derivatives (automatic differentiation of
 your equations and the analytic derivatives of the equations of state),
 block decomposition of the system, Newton's method with line search and a
@@ -81,6 +83,8 @@ diagrams, entropy generation and exergy destruction.
 * Optimisation: Brent, Nelder–Mead or **global** differential evolution.
 * Control loops written in the model: `$Control vary P[2] to make T[4] = 540`.
 
+![Thermal efficiency of a Rankine cycle over boiler pressure and temperature, from a two-input parametric table](docs/img/plot-3d.png)
+
 **Publication-ready output.**
 * T–s, P–h, h–s, P–v and T–h diagrams with the saturation dome and your
   cycle on top; XY and 3D plots.
@@ -88,6 +92,8 @@ diagrams, entropy generation and exergy destruction.
   embedded, for vector figures in papers and theses.
 * A vector **PDF report** (flowsheet, KPIs, state table) written directly,
   without LaTeX or any other tool.
+
+![T–s diagram of the Rankine example with the saturation dome and isobars](docs/img/property-diagram.png)
 
 **Projects that travel.** A `.df` file holds the equations, units, studies,
 plots, flowsheet, last solution and any attached data or images in one
