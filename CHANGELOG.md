@@ -1,0 +1,57 @@
+# Changelog
+
+All notable changes to DF Studio are listed here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-11-03
+
+First public release.
+
+### Equation solver
+- Equations in any order, arrays, `Duplicate`, `Sum`, `Function` and
+  `Procedure` blocks with `If`, `Repeat`, `While` and `For`.
+- Live structural analysis while typing: determined, pending and
+  over-specified variables, degrees of freedom.
+- Block decomposition of the system; explicit evaluation where possible,
+  Newton's method with exact derivatives, line search and a
+  Levenberg–Marquardt fall-back elsewhere.
+- Unit systems, unit literals, per-variable display units and dimensional
+  checking.
+
+### Properties
+- CoolProp real fluids, mixtures and incompressibles; ideal gases with
+  thermochemical reference states; humid air; liquid metals, molten salts
+  and thermal oils.
+- Temperature–enthalpy and temperature–internal-energy states.
+
+### Studies and plots
+- Parametric tables solved in parallel, goal seek, multi-variable matching,
+  optimisation (Brent, Nelder–Mead, differential evolution), `$Control`
+  loops.
+- XY, 3D and property diagrams (T–s, P–h, h–s, P–v, T–h); export to a
+  matplotlib script.
+
+### Cycle diagram
+- Flowsheet bound to the state arrays, KPIs, component reports (balances,
+  pinch, UA, exergy), PDF report.
+- Templates: simple Rankine, simple Brayton, vapour-compression
+  refrigeration.
+- Undo and redo of diagram edits.
+
+### Editor and files
+- Completion, signature help, find and replace, formatting, auto save.
+- `.df` project files (single checksummed file with studies, plots,
+  diagram, results and attachments); `dfs` command line; `dfpy` Python
+  reader.
+- Opens EES files (text and binary) to help move existing models.
+
+### Distribution
+- Windows installer (all users or current user, no administrator rights
+  needed for the latter) and portable zip; universal macOS DMG; Linux
+  AppImage. Example projects included.
+
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dafer238/dfstudio/releases/tag/v0.1.0

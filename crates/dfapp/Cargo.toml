@@ -1,0 +1,24 @@
+[package]
+name = "dfapp"
+description = "DF Studio desktop application"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dfstudio"
+path = "src/main.rs"
+
+[dependencies]
+dfcore.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "glow", "links", "persistence", "wayland", "x11"] }
+egui = "0.37"
+egui_extras = "0.37"
+egui_plot = "0.38"
+rfd = "0.15"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
