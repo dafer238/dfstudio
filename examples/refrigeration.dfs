@@ -1,31 +1,65 @@
-"Vapour-compression refrigeration cycle (R134a) — engineering units (C, bar, kJ)"
+"Vapour-compression refrigeration cycle with R134a, states 1 to 4
+
+ Evaporator 4 -> 1, compressor 1 -> 2, condenser 2 -> 3, expansion valve 3 -> 4. The cycle is
+ specified by its saturation temperatures, superheat and subcooling, and its cooling capacity:
+ the refrigerant mass flow is a result.
+
+ Also in this project:
+   Cycle diagram   the flowsheet with the four components
+   Parametric      COP and compressor power over the evaporating temperature
+   Plots           P-h diagram (logarithmic pressure axis) and COP against T_evap
+   Goal seek       condensing temperature for a COP of 4"
+
+"The unit system: C, bar, kJ, kg/s"
 $UnitSystem Eng
 
-T_evap = -10 [C]
-T_cond = 40 [C]
-dT_sh = 5 [dK]                 "superheat at the compressor inlet"
+"---------------------------------------------------------------- inputs"
+T_evap = -10 [C]               "evaporating temperature"
+T_cond = 40 [C]                "condensing temperature"
+dT_sh = 5 [dK]                 "superheat at the compressor inlet (a temperature difference: dK)"
 dT_sc = 3 [dK]                 "subcooling at the condenser outlet"
-eta_c = 0.75
+eta_c = 0.75                   "compressor isentropic efficiency"
 Q_evap = 10 [kW]               "cooling capacity"
 
+"---------------------------------------------------------------- states
+ Saturation pressures from the saturation temperatures (pressure losses neglected)"
 P[1] = p_sat(R134a, T=T_evap)
+P[2] = p_sat(R134a, T=T_cond)
+P[3] = P[2]
+P[4] = P[1]
+
+"1: superheated vapour leaving the evaporator"
 T[1] = T_evap + dT_sh
 h[1] = enthalpy(R134a, T=T[1], P=P[1])
 s[1] = entropy(R134a, T=T[1], P=P[1])
-P[2] = p_sat(R134a, T=T_cond)
+
+"2: compressor outlet"
 h_s[2] = enthalpy(R134a, P=P[2], s=s[1])
 eta_c = (h_s[2] - h[1]) / (h[2] - h[1])
 T[2] = temperature(R134a, P=P[2], h=h[2])
-P[3] = P[2]
+s[2] = entropy(R134a, P=P[2], h=h[2])
+
+"3: subcooled liquid leaving the condenser"
 T[3] = T_cond - dT_sc
 h[3] = enthalpy(R134a, T=T[3], P=P[3])
-"throttling valve: isenthalpic"
-P[4] = P[1]
+s[3] = entropy(R134a, T=T[3], P=P[3])
+
+"4: the expansion valve is isenthalpic; the refrigerant enters the evaporator as a wet mixture"
 h[4] = h[3]
 T[4] = temperature(R134a, P=P[4], h=h[4])
 x[4] = quality(R134a, P=P[4], h=h[4])
+s[4] = entropy(R134a, P=P[4], h=h[4])
 
-Q_evap = m_dot*(h[1] - h[4])   {kW}
-W_c = m_dot*(h[2] - h[1])      {kW}
-Q_cond = m_dot*(h[2] - h[3])   {kW}
-COP = Q_evap/W_c
+"One refrigerant flow through the whole cycle"
+Duplicate i = 1, 4
+  m[i] = m_dot
+End
+
+"---------------------------------------------------------------- performance
+ Q_evap is given, so this equation determines the mass flow m_dot."
+Q_evap = m[4]*(h[1] - h[4])    {kW}
+W_c = m[1]*(h[2] - h[1])       {kW}
+Q_cond = m[2]*(h[2] - h[3])    {kW}
+COP = Q_evap/W_c               "coefficient of performance"
+COP_carnot = (T_evap + 273.15)/(T_cond - T_evap)    "Carnot COP between the saturation temperatures"
+eta_II = COP/COP_carnot        "second-law efficiency"

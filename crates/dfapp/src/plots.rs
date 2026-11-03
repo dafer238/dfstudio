@@ -140,7 +140,7 @@ impl Diagram {
         }
     }
     /// Conventional logarithmic axes (x, y).
-    fn default_log(self) -> (bool, bool) {
+    pub(crate) fn default_log(self) -> (bool, bool) {
         match self {
             Diagram::Ph => (false, true),
             Diagram::Pv => (true, true),
@@ -178,7 +178,7 @@ pub struct Series {
 const PALETTE: [[u8; 3]; 8] = [[0, 114, 178], [213, 94, 0], [0, 158, 115], [204, 121, 167], [230, 159, 0], [86, 180, 233], [240, 228, 66], [0, 0, 0]];
 
 impl Series {
-    fn new(y: &str, k: usize) -> Self {
+    pub(crate) fn new(y: &str, k: usize) -> Self {
         Series { y: y.into(), label: String::new(), color: PALETTE[k % PALETTE.len()], width: 1.8, line: LineKind::Solid, marker: Marker::Circle, size: 3.0, y2: false }
     }
     fn color32(&self) -> Color32 {
@@ -230,7 +230,7 @@ pub struct PlotDef {
 }
 
 impl PlotDef {
-    fn new(name: String, kind: PlotKind) -> Self {
+    pub(crate) fn new(name: String, kind: PlotKind) -> Self {
         PlotDef {
             name,
             kind,
@@ -1645,6 +1645,7 @@ mod tests {
             solve: true,
             solve_opts: dfcore::SolveOptions::default(),
             warm: None,
+            init: Default::default(),
         })
     }
 

@@ -98,8 +98,19 @@ starts without a file. You can also drag a `.df` or `.dfs` file onto the window.
 4. *File > Save as…* and choose `.df` (full project) or `.dfs` (text script).
    For a new project the first *Save as* switches **auto save** on.
 
-`File > Load example…` opens the examples folder (simple Rankine, simple
-Brayton and vapour-compression refrigeration cycles) to pick a model.
+`File > Load example…` opens the examples folder to pick a model. Each
+example is a commented script that introduces the language, with a cycle
+diagram, a solved parametric table, a goal seek or optimisation and plots:
+
+| Example | Shows |
+|---|---|
+| Simple Rankine | property calls with two inputs, an efficiency equation solved for its unknown, `Duplicate`, a two-input parametric table and its 3D surface, a T-s diagram, goal seek |
+| Simple Brayton | real-gas air, back-work ratio, efficiency and specific work against the pressure ratio (two y axes), optimisation of the pressure ratio |
+| Recuperated Brayton | a heat exchanger by its effectiveness, a user `Function` (LMTD), property calls inside `Duplicate`, goal seek and optimisation |
+| Refrigeration | saturation functions, superheat and subcooling, a mass flow that results from the capacity, P-h diagram, goal seek on the COP |
+
+The installers write these projects from the scripts in the `examples`
+folder of the source tree (`dfstudio --write-examples DIR`).
 
 ## 3. The window
 
@@ -252,15 +263,39 @@ affects.
 
 ### 6.4 Convergence tips
 
-* Give guesses close to the expected solution: `$Guess h[3] = 3000, T[5] = 400`
+* Give guesses close to the expected solution in *Equations > Initial
+  values* (section 6.5) or in the script: `$Guess h[3] = 3000, T[5] = 400`
   (state enthalpies and entropies of a cycle help most).
 * Bound variables that must stay in a range: `$Bounds x = 0 .. 1`.
+  Temperatures, pressures and qualities used as property inputs are bounded
+  automatically.
 * Check that the unit system matches the literals (section 5).
 * A singular Jacobian usually means the specification is not independent
   (e.g. the sum of balances that does not involve the unknowns): look at the
   failing block in the Dependencies view.
 * Once a model has solved, the next solve starts from the previous solution
-  (warm start).
+  (warm start). A `.df` project keeps its last solution, so a model that
+  needed good guesses solves again right away when the project is reopened.
+
+### 6.5 Initial values (Equations > Initial values)
+
+Like EES's Variable Information, this table lists, for each variable solved
+iteratively (in a Newton block):
+
+| Column | Meaning |
+|---|---|
+| Start | Value the last solve started from, and where it came from: *guess*, *last* (last solution) or *auto* |
+| Guess | Starting value. Empty: the last solution, else an automatic value (25 °C for temperatures, 1 bar for pressures, 0.5 for qualities, 1 otherwise) |
+| Lower, Upper | Bounds. Empty: none, or the automatic bound shown in grey (temperature above 0 K, pressure above 0, quality 0 to 1, for variables used as property inputs) |
+| Unit | Unit of the start, guess, bounds and solution; the same display unit as in the other tabs |
+| Solution | Current value |
+
+Type a value and press Enter; clear a cell to go back to automatic. Values
+keep their unit: changing the unit converts them. A guess or bound typed
+here replaces a `$Guess` or `$Bounds` of the script (whose values are shown
+in grey). *All variables* lists every variable, *Use last solution as
+guesses* copies the current solution into the Guess column, and the table is
+saved in the `.df` project.
 
 ## 7. Results: Solution and Arrays
 
@@ -333,8 +368,8 @@ A flowsheet whose streams are bound to state numbers, so labels read
 `T[k]`, `P[k]`, `h[k]`, ... of the solution.
 
 * **Templates**: the *Template* row under the palette inserts a complete,
-  labelled cycle (simple Rankine, simple Brayton, vapour-compression
-  refrigeration). In an empty project the template also brings its
+  labelled cycle (simple Rankine, simple and recuperated Brayton,
+  vapour-compression refrigeration). In an empty project the template also brings its
   equations, so it solves at once; in an existing drawing it is placed to
   the right, with state numbers that continue after the highest one in use.
 * Drag components from the palette; drag from an outlet port (red) to an

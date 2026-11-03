@@ -16,7 +16,7 @@
 //! finder of Brent (1973, ch. 4) for one-dimensional goal seek.
 
 use crate::compile::Model;
-use crate::solver::{initial_values, solve_with_plan, Plan, Solution, SolveOptions};
+use crate::solver::{initial_values, solve_with_plan, start_values, Plan, Solution, SolveOptions};
 use crate::tape::{Scratch, VarId};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -70,14 +70,7 @@ impl<'m> Study<'m> {
                 st.var_status.iter().enumerate().filter(|(_, s)| **s == crate::VarStatus::UnderDetermined).take(8).map(|(i, _)| model.vars[i].display.as_str()).collect();
             return Err(format!("{} degree(s) of freedom remain with these inputs (undetermined: {})", st.dof, pending.join(", ")));
         }
-        let mut base = initial_values(model, opts);
-        if let Some(w) = warm {
-            for (i, v) in w.iter().enumerate() {
-                if v.is_finite() && !model.guesses.contains_key(&(i as u32)) {
-                    base[i] = *v;
-                }
-            }
-        }
+        let base = start_values(model, opts, warm).0;
         Ok(Study { model, plan, inputs: inputs.to_vec(), base, opts: opts.clone() })
     }
 
@@ -565,14 +558,7 @@ pub fn differential_evolution(f: &(impl Fn(&[f64]) -> f64 + Sync), lo: &[f64], h
 pub fn solve_with_controls(model: &Model, opts: &SolveOptions, warm: Option<&[f64]>) -> Result<(Plan, Solution, Vec<String>), String> {
     if model.controls.is_empty() {
         let plan = Plan::new(model, &[]);
-        let mut x = initial_values(model, opts);
-        if let Some(w) = warm {
-            for (i, v) in w.iter().enumerate() {
-                if v.is_finite() && !model.guesses.contains_key(&(i as u32)) {
-                    x[i] = *v;
-                }
-            }
-        }
+        let mut x = start_values(model, opts, warm).0;
         let s = solve_with_plan(model, &plan, &mut x, opts);
         return Ok((plan, s, vec![]));
     }

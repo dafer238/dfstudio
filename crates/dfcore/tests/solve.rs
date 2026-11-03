@@ -204,3 +204,47 @@ fn temperature_and_enthalpy_fix_a_state() {
     let (_, sol) = dfcore::solve(&m, &Default::default());
     assert!(!sol.converged);
 }
+
+/// Without guesses, temperatures start at 25 °C and pressures at 1 bar
+/// (not 1 K / 1 Pa), so an inverse property calculation converges in SI.
+#[test]
+fn automatic_start_values_si() {
+    let src = "$UnitSystem SI\nh = 400000 [J/kg]\nP = 2 [bar]\nh = enthalpy(Water, T=T, P=P)";
+    let (m, s) = run(src);
+    assert!(s.converged, "{}", s.message);
+    let t = val(&m, &s, "T");
+    let h = dfcore::props::backend::props("Water", dfcore::props::Key::H, &[dfcore::props::Key::T, dfcore::props::Key::P], &[t, 2e5], None).unwrap();
+    assert!((h - 4e5).abs() < 1e-3, "T = {t} K, h = {h}");
+    // automatic bounds: T is a temperature input of a property call
+    let v = m.var("T").unwrap();
+    assert!(m.auto_bounds.contains(&v));
+    assert!(m.bounds[&v].0 > 0.0);
+}
+
+/// A variable used as a quality input is bounded to 0..1 and starts at 0.5.
+#[test]
+fn quality_bounds_and_start() {
+    let src = "$UnitSystem Eng\nP = 1 [bar]\nh = 1500\nh = enthalpy(Water, P=P, x=q)";
+    let (m, s) = run(src);
+    assert!(s.converged, "{}", s.message);
+    let v = m.var("q").unwrap();
+    assert_eq!(m.bounds[&v], (0.0, 1.0));
+    let q = val(&m, &s, "q");
+    assert!(q > 0.0 && q < 1.0, "q = {q}");
+}
+
+/// Guesses win over the previous solution, which wins over automatic values.
+#[test]
+fn start_value_precedence() {
+    use dfcore::solver::{start_values, StartSource};
+    let m = compile("x^2 = 4\ny^2 = 9\nz^2 = 16\n$Guess x = -1", &CompileOptions::default());
+    let n = m.vars.len();
+    let mut warm = vec![f64::NAN; n];
+    warm[m.var("x").unwrap() as usize] = 5.0;
+    warm[m.var("y").unwrap() as usize] = -2.0;
+    let (x, src) = start_values(&m, &SolveOptions::default(), Some(&warm));
+    let i = |n: &str| m.var(n).unwrap() as usize;
+    assert_eq!((x[i("x")], src[i("x")]), (-1.0, StartSource::Guess));
+    assert_eq!((x[i("y")], src[i("y")]), (-2.0, StartSource::Previous));
+    assert_eq!((x[i("z")], src[i("z")]), (1.0, StartSource::Automatic));
+}
