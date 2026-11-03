@@ -402,16 +402,23 @@ title, *Export PDF report…*, *Fit view*).
   compressor, a duct burner a heater, an ACC a cooler, SCR and duct are
   pipes (pressure loss) and a stack is a sink. The Components tab lists the
   diagram's components under the same groups.
-* **Connection points** of turbines, compressors and pumps: select the
-  component and choose, per port, where the stream meets the casing:
-  axially on either end face (3 or 4 points) or radially on the tilted
-  upper or lower casing line at one of five stages (stage 1 is the first in
-  the flow direction: the inlet end of a turbine, the suction end of a
-  compressor); pumps have 3 points on each side. Each machine keeps one
-  inlet and one outlet; a multi-section turbine is drawn as turbines in
-  series. Combined
-  with rotate and mirror this gives any orientation with short, straight
-  streams.
+* **Connection points** of turbines, compressors, pumps, mixers and
+  splitters: select the component and choose, per port, where the stream
+  meets it (*Connection points* in the left panel), or unlock streams and
+  drag a stream end onto one of the orange circles drawn around the
+  selected component. Turbines and compressors have points axially on
+  either end face (3 or 4 points) and radially on the tilted upper or lower
+  casing line at one of five stages (stage 1 is the first in the flow
+  direction: the inlet end of a turbine, the suction end of a compressor);
+  pumps have 3 points on each side, mixers and splitters one per side. Each
+  machine keeps one inlet and one outlet; a multi-section turbine is drawn
+  as turbines in series. Combined with rotate and mirror this gives any
+  orientation with short, straight streams.
+* Default ports: a pump's triangle points along the flow, with the inlet
+  and outlet opposite each other on that axis; a mixer's two inlets are
+  opposite each other with the outlet at 90°, and a splitter's two outlets
+  are opposite each other at 90° to the inlet. Diagrams saved by 0.2 or
+  earlier keep their streams where they were.
 * Streams route with as few bends as possible. When you release a moved
   component it snaps (within 15 px) so that a port lines up with the port it
   connects to, which gives straight streams.

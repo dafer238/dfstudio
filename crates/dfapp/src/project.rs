@@ -85,6 +85,7 @@ pub fn apply_df(f: DfFile, s: &mut Settings) -> Vec<Artifact> {
     s.opt = st.opt;
     s.plots = st.plots;
     s.cycle = st.cycle;
+    s.cycle.migrate();
     s.init = st.init;
     // restore parametric results so plots show without re-running the table
     if let Some(tab) = f.tables.iter().find(|t| t.name == PARAM_TABLE) {

@@ -200,7 +200,7 @@ fn shape(kind: Kind) -> Vec<Prim> {
     match kind {
         Kind::Turbine => vec![poly(&[[-25.0, -12.0], [25.0, -26.0], [25.0, 26.0], [-25.0, 12.0]], Some(TURB)), line(&[[25.0, 0.0], [38.0, 0.0]])],
         Kind::Compressor => vec![poly(&[[-25.0, -26.0], [25.0, -12.0], [25.0, 12.0], [-25.0, 26.0]], Some(COMP)), line(&[[-38.0, 0.0], [-25.0, 0.0]])],
-        Kind::Pump => vec![Circle { c: [0.0, 0.0], r: 17.0, fill: Some(COMP) }, poly(&[[-8.0, 9.0], [8.0, 9.0], [0.0, -10.0]], None)],
+        Kind::Pump => vec![Circle { c: [0.0, 0.0], r: 17.0, fill: Some(COMP) }, poly(&[[-9.0, -8.0], [-9.0, 8.0], [10.0, 0.0]], None)],
         Kind::HeatExchanger => vec![
             poly(&[[-32.0, -22.0], [32.0, -22.0], [32.0, 22.0], [-32.0, 22.0]], Some(HX)),
             line(&[[-32.0, -10.0], [-16.0, -10.0], [-8.0, 4.0], [0.0, -10.0], [8.0, 4.0], [16.0, -10.0], [32.0, -10.0]]),
@@ -382,17 +382,26 @@ pub fn anchor_options(kind: Kind) -> Vec<(String, [f32; 2], [f32; 2])> {
                 }
             }
         }
+        Kind::Mixer | Kind::Splitter => {
+            for (side, ax) in [("left", [-1.0, 0.0]), ("right", [1.0, 0.0]), ("top", [0.0, -1.0]), ("bottom", [0.0, 1.0])] {
+                v.push((side.to_string(), [ax[0] * 7.0, ax[1] * 7.0], ax));
+            }
+        }
         _ => {}
     }
     v
 }
+
+/// Layout of the ports of [`ports`]: diagrams saved with an older layout
+/// are moved to the current one by [`CycleDiagram::migrate`].
+pub const PORTS_VERSION: u32 = 2;
 
 pub fn ports(kind: Kind) -> Vec<Port> {
     let p = |name, pos: [f32; 2], dir: [f32; 2], inlet| Port { name, pos, dir, inlet };
     match kind {
         Kind::Turbine => vec![p("in", [-25.0, 0.0], [-1.0, 0.0], true), p("out", [25.0, 18.0], [0.0, 1.0], false)],
         Kind::Compressor => vec![p("in", [-25.0, 18.0], [0.0, 1.0], true), p("out", [25.0, 0.0], [1.0, 0.0], false)],
-        Kind::Pump => vec![p("in", [-17.0, 0.0], [-1.0, 0.0], true), p("out", [0.0, -17.0], [0.0, -1.0], false)],
+        Kind::Pump => vec![p("in", [-17.0, 0.0], [-1.0, 0.0], true), p("out", [17.0, 0.0], [1.0, 0.0], false)],
         Kind::HeatExchanger => vec![
             p("hot in", [-32.0, -10.0], [-1.0, 0.0], true),
             p("hot out", [32.0, -10.0], [1.0, 0.0], false),
@@ -401,8 +410,10 @@ pub fn ports(kind: Kind) -> Vec<Port> {
         ],
         Kind::Heater => vec![p("in", [0.0, 28.0], [0.0, 1.0], true), p("out", [0.0, -28.0], [0.0, -1.0], false)],
         Kind::Cooler => vec![p("in", [0.0, -20.0], [0.0, -1.0], true), p("out", [0.0, 20.0], [0.0, 1.0], false)],
-        Kind::Mixer => vec![p("in 1", [-7.0, 0.0], [-1.0, 0.0], true), p("in 2", [0.0, 7.0], [0.0, 1.0], true), p("out", [7.0, 0.0], [1.0, 0.0], false)],
-        Kind::Splitter => vec![p("in", [-7.0, 0.0], [-1.0, 0.0], true), p("out 1", [7.0, 0.0], [1.0, 0.0], false), p("out 2", [0.0, 7.0], [0.0, 1.0], false)],
+        // inlets opposite each other, the outlet at 90° to both
+        Kind::Mixer => vec![p("in 1", [0.0, -7.0], [0.0, -1.0], true), p("in 2", [0.0, 7.0], [0.0, 1.0], true), p("out", [7.0, 0.0], [1.0, 0.0], false)],
+        // outlets opposite each other, each at 90° to the inlet
+        Kind::Splitter => vec![p("in", [-7.0, 0.0], [-1.0, 0.0], true), p("out 1", [0.0, -7.0], [0.0, -1.0], false), p("out 2", [0.0, 7.0], [0.0, 1.0], false)],
         Kind::Valve => vec![p("in", [-14.0, 0.0], [-1.0, 0.0], true), p("out", [14.0, 0.0], [1.0, 0.0], false)],
         Kind::Source => vec![p("out", [16.0, 0.0], [1.0, 0.0], false)],
         Kind::Sink => vec![p("in", [-16.0, 0.0], [-1.0, 0.0], true)],
@@ -621,6 +632,9 @@ pub struct CycleDiagram {
     /// Cross labels centred on the stream line instead of beside it.
     pub cross_on_line: bool,
     pub label_size: LabelSize,
+    /// [`PORTS_VERSION`] the diagram was saved with (0: before 0.3).
+    #[serde(default)]
+    pub ports_version: u32,
 }
 
 impl Default for CycleDiagram {
@@ -649,11 +663,36 @@ impl Default for CycleDiagram {
             label_zoom: true,
             cross_on_line: true,
             label_size: LabelSize::Small,
+            ports_version: PORTS_VERSION,
         }
     }
 }
 
 impl CycleDiagram {
+    /// Keep the streams of a diagram saved with an older port layout where
+    /// they were: version 1 had the pump outlet on top (the triangle
+    /// pointing up), the first mixer inlet on the left and the first
+    /// splitter outlet on the right. Such default ports become the
+    /// equivalent connection point.
+    pub fn migrate(&mut self) {
+        if self.ports_version >= PORTS_VERSION {
+            return;
+        }
+        for c in &mut self.comps {
+            let (port, name) = match c.kind {
+                Kind::Pump => (1, "top, centre"),
+                Kind::Mixer => (0, "left"),
+                Kind::Splitter => (1, "right"),
+                _ => continue,
+            };
+            if c.anchors.get(port).copied().unwrap_or(0) == 0 {
+                let j = anchor_options(c.kind).iter().position(|o| o.0 == name).expect("legacy anchor");
+                c.anchors.resize(c.anchors.len().max(ports(c.kind).len()), 0);
+                c.anchors[port] = (j + 1) as u8;
+            }
+        }
+        self.ports_version = PORTS_VERSION;
+    }
     fn comp(&self, id: u32) -> Option<&Comp> {
         self.comps.iter().find(|c| c.id == id)
     }
@@ -1355,6 +1394,7 @@ impl CycleUi {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
+        d.migrate();
         self.history_keys(ui, d);
         self.track(ui.ctx(), d);
         egui::Panel::left("cycle_side").resizable(true).default_size(300.0).show(ui, |ui| {
@@ -1596,7 +1636,7 @@ impl CycleUi {
                     let opts = anchor_options(c.kind);
                     if !opts.is_empty() {
                         ui.add_space(4.0);
-                        ui.label("Connection points").on_hover_text("Where each stream meets the casing; combine with rotate and mirror for the orientation");
+                        ui.label("Connection points").on_hover_text("Where each stream meets the component; combine with rotate and mirror for the orientation. With streams unlocked, the free points show as orange circles: drag a stream end onto one to move it there.");
                         let pl = ports(c.kind);
                         if c.anchors.len() < pl.len() {
                             c.anchors.resize(pl.len(), 0);
@@ -2103,7 +2143,18 @@ impl CycleUi {
                     align_ports(d, id, 15.0);
                 }
                 Some(Drag::Wire { from, .. }) => {
-                    if let Some((cid, k, _)) = pointer.and_then(|q| hover_port(d, &view, q)) {
+                    let target = pointer.and_then(|q| hover_port(d, &view, q));
+                    // dropped on a connection point of its own machine: move the port there
+                    let anchor = pointer.filter(|_| !matches!(target, Some((cid, ..)) if cid != from.0)).and_then(|q| hover_anchor(d, &view, from, q));
+                    if let Some(a) = anchor {
+                        if let Some(c) = d.comps.iter_mut().find(|c| c.id == from.0) {
+                            c.anchors.resize(c.anchors.len().max(ports(c.kind).len()), 0);
+                            c.anchors[from.1] = a;
+                            if c.anchors.iter().all(|a| *a == 0) {
+                                c.anchors.clear();
+                            }
+                        }
+                    } else if let Some((cid, k, _)) = target {
                         self.connect(d, from, (cid, k));
                     }
                 }
@@ -2349,6 +2400,17 @@ impl CycleUi {
             let (side, anchor) = label_side(d, c, lines.iter().map(|l| l.len()).max().unwrap_or(0) as f32 * 6.2, lines.len() as f32 * 13.5);
             let align = [egui::Align2::CENTER_TOP, egui::Align2::CENTER_BOTTOM, egui::Align2::LEFT_CENTER, egui::Align2::RIGHT_CENTER][side];
             painter.text(view.s(anchor), align, lines.join("\n"), font, text);
+            // free connection points of the selected machine, or of the one a
+            // stream end is dragged from: drop the end on one to move the port
+            let wiring = matches!(self.drag, Some(Drag::Wire { from, .. }) if from.0 == c.id);
+            if !d.lock_streams && (sel || wiring) {
+                let used: Vec<[f32; 2]> = (0..ports(c.kind).len()).filter_map(|k| c.port(k)).map(|p| p.1).collect();
+                for w in anchor_points(c, 0).into_iter().map(|a| a.1).filter(|w| !used.iter().any(|u| (u[0] - w[0]).hypot(u[1] - w[1]) < 0.5)) {
+                    let hov = wiring && pointer.is_some_and(|q| view.s(w).distance(q) < 9.0);
+                    let r = if hov { 4.5 } else { (2.2 * d.zoom).clamp(1.5, 3.5) };
+                    painter.circle_stroke(view.s(w), r, Stroke::new(1.0, Color32::from_rgb(255, 170, 0)));
+                }
+            }
             // ports
             for k in 0..ports(c.kind).len() {
                 let (p, w, _) = c.port(k).unwrap();
@@ -2459,6 +2521,25 @@ fn kpi_label(v: &str) -> String {
     } else {
         v.to_string()
     }
+}
+
+/// Connection points of port `k` of a component in world coordinates, by
+/// the index stored in [`Comp::anchors`]: 0 is the port's default position,
+/// `j + 1` the option `j` of [`anchor_options`]. Empty for components with
+/// fixed ports.
+fn anchor_points(c: &Comp, k: usize) -> Vec<(u8, [f32; 2])> {
+    let opts = anchor_options(c.kind);
+    if opts.is_empty() {
+        return Vec::new();
+    }
+    let Some(p) = ports(c.kind).get(k).copied() else { return Vec::new() };
+    std::iter::once((0, c.tf(p.pos))).chain(opts.iter().enumerate().map(|(j, o)| ((j + 1) as u8, c.tf(o.1)))).collect()
+}
+
+/// Connection point of the port `port` near the screen position `pos`.
+fn hover_anchor(d: &CycleDiagram, view: &View, port: (u32, usize), pos: Pos2) -> Option<u8> {
+    let c = d.comp(port.0)?;
+    anchor_points(c, port.1).into_iter().map(|(a, w)| (a, view.s(w).distance(pos))).filter(|x| x.1 < 9.0f32.max(5.0 * d.zoom)).min_by(|a, b| a.1.total_cmp(&b.1)).map(|x| x.0)
 }
 
 fn hover_port(d: &CycleDiagram, view: &View, pos: Pos2) -> Option<(u32, usize, [f32; 2])> {
@@ -2857,6 +2938,59 @@ mod tests {
         assert!(dir == [0.0, -1.0] && pos[1] < -12.0);
         let d = CycleDiagram::default();
         assert!(d.lock_comps && d.lock_streams && d.lock_labels && d.lock_text && d.cross_on_line && d.label_zoom && !d.show_numbers && d.label_size == LabelSize::Small);
+    }
+
+    /// Pump ports on the flow axis of the triangle; mixer inlets and
+    /// splitter outlets opposite each other at 90° to the third port.
+    #[test]
+    fn flow_device_ports() {
+        let dot = |a: [f32; 2], b: [f32; 2]| a[0] * b[0] + a[1] * b[1];
+        let p = ports(Kind::Pump);
+        assert_eq!((p[0].dir, p[1].dir), ([-1.0, 0.0], [1.0, 0.0]));
+        // the triangle's apex points to the outlet
+        let Prim::Poly { pts, .. } = &shape(Kind::Pump)[1] else { panic!() };
+        assert!(pts.iter().all(|q| q[0] <= pts[2][0]) && pts[2][1] == 0.0 && pts[2][0] > 0.0);
+        for (kind, pair, third) in [(Kind::Mixer, [0, 1], 2), (Kind::Splitter, [1, 2], 0)] {
+            let p = ports(kind);
+            assert_eq!(dot(p[pair[0]].dir, p[pair[1]].dir), -1.0, "{kind:?}");
+            assert_eq!(dot(p[pair[0]].dir, p[third].dir), 0.0, "{kind:?}");
+            assert_eq!(p[pair[0]].inlet, p[pair[1]].inlet);
+            assert_ne!(p[pair[0]].inlet, p[third].inlet);
+            // every side is a connection point
+            assert_eq!(anchor_options(kind).len(), 4);
+        }
+    }
+
+    /// Diagrams saved before the port layout changed keep every stream where
+    /// it was.
+    #[test]
+    fn legacy_port_layout_is_kept() {
+        let comp = |id, kind| serde_json::json!({"id": id, "kind": kind, "pos": [100.0 * id as f32, 0.0], "rot": 1, "flip": false, "label": "", "vars": []});
+        let json = serde_json::json!({"comps": [comp(1, "Pump"), comp(2, "Mixer"), comp(3, "Splitter")], "links": []});
+        let mut d: CycleDiagram = serde_json::from_value(json).unwrap();
+        assert_eq!(d.ports_version, 0);
+        d.migrate();
+        assert_eq!(d.ports_version, PORTS_VERSION);
+        // the 0.2 positions (local), through the same transform
+        let old: [(u32, usize, [f32; 2], [f32; 2]); 3] = [(1, 1, [0.0, -17.0], [0.0, -1.0]), (2, 0, [-7.0, 0.0], [-1.0, 0.0]), (3, 1, [7.0, 0.0], [1.0, 0.0])];
+        for (id, k, pos, dir) in old {
+            let c = d.comp(id).unwrap();
+            let (_, w, wd) = c.port(k).unwrap();
+            assert_eq!((w, wd), (c.tf(pos), c.tdir(dir)), "{:?} port {k}", c.kind);
+        }
+        // ports that did not move stay default; a new diagram needs nothing
+        assert_eq!(d.comp(2).unwrap().anchors, vec![1, 0, 0]); // mixer in 1: "left"
+        let mut n = CycleDiagram::default();
+        assert_eq!(n.ports_version, PORTS_VERSION);
+        n.comps.push(d.comps[0].clone());
+        n.comps[0].anchors.clear();
+        n.migrate();
+        assert!(n.comps[0].anchors.is_empty());
+        // connection points: index 0 is the default, then the options
+        let c = d.comp(1).unwrap();
+        let pts = anchor_points(c, 1);
+        assert_eq!(pts.len(), anchor_options(Kind::Pump).len() + 1);
+        assert_eq!(pts[0], (0, c.tf(ports(Kind::Pump)[1].pos)));
     }
 
     #[test]

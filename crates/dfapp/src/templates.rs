@@ -95,6 +95,10 @@ impl Build {
 pub fn rankine() -> CycleDiagram {
     let mut b = Build::new("Simple Rankine cycle");
     let pump = b.comp(Kind::Pump, [100.0, 300.0], "Pump", &["W_p"]);
+    // pumping upwards into the boiler
+    if let Some(c) = b.d.comps.iter_mut().find(|c| c.id == pump) {
+        c.rot = 3;
+    }
     let boil = b.comp(Kind::Heater, [100.0, 120.0], "Boiler", &["Q_in"]);
     let turb = b.comp(Kind::Turbine, [320.0, 100.0], "Turbine", &["W_t"]);
     let cond = b.comp(Kind::Cooler, [400.0, 300.0], "Condenser", &[]);

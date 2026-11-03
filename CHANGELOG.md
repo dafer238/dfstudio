@@ -6,6 +6,16 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Cycle diagram
+- Pump drawn with the triangle along the flow, inlet and outlet opposite
+  each other; mixer inlets opposite each other with the outlet at 90°;
+  splitter outlets opposite each other at 90° to the inlet. Diagrams saved
+  by 0.2 or earlier keep their streams where they were.
+- Mixers and splitters have a connection point on each side.
+- Connection points on the canvas: with streams unlocked, the free points
+  of the selected component show as circles; drag a stream end onto one
+  to move the port there.
+
 ## [0.2.0] - 2026-11-03
 
 ### Cycle diagram
