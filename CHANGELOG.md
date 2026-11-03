@@ -6,6 +6,13 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Plots
+- Logarithmic axes are drawn as on log paper: decade lines and fainter
+  lines at 2..9 times each decade (and 1.1, 1.2, ... when zoomed in), with
+  labels at the decades.
+- *Export Python* uses the SciencePlots style when installed, LaTeX text when
+  LaTeX is available (labels escaped), a journal-column figure size, and
+  minor grid lines on log axes.
 ### Examples
 - New recuperated Brayton example (air, recuperator by effectiveness, LMTD
   function).

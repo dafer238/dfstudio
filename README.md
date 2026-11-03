@@ -89,7 +89,8 @@ diagrams, entropy generation and exergy destruction.
 **Publication-ready output.**
 * T–s, P–h, h–s, P–v and T–h diagrams with the saturation dome and your
   cycle on top; XY and 3D plots.
-* *Export Python* writes a self-contained matplotlib script with the data
+* *Export Python* writes a self-contained matplotlib script (SciencePlots
+  style when installed) with the data
   embedded, for vector figures in papers and theses.
 * A vector **PDF report** (flowsheet, KPIs, state table) written directly,
   without LaTeX or any other tool.
