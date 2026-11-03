@@ -46,6 +46,11 @@ All notable changes to DF Studio are listed here. The format follows
 - Turbine and compressor connection points at five stages on each tilted
   casing line (diagrams saved by 0.1 keep their points).
 
+### Interface
+- Monochrome icons, following the light or dark theme, on the entries of
+  the File, Edit, Solve, Units, View and Help menus, with the keyboard
+  shortcuts right-aligned.
+
 ### Fixed
 - A rare crash ("double free or corruption") when several threads created
   CoolProp states at the same time, e.g. a parametric table or optimisation
