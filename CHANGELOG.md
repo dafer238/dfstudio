@@ -6,6 +6,36 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Plots
+- Logarithmic axes are drawn as on log paper: decade lines and fainter
+  lines at 2..9 times each decade (and 1.1, 1.2, ... when zoomed in), with
+  labels at the decades.
+- *Export Python* uses the SciencePlots style when installed, LaTeX text when
+  LaTeX is available (labels escaped), a journal-column figure size, and
+  minor grid lines on log axes.
+
+### Examples
+- New recuperated Brayton example (air, recuperator by effectiveness, LMTD
+  function).
+- Every example sets the mass flow of each state (`m[i]` with `Duplicate`),
+  so the cycle diagram shows the flow of every stream, and is commented to
+  introduce the language and the cycle.
+- The example projects include a solved parametric table, a goal seek or an
+  optimisation and plots (property diagram, XY or 3D).
+
+### Solver
+- Automatic starting values: 25 °C for temperatures, 1 bar for pressures and
+  0.5 for qualities instead of 1 in model units (1 K and 1 Pa in SI).
+- Automatic bounds for variables used directly as property inputs
+  (temperature above 0 K, pressure above 0, quality 0 to 1), which never
+  exclude a valid solution.
+- Warm start keeps the last converged value of each variable when a later
+  solve fails, and starts from the solution saved in a `.df` project when it
+  is opened.
+- *Equations > Initial values*: guesses and bounds per variable with a unit
+  picker, the value each variable started from and its source; saved in the
+  project.
+
 ### Cycle diagram
 - Right sidebar with *KPI* and *States* tabs, and below them all the
   diagram settings (lock, stream labels, title, PDF export, fit view). The

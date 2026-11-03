@@ -2700,12 +2700,19 @@ mod tests {
         ui.connect(&mut d2, (pump, 0), (boil, 0));
         assert_eq!(d2.links.len(), 4);
 
-        let a =
-            run(Request { gen: 1, text: include_str!("../../../examples/rankine.dfs").into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None });
+        let a = run(Request {
+            gen: 1,
+            text: include_str!("../../../examples/rankine.dfs").into(),
+            opts: Default::default(),
+            solve: true,
+            solve_opts: Default::default(),
+            warm: None,
+            init: Default::default(),
+        });
         let du = HashMap::new();
         let inp = CycleInputs { analysis: &a, display_units: &du, script: "" };
         let l3 = inp.state_lines(&d, 3);
-        assert_eq!(l3, vec!["T = 550 C", "P = 150 bar", "h = 3450 kJ/kg"]);
+        assert_eq!(l3, vec!["T = 550 C", "P = 150 bar", "h = 3450 kJ/kg", "m = 50 kg/s"]);
         // state table: the chosen variables, then s, x, dT_sat, rho, cp from CoolProp
         let tab = state_table(&d, &inp);
         eprintln!("{}", tab.tsv());
