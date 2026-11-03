@@ -83,6 +83,8 @@ Equations are evaluated in one *model unit system* (default engineering:
 into it, property functions convert at the call boundary, and every variable
 may be shown in its own *display unit*. Conversions are affine and only
 happen at boundaries, so they cost nothing inside the Newton iterations.
+In the application a display unit can be set per variable, per quantity
+(dimension), or for all quantities with a preset; the finer choice wins.
 
 ### D6 — Structure first, numbers second
 
@@ -142,7 +144,7 @@ T      ...   section table: tag(4) codec(1) reserved(1) name length(2)
 |---|---|
 | `META` | generator, creation / modification time, title (JSON) |
 | `SCRP` | equations (UTF-8) |
-| `PROJ` | application state: unit system, display units, parametric table, goal-seek and optimisation forms, plots (JSON) |
+| `PROJ` | application state: unit system, display units (per variable, and preset + per quantity in `unit_prefs`), parametric table, goal-seek and optimisation forms, plots (JSON) |
 | `RSLT` | last solution: names, units, f64 values, known flags (binary) |
 | `TABL` | numeric tables, e.g. the parametric results (binary, row-major f64) |
 | `FILE` | attached files (data tables, images, references), raw bytes |

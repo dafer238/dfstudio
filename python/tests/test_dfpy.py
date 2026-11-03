@@ -31,6 +31,9 @@ def test_results(project):
 def test_script_and_state(project):
     assert "eta_th" in project.script
     assert project.project["display_units"]["t[3]"] == "K"
+    prefs = project.project["unit_prefs"]
+    assert prefs["preset"] == "Engineering"
+    assert prefs["quantities"] == {"mass_flow": "t/h"}
     assert project.meta["generator"].startswith("DF Studio")
 
 

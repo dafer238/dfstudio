@@ -6,6 +6,26 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Units
+- *Units > Units per quantity*: choose the display unit of each physical
+  quantity (temperature, pressure, specific and molar enthalpy, mass and
+  molar flow, ...) on top of a preset, e.g. Engineering with mass flows in
+  t/h. A preset resets these choices; a unit set for a single variable in
+  the Variables panel still wins over its quantity. Saved in `.df` files
+  (`unit_prefs`); older files open unchanged.
+- New quantities: molar enthalpy/energy (kJ/kmol, J/mol, ...), molar
+  entropy/heat capacity, molar flow rate, amount of substance. A per-mass
+  value is not shown per mole (that needs the fluid's molar mass): define
+  `h_m = h*molarmass(Fluid)` and choose its unit (User guide §5.1).
+- `molarmass(Fluid)`, `Tcrit(Fluid)` and `Pcrit(Fluid)` carry their
+  dimension, so the variables computed from them get a unit.
+
+### Fixed
+- Molar quantities in the metric unit systems count the amount of
+  substance in kmol, consistent with the molar mass in kg/kmol: `R#` is
+  8.314 kJ/kmol-K in Engineering (was 0.008314, so `R#/molarmass(...)`
+  was 1000 times too small) and `h*molarmass(...)` is in kJ/kmol.
+
 ### Cycle diagram
 - Pump drawn with the triangle along the flow, inlet and outlet opposite
   each other; mixer inlets opposite each other with the outlet at 90°;

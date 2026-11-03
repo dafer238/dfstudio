@@ -6,10 +6,10 @@ use crate::deps::{DepAction, Deps, GraphState};
 use crate::editor::{fmt_num, status_color, Editor, EditorContext, Focus};
 use crate::plots::{PlotInputs, PlotsState, PlotsUi};
 use crate::studies_ui::{GoalForm, OptForm, ParamTable, StudiesUi};
-use crate::units_ui::{choices, DisplayPreset};
+use crate::units_ui::{choices, effective_units, DisplayPreset, UnitPrefs, QUANTITIES};
 use dfcore::dffile::{Artifact, DfFile, Meta};
 use dfcore::locale::Separators;
-use dfcore::units::{parse_unit, Unit};
+use dfcore::units::parse_unit;
 use dfcore::{CompileOptions, Severity, SolveOptions, UnitSystem, VarStatus};
 use eframe::egui::{self, Color32, RichText};
 use egui_extras::{Column, TableBuilder};
@@ -98,7 +98,11 @@ pub struct Settings {
     pub text: String,
     pub path: Option<PathBuf>,
     pub unit_system: UnitSystem,
+    /// Display unit chosen per variable (canonical name -> unit symbol).
     pub display_units: HashMap<String, String>,
+    /// Display units chosen per quantity: last preset and per-quantity units.
+    #[serde(default)]
+    pub unit_prefs: UnitPrefs,
     pub live_solve: bool,
     pub font_size: f32,
     #[serde(default)]
@@ -137,6 +141,12 @@ fn yes() -> bool {
 const DEFAULTS_REV: u32 = 1;
 
 impl Settings {
+    /// Display unit of every variable of `model` (per variable over per
+    /// quantity; see [`crate::units_ui`]).
+    pub fn units_for(&self, model: &dfcore::Model) -> HashMap<String, String> {
+        effective_units(model, &self.display_units, &self.unit_prefs)
+    }
+
     fn upgrade(&mut self) {
         if self.defaults_rev < 1 {
             self.format_on_save = true;
@@ -154,6 +164,7 @@ impl Default for Settings {
             path: None,
             unit_system: UnitSystem::engineering(),
             display_units: HashMap::new(),
+            unit_prefs: UnitPrefs::default(),
             live_solve: true,
             font_size: 14.0,
             table: ParamTable::default(),
@@ -218,6 +229,10 @@ pub struct DfApp {
     init_filter: String,
     init_all: bool,
     init_edit: Option<(String, u8, String)>,
+    /// Display unit of every variable (per variable over per quantity), and
+    /// what it was computed from.
+    units: HashMap<String, String>,
+    units_src: Option<(Option<Arc<Analysis>>, UnitPrefs, HashMap<String, String>)>,
 }
 
 impl DfApp {
@@ -270,6 +285,8 @@ impl DfApp {
             auto_save: false,
             fresh: false,
             saved_hash: 0,
+            units: HashMap::new(),
+            units_src: None,
             changed_at: None,
             last_check: None,
             ctx: cc.egui_ctx.clone(),
@@ -658,7 +675,27 @@ impl DfApp {
     // ------------------------------------------------------------ units
     /// (value in display unit, unit symbol) for variable `i`.
     fn display(&self, a: &Analysis, i: usize, x: f64) -> (f64, String) {
-        display_in(&self.s.display_units, a, i, x)
+        display_in(&self.units, a, i, x)
+    }
+
+    /// Recompute the display unit of every variable when the model or the
+    /// unit choices changed.
+    fn refresh_units(&mut self) {
+        if let Some((a, prefs, per_var)) = &self.units_src {
+            let same_model = match (a, &self.analysis) {
+                (Some(x), Some(y)) => Arc::ptr_eq(x, y),
+                (None, None) => true,
+                _ => false,
+            };
+            if same_model && *prefs == self.s.unit_prefs && *per_var == self.s.display_units {
+                return;
+            }
+        }
+        self.units = match &self.analysis {
+            Some(a) => effective_units(&a.model, &self.s.display_units, &self.s.unit_prefs),
+            None => self.s.display_units.clone(),
+        };
+        self.units_src = Some((self.analysis.clone(), self.s.unit_prefs.clone(), self.s.display_units.clone()));
     }
 
     fn focus_id(&self, a: &Analysis) -> Option<u32> {
@@ -687,17 +724,97 @@ impl DfApp {
         self.focus = v.map(|v| a.model.vars[v as usize].name.clone());
     }
 
+    /// Apply a display preset to every quantity. Per-variable and
+    /// per-quantity choices are reset, except dimensionless ones (%).
     fn apply_preset(&mut self, p: DisplayPreset) {
-        let Some(a) = self.analysis.clone() else {
+        self.s.unit_prefs.set_preset(p);
+        self.s.display_units.retain(|_, u| parse_unit(u).is_ok_and(|x| x.dim.is_none()));
+    }
+
+    /// Choose the display unit of a quantity (`None`: back to the preset's).
+    /// Every variable of that quantity follows, also those with a unit of
+    /// their own.
+    fn set_quantity_unit(&mut self, key: &str, unit: Option<String>) {
+        let Some(q) = QUANTITIES.iter().find(|q| q.key == key) else {
             return;
         };
-        for (i, v) in a.model.vars.iter().enumerate() {
-            if let Some(d) = a.model.var_dim(i as u32) {
-                if d.is_none() {
-                    continue;
+        match unit {
+            Some(u) => self.s.unit_prefs.quantities.insert(key.to_string(), u),
+            None => self.s.unit_prefs.quantities.remove(key),
+        };
+        self.s.display_units.retain(|_, u| parse_unit(u).map_or(true, |x| x.dim != q.dim));
+    }
+
+    fn reset_display_units(&mut self) {
+        self.s.display_units.clear();
+        self.s.unit_prefs = UnitPrefs::default();
+    }
+
+    /// *Units > Units per quantity*: one submenu per quantity.
+    fn quantity_units_menu(&mut self, ui: &mut egui::Ui) {
+        let a = self.analysis.clone();
+        let model_us = a.as_ref().map(|a| a.model.unit_system.clone()).unwrap_or_else(|| self.s.unit_system.clone());
+        // number of variables of each quantity in the model
+        let mut count: HashMap<dfcore::units::Dim, usize> = HashMap::new();
+        if let Some(a) = &a {
+            for i in 0..a.model.vars.len() {
+                if let Some(d) = a.model.var_dim(i as u32) {
+                    *count.entry(d).or_default() += 1;
                 }
-                let u: Unit = p.unit_for(d, &a.model.unit_system);
-                self.s.display_units.insert(v.name.clone(), u.symbol);
+            }
+        }
+        ui.label(RichText::new("Applies to every variable of the quantity; a preset resets these.").small().weak());
+        let mut change: Option<(&'static str, Option<String>)> = None;
+        for q in QUANTITIES {
+            let n = count.get(&q.dim).copied().unwrap_or(0);
+            let chosen = self.s.unit_prefs.chosen(q).map(str::to_string);
+            let current = self.s.unit_prefs.unit_for(q.dim, &model_us);
+            let shown = current.clone().unwrap_or_else(|| "script".into());
+            let mut title = format!("{}: {shown}", q.label);
+            if n > 0 {
+                title.push_str(&format!("  ({n})"));
+            }
+            let text = if chosen.is_some() {
+                RichText::new(title).strong()
+            } else if n == 0 {
+                RichText::new(title).weak()
+            } else {
+                RichText::new(title)
+            };
+            let r = ui.menu_button(text, |ui| {
+                let preset = match self.s.unit_prefs.preset {
+                    Some(p) => format!("Preset ({})", p.unit_for(q.dim, &model_us).symbol),
+                    None => "As in the script".into(),
+                };
+                if ui.radio(chosen.is_none(), preset).clicked() {
+                    change = Some((q.key, None));
+                }
+                ui.separator();
+                for o in choices(q.dim) {
+                    if ui.radio(chosen.as_deref() == Some(o), o).clicked() {
+                        change = Some((q.key, Some(o.to_string())));
+                    }
+                }
+                if !q.note.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new(q.note).small().weak());
+                }
+            });
+            if !q.note.is_empty() {
+                r.response.on_hover_text(q.note);
+            }
+        }
+        if let Some((k, u)) = change {
+            self.set_quantity_unit(k, u);
+        }
+        let n_var = self.s.display_units.len();
+        if n_var > 0 {
+            ui.separator();
+            if crate::icons::menu_item(ui, "reset", &format!("Clear per-variable units ({n_var})"), "")
+                .on_hover_text("Units set for single variables in the Variables panel; without them each variable follows its quantity")
+                .clicked()
+            {
+                self.s.display_units.clear();
             }
         }
     }
@@ -773,7 +890,7 @@ impl DfApp {
                     }
                 }
                 if ui.selectable_label(false, "Reset to script units").clicked() {
-                    self.s.display_units.clear();
+                    self.reset_display_units();
                 }
             });
         });
@@ -962,7 +1079,7 @@ impl DfApp {
         let mut commits: Vec<(String, u8, Option<f64>, String)> = Vec::new();
         let mut unit_change: Option<(usize, String)> = None;
         let init = self.s.init.clone();
-        let du = self.s.display_units.clone();
+        let du = self.units.clone();
         ui.push_id("init_values", |ui| {
             TableBuilder::new(ui)
                 .striped(true)
@@ -1178,7 +1295,7 @@ impl DfApp {
         }
         let disp: HashMap<String, String> = m.vars.iter().filter(|v| v.index.len() == 1).map(|v| (v.base.clone(), v.display.split('[').next().unwrap_or("").to_string())).collect();
         // export: the table as shown (display units), full precision
-        let du = &self.s.display_units;
+        let du = &self.units;
         let table = |sep: char| -> String {
             let q = |t: &str| {
                 if sep == ',' && (t.contains(',') || t.contains('"')) {
@@ -1323,7 +1440,7 @@ impl DfApp {
                 .weak(),
         );
         ui.separator();
-        let du = &self.s.display_units;
+        let du = &self.units;
         let value = |v: u32| -> String {
             match &a.solution {
                 Some(sol) if sol.known[v as usize] => {
@@ -1431,6 +1548,7 @@ impl eframe::App for DfApp {
                 self.analysis = Some(Arc::new(a));
             }
         }
+        self.refresh_units();
         self.studies.poll(&mut self.s.table);
         // debounce live analysis
         if let Some(t) = self.last_edit {
@@ -1564,8 +1682,9 @@ impl eframe::App for DfApp {
                             self.apply_preset(p);
                         }
                     }
+                    ui.menu_button("Units per quantity", |ui| self.quantity_units_menu(ui));
                     if crate::icons::menu_item(ui, "reset", "Reset display units", "").clicked() {
-                        self.s.display_units.clear();
+                        self.reset_display_units();
                     }
                 });
                 ui.menu_button("View", |ui| {
@@ -1664,6 +1783,7 @@ impl eframe::App for DfApp {
             });
         }
 
+        self.refresh_units();
         if self.tab == Tab::Equations {
             egui::Panel::right("variables").resizable(true).default_size(420.0).show(ui, |ui| {
                 ui.heading("Variables");
@@ -1671,6 +1791,7 @@ impl eframe::App for DfApp {
             });
         }
 
+        self.refresh_units();
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Equations => {
                 let an = self.analysis.clone();
@@ -1714,25 +1835,25 @@ impl eframe::App for DfApp {
             Tab::Arrays => self.arrays_tab(ui),
             Tab::Parametric => {
                 if let Some(a) = self.analysis.clone() {
-                    self.studies.parametric_tab(ui, &a, &mut self.s.table, &self.s.display_units);
+                    self.studies.parametric_tab(ui, &a, &mut self.s.table, &self.units);
                 }
             }
             Tab::Optimize => {
                 if let Some(a) = self.analysis.clone() {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.studies.optimise_tab(ui, &a, &mut self.s.goal, &mut self.s.opt, &self.s.display_units, &self.s.text);
+                        self.studies.optimise_tab(ui, &a, &mut self.s.goal, &mut self.s.opt, &self.units, &self.s.text);
                     });
                 }
             }
             Tab::Plots => {
                 if let Some(a) = self.analysis.clone() {
-                    let inp = PlotInputs { analysis: &a, table: &self.s.table, studies: &self.studies, display_units: &self.s.display_units, script: &self.s.text };
+                    let inp = PlotInputs { analysis: &a, table: &self.s.table, studies: &self.studies, display_units: &self.units, script: &self.s.text };
                     self.plots.show(ui, &mut self.s.plots, &inp);
                 }
             }
             Tab::Cycle => {
                 if let Some(a) = self.analysis.clone() {
-                    let inp = CycleInputs { analysis: &a, display_units: &self.s.display_units, script: &self.s.text };
+                    let inp = CycleInputs { analysis: &a, display_units: &self.units, script: &self.s.text };
                     self.cycle.show(ui, &mut self.s.cycle, &inp);
                 }
                 if let Some(t) = self.cycle.script_request.take() {
@@ -1745,7 +1866,7 @@ impl eframe::App for DfApp {
             }
             Tab::Components => {
                 if let Some(a) = self.analysis.clone() {
-                    let inp = CycleInputs { analysis: &a, display_units: &self.s.display_units, script: &self.s.text };
+                    let inp = CycleInputs { analysis: &a, display_units: &self.units, script: &self.s.text };
                     self.cycle.components_tab(ui, &mut self.s.cycle, &inp);
                 }
             }

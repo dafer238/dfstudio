@@ -36,6 +36,11 @@ impl Dim {
     pub const MOLAR_MASS: Dim = Dim([1, 0, 0, 0, -1, 0, 0]);
     pub const SURFACE_TENSION: Dim = Dim([1, 0, -2, 0, 0, 0, 0]);
     pub const MASS_FLOW: Dim = Dim([1, 0, -1, 0, 0, 0, 0]);
+    /// Energy per amount of substance (kJ/kmol).
+    pub const MOLAR_ENERGY: Dim = Dim([1, 2, -2, 0, -1, 0, 0]);
+    /// Entropy or heat capacity per amount of substance (kJ/kmol-K).
+    pub const MOLAR_ENTROPY: Dim = Dim([1, 2, -2, -1, -1, 0, 0]);
+    pub const MOLAR_FLOW: Dim = Dim([0, 0, -1, 0, 1, 0, 0]);
 
     pub fn mul(self, o: Dim) -> Dim {
         let mut r = [0i8; 7];
@@ -81,6 +86,10 @@ impl Dim {
             Dim::CONDUCTIVITY => "thermal conductivity",
             Dim::MOLAR_MASS => "molar mass",
             Dim::MASS_FLOW => "mass flow rate",
+            Dim::AMOUNT => "amount of substance",
+            Dim::MOLAR_ENERGY => "molar energy",
+            Dim::MOLAR_ENTROPY => "molar entropy / heat capacity",
+            Dim::MOLAR_FLOW => "molar flow rate",
             _ => return None,
         })
     }
@@ -88,23 +97,29 @@ impl Dim {
 
 impl fmt::Display for Dim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const SYM: [&str; 7] = ["kg", "m", "s", "K", "mol", "A", "cd"];
-        let mut num = Vec::new();
-        let mut den = Vec::new();
-        for i in 0..7 {
-            let e = self.0[i];
-            if e > 0 {
-                num.push(if e == 1 { SYM[i].to_string() } else { format!("{}^{}", SYM[i], e) });
-            } else if e < 0 {
-                den.push(if e == -1 { SYM[i].to_string() } else { format!("{}^{}", SYM[i], -e) });
-            }
+        write_dim(f, self, "mol")
+    }
+}
+
+/// Write a dimension as a product of base units, with `amount` as the unit
+/// of amount of substance (`mol` or `kmol`).
+fn write_dim(f: &mut impl fmt::Write, d: &Dim, amount: &str) -> fmt::Result {
+    let sym: [&str; 7] = ["kg", "m", "s", "K", amount, "A", "cd"];
+    let mut num = Vec::new();
+    let mut den = Vec::new();
+    for i in 0..7 {
+        let e = d.0[i];
+        if e > 0 {
+            num.push(if e == 1 { sym[i].to_string() } else { format!("{}^{}", sym[i], e) });
+        } else if e < 0 {
+            den.push(if e == -1 { sym[i].to_string() } else { format!("{}^{}", sym[i], -e) });
         }
-        let n = if num.is_empty() { "1".to_string() } else { num.join("*") };
-        if den.is_empty() {
-            write!(f, "{n}")
-        } else {
-            write!(f, "{n}/{}", den.join("*"))
-        }
+    }
+    let n = if num.is_empty() { "1".to_string() } else { num.join("*") };
+    if den.is_empty() {
+        write!(f, "{n}")
+    } else {
+        write!(f, "{n}/{}", den.join("*"))
     }
 }
 
@@ -164,6 +179,10 @@ pub fn si_symbol(dim: Dim) -> String {
         Dim::CONDUCTIVITY => "W/m-K".into(),
         Dim::MOLAR_MASS => "kg/mol".into(),
         Dim::MASS_FLOW => "kg/s".into(),
+        Dim::AMOUNT => "mol".into(),
+        Dim::MOLAR_ENERGY => "J/mol".into(),
+        Dim::MOLAR_ENTROPY => "J/mol-K".into(),
+        Dim::MOLAR_FLOW => "mol/s".into(),
         d => d.to_string(),
     }
 }
@@ -477,6 +496,10 @@ impl UnitSystem {
                 Dim::CONDUCTIVITY => parse_unit("Btu/hr-ft-R").unwrap(),
                 Dim::MOLAR_MASS => parse_unit("lbm/lbmol").unwrap(),
                 Dim::VISCOSITY => parse_unit("lbm/ft-s").unwrap(),
+                Dim::AMOUNT => parse_unit("lbmol").unwrap(),
+                Dim::MOLAR_ENERGY => parse_unit("Btu/lbmol").unwrap(),
+                Dim::MOLAR_ENTROPY => parse_unit("Btu/lbmol-R").unwrap(),
+                Dim::MOLAR_FLOW => parse_unit("lbmol/s").unwrap(),
                 d => Unit::si(d),
             };
         }
@@ -493,8 +516,29 @@ impl UnitSystem {
                 d => format!("1000*{}", si_symbol(d)),
             };
         }
-        if dim == Dim::MOLAR_MASS {
-            u = parse_unit("kg/kmol").unwrap();
+        // The amount of substance is counted in kmol, so that molar
+        // quantities stay consistent with the molar mass in kg/kmol: h*M of
+        // an enthalpy in kJ/kg is in kJ/kmol, and R#/M is in kJ/kg-K.
+        let n = dim.0[4];
+        if n != 0 {
+            u.factor *= 1e3f64.powi(n as i32);
+            let e = if kj { "kJ" } else { "J" };
+            u.symbol = match dim {
+                Dim::AMOUNT => "kmol".into(),
+                Dim::MOLAR_MASS => "kg/kmol".into(),
+                Dim::MOLAR_ENERGY => format!("{e}/kmol"),
+                Dim::MOLAR_ENTROPY => format!("{e}/kmol-K"),
+                Dim::MOLAR_FLOW => "kmol/s".into(),
+                d => {
+                    let mut t = String::new();
+                    let _ = write_dim(&mut t, &d, "kmol");
+                    if u.factor == 1e3f64.powi(n as i32) {
+                        t
+                    } else {
+                        format!("{}*{t}", u.factor / 1e3f64.powi(n as i32))
+                    }
+                }
+            };
         }
         // temperature differences inside compound units: C and K are equal
         u
@@ -537,5 +581,26 @@ mod tests {
         assert_eq!(e.unit_for(Dim::PRESSURE).factor, 1e5);
         assert_eq!(e.unit_for(Dim::VELOCITY).factor, 1.0);
         assert_eq!(e.unit_for(Dim::CONDUCTIVITY).factor, 1.0);
+    }
+    /// Molar quantities count the amount in kmol, consistent with the molar
+    /// mass in kg/kmol (EES convention): h [kJ/kg] * M [kg/kmol] is kJ/kmol.
+    #[test]
+    fn molar_units_follow_kmol() {
+        for (us, h, m, hm) in [(UnitSystem::engineering(), "kJ/kg", "kg/kmol", "kJ/kmol"), (UnitSystem::si(), "J/kg", "kg/kmol", "J/kmol")] {
+            assert_eq!(us.unit_for(Dim::SPEC_ENERGY).symbol, h);
+            assert_eq!(us.unit_for(Dim::MOLAR_MASS).symbol, m);
+            let um = us.unit_for(Dim::MOLAR_ENERGY);
+            assert_eq!(um.symbol, hm);
+            // the factors multiply like the units: (h*M) in model units
+            let prod = us.unit_for(Dim::SPEC_ENERGY).factor * us.unit_for(Dim::MOLAR_MASS).factor;
+            assert!((um.factor - prod).abs() < 1e-12 * prod, "{}", us.name);
+            assert_eq!(parse_unit(&um.symbol).unwrap().factor, um.factor);
+            let s = us.unit_for(Dim::MOLAR_ENTROPY);
+            assert_eq!(parse_unit(&s.symbol).unwrap().factor, s.factor);
+            assert_eq!(us.unit_for(Dim::AMOUNT).symbol, "kmol");
+        }
+        let i = UnitSystem::imperial();
+        let prod = i.unit_for(Dim::SPEC_ENERGY).factor * i.unit_for(Dim::MOLAR_MASS).factor;
+        assert!((i.unit_for(Dim::MOLAR_ENERGY).factor - prod).abs() < 1e-9 * prod);
     }
 }

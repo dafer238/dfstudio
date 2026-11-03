@@ -207,9 +207,51 @@ DF Studio separates three things:
    against bar). The value is in model units, like every other value.
 3. **Display units**: how a value is shown. Set them per variable in the
    Variables panel, with `$Units T[*] = C, W_net = MW`, with a trailing
-   comment `h[1] = ... {kJ/kg}`, or all at once with *Units > Display units
-   preset*. Only dimensionally compatible units are offered; the dimension
-   of each variable is inferred from the equations.
+   comment `h[1] = ... {kJ/kg}`, per quantity with *Units > Units per
+   quantity*, or all at once with *Units > Display units preset*. Only
+   dimensionally compatible units are offered; the dimension of each
+   variable is inferred from the equations.
+
+### 5.1 Starting from a preset and changing single quantities
+
+*Units > Units per quantity* lists the physical quantities (temperature,
+pressure, specific enthalpy, mass flow rate, molar enthalpy, ...) with the
+unit each is shown in and, in brackets, how many variables of the model
+have that quantity. Pick a unit to show **every** variable of that quantity
+in it; *Preset* (or *As in the script*, before any preset) goes back. For
+example: *Display units preset > Engineering*, then *Units per quantity >
+Mass flow rate > t/h*: temperatures in °C, pressures in bar, enthalpies in
+kJ/kg and mass flows in t/h. Quantities you changed are shown in bold.
+
+A value is shown in the first unit found in this order:
+
+| | Set with | Reset by |
+|---|---|---|
+| 1. the variable's own unit | unit column of the Variables panel or the Initial values table | a preset; a new unit for its quantity; *Clear per-variable units* |
+| 2. the unit of its quantity | *Units per quantity* | a preset |
+| 3. the unit of the last preset | *Display units preset* | another preset; *Reset display units* |
+| 4. the script's unit, else the model unit system | `$Units`, `{unit}`, `[unit]` after the equation | |
+
+Dimensionless values (`-`, `%`) are only changed per variable. The preset
+and the per-quantity units are saved in the `.df` file (`unit_prefs` in the
+`PROJ` section); files from earlier versions open with their per-variable
+units and no preset.
+
+**Mass and molar units.** kJ/kg and kJ/kmol are different quantities, not
+two units of one: converting needs the molar mass of the fluid, and a
+variable does not know which fluid it belongs to (a cycle may carry water
+and CO₂). So *Specific enthalpy* offers only per-mass units, and molar
+units apply to variables whose dimension is per amount of substance.
+Define those in the script, for example
+
+```
+h_m[1] = h[1]*molarmass(Water)    // kJ/kmol in the Engineering system
+```
+
+and choose their unit under *Molar enthalpy / energy*. The amount of
+substance is counted in kmol in the metric unit systems, as the molar
+mass is in kg/kmol, so `h*molarmass(...)` is in kJ/kmol and
+`R#/molarmass(Nitrogen)` is the specific gas constant in kJ/kg-K.
 
 The structural check also flags equations whose terms have different
 dimensions (Problems panel, grey "unit check" entries).
