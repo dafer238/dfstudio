@@ -41,7 +41,7 @@ All notable changes to DF Studio are listed here. The format follows
   IAPWS-IF97 (Tables 5 and 15), NIST-JANAF and exact thermodynamic
   identities in five unit systems; solver tests against closed-form
   solutions and a direct CoolProp calculation. See `docs/VERIFICATION.md`.
-- `examples/ees_crosscheck.dfs`: a 198-equation model that runs unchanged in
+- `examples/ees_crosscheck.dfs`: a 199-equation model that runs unchanged in
   EES, for comparing the two programs.
 
 ### Fixed

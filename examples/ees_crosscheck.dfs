@@ -134,7 +134,11 @@ k_fw = conductivity(Water, P=P[4], h=h[4])
 Pr_fw = prandtl(Water, P=P[4], h=h[4])
 vel_fw = m_dot/(rho_fw*pi*D_pipe^2/4)
 Re_fw = rho_fw*vel_fw*D_pipe/mu_fw
-1/sqrt(f_fw) = -2*log10(rough/D_pipe/3.7 + 2.51/(Re_fw*sqrt(f_fw)))
+"Colebrook-White, implicit. Solved for a_fw = 1/sqrt(f_fw): the residual is
+ nearly linear in a_fw and has no square root of an unknown, so Newton's
+ method cannot step to a negative friction factor from a guess of 1."
+a_fw = -2*log10(rough/D_pipe/3.7 + 2.51*a_fw/Re_fw)
+f_fw = 1/a_fw^2
 f_loop = f_colebrook(Re_fw, rough/D_pipe)
 DELTAP_fw = f_fw*L_pipe/D_pipe*rho_fw*vel_fw^2/2*convert(Pa, kPa)
 Nu_fw = 0.023*Re_fw^0.8*Pr_fw^0.4

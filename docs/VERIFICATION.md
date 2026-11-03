@@ -63,7 +63,7 @@ reports on.
 ## 2. Cross-check against EES
 
 [`examples/ees_crosscheck.dfs`](../examples/ees_crosscheck.dfs) runs
-unchanged in EES and in DF Studio. It has 198 equations in four parts:
+unchanged in EES and in DF Studio. It has 199 equations in four parts:
 
 * **A.** A reheat-regenerative Rankine cycle (water) with an open feedwater
   heater, a condenser solved with an LMTD `Function` (cooling-water outlet
