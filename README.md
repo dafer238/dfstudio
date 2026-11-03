@@ -17,7 +17,7 @@
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational">
 </p>
 
-![DF Studio: a recompression supercritical CO₂ cycle with motor-driven compressors, drawn as a flowsheet with live stream values and KPIs](docs/img/cycle-rc.png)
+![DF Studio: a simple recompression supercritical CO₂ cycle with motor-driven compressors, drawn as a flowsheet with live stream values, plant KPIs and the state table](docs/img/cycle-rc.png)
 
 DF Studio solves systems of nonlinear algebraic equations written in any
 order, the way you would write them on paper. Type an energy balance, an
@@ -47,7 +47,9 @@ orange when more equations are needed, red when it is over-specified. The
 header tells you how many degrees of freedom are still open, and which
 variables they are.
 
-![Live structural feedback in the editor](docs/img/editor-brayton.png)
+[![Editing the supercritical CO₂ model: the variables panel follows each keystroke, the 172 equations solve once the model is complete, and the dependency view traces how a variable is computed](docs/img/editor-sco2.png)](https://dfstudio.neodafer.com/assets/video/editor-sco2.mp4)
+
+*Click the image to watch the 46-second recording.*
 
 **See how your model is solved.** *Equations > Dependencies* shows the solve
 order: which equations are evaluated directly, which are solved together in a
@@ -55,7 +57,7 @@ Newton block, how many iterations each block took and its residual. When a
 model fails, the message names the block and the variables that did not
 converge.
 
-![Dependency view: how h[4] is computed, its Newton block and the solve path](docs/img/dependencies.png)
+![Dependency view of the supercritical CO₂ model: how h[20] is computed, the variables it reads and its place in the solve order of 142 blocks](docs/img/dependencies-sco2.png)
 
 **A solver you can read.** Exact derivatives (automatic differentiation of
 your equations and the analytic derivatives of the equations of state),
@@ -98,6 +100,8 @@ diagrams, entropy generation and exergy destruction.
   without LaTeX or any other tool.
 
 ![T–s diagram of the Rankine example with the saturation dome and isobars](docs/img/property-diagram.png)
+
+![PDF report of the supercritical CO₂ cycle: flowsheet, KPIs and the full state table](docs/img/report-sco2.png)
 
 **Projects that travel.** A `.df` file holds the equations, units, studies,
 plots, flowsheet, last solution and any attached data or images in one
