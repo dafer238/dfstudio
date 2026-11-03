@@ -98,8 +98,19 @@ starts without a file. You can also drag a `.df` or `.dfs` file onto the window.
 4. *File > Save as…* and choose `.df` (full project) or `.dfs` (text script).
    For a new project the first *Save as* switches **auto save** on.
 
-`File > Load example…` opens the examples folder (simple Rankine, simple
-Brayton and vapour-compression refrigeration cycles) to pick a model.
+`File > Load example…` opens the examples folder to pick a model. Each
+example is a commented script that introduces the language, with a cycle
+diagram, a solved parametric table, a goal seek or optimisation and plots:
+
+| Example | Shows |
+|---|---|
+| Simple Rankine | property calls with two inputs, an efficiency equation solved for its unknown, `Duplicate`, a two-input parametric table and its 3D surface, a T-s diagram, goal seek |
+| Simple Brayton | real-gas air, back-work ratio, efficiency and specific work against the pressure ratio (two y axes), optimisation of the pressure ratio |
+| Recuperated Brayton | a heat exchanger by its effectiveness, a user `Function` (LMTD), property calls inside `Duplicate`, goal seek and optimisation |
+| Refrigeration | saturation functions, superheat and subcooling, a mass flow that results from the capacity, P-h diagram, goal seek on the COP |
+
+The installers write these projects from the scripts in the `examples`
+folder of the source tree (`dfstudio --write-examples DIR`).
 
 ## 3. The window
 
@@ -344,8 +355,8 @@ A flowsheet whose streams are bound to state numbers, so labels read
 `T[k]`, `P[k]`, `h[k]`, ... of the solution.
 
 * **Templates**: the *Template* row under the palette inserts a complete,
-  labelled cycle (simple Rankine, simple Brayton, vapour-compression
-  refrigeration). In an empty project the template also brings its
+  labelled cycle (simple Rankine, simple and recuperated Brayton,
+  vapour-compression refrigeration). In an empty project the template also brings its
   equations, so it solves at once; in an existing drawing it is placed to
   the right, with state numbers that continue after the highest one in use.
 * Drag components from the palette; drag from an outlet port (red) to an

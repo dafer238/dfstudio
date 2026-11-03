@@ -45,6 +45,49 @@ impl ParamTable {
     pub fn rows(&self) -> usize {
         self.cells.len()
     }
+
+    /// Solve the table now, on this thread (example projects). Fills
+    /// `results` and `converged`.
+    pub fn solve_now(&mut self, a: &Analysis, du: &HashMap<String, String>) -> Result<(), String> {
+        let m = &a.model;
+        let inputs: Vec<u32> = self.inputs.iter().map(|n| m.var(n).ok_or_else(|| format!("unknown variable {n}"))).collect::<Result<_, _>>()?;
+        let rows: Vec<Vec<f64>> = self
+            .cells
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .enumerate()
+                    .map(|(k, c)| {
+                        let v: f64 = c.trim().parse().map_err(|_| format!("'{c}' is not a number"))?;
+                        let (mu, d) = conv(m, du, inputs[k]);
+                        Ok(d.convert(v, &mu))
+                    })
+                    .collect::<Result<Vec<f64>, String>>()
+            })
+            .collect::<Result<_, _>>()?;
+        let warm = a.solution.as_ref().map(|s| s.x.clone());
+        let sols = parametric(m, &inputs, &rows, &SolveOptions::default(), warm.as_deref())?;
+        let outputs: Vec<Option<u32>> = self.outputs.iter().map(|n| m.var(n)).collect();
+        self.results = sols
+            .iter()
+            .map(|s| {
+                Some(
+                    outputs
+                        .iter()
+                        .map(|o| match o {
+                            Some(v) if s.known[*v as usize] => {
+                                let (mu, d) = conv(m, du, *v);
+                                mu.convert(s.x[*v as usize], &d)
+                            }
+                            _ => f64::NAN,
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        self.converged = sols.iter().map(|s| s.converged).collect();
+        Ok(())
+    }
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

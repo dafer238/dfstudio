@@ -6,6 +6,14 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Examples
+- New recuperated Brayton example (air, recuperator by effectiveness, LMTD
+  function).
+- Every example sets the mass flow of each state (`m[i]` with `Duplicate`),
+  so the cycle diagram shows the flow of every stream, and is commented to
+  introduce the language and the cycle.
+- The example projects include a solved parametric table, a goal seek or an
+  optimisation and plots (property diagram, XY or 3D).
 ### Solver
 - Automatic starting values: 25 °C for temperatures, 1 bar for pressures and
   0.5 for qualities instead of 1 in model units (1 K and 1 Pa in SI).
