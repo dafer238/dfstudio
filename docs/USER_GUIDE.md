@@ -379,12 +379,37 @@ title, *Export PDF report…*, *Fit view*).
   vapour-compression refrigeration). In an empty project the template also brings its
   equations, so it solves at once; in an existing drawing it is placed to
   the right, with state numbers that continue after the highest one in use.
-* Drag components from the palette; drag from an outlet port (red) to an
+* Drag components from the library; drag from an outlet port (red) to an
   inlet port (blue) to connect. `R` rotates, `M` mirrors, `Del` deletes.
+* **Component library**, in collapsible groups with an icon each:
+
+  | Group | Components |
+  |---|---|
+  | Turbines | turbine |
+  | Compressors and fans | compressor, fan |
+  | Pumps | pump |
+  | Heat exchangers | heat exchanger, heater / boiler, cooler / condenser |
+  | HRSG | economizer, evaporator, superheater, duct burner, SCR, duct, stack, fan |
+  | Condensers and cooling | water-cooled condenser, air-cooled condenser (ACC), cooler, cooling tower |
+  | Valves and piping | valve, pipe, mixer, splitter |
+  | Sources and sinks | source, sink, stack |
+  | Electrical | generator, motor |
+  | Annotations | text |
+
+  The specialised items use the results of a general one: economizer,
+  evaporator, superheater and water-cooled condenser are two-stream heat
+  exchangers (gas or steam = hot side, water = cold side), a fan is a
+  compressor, a duct burner a heater, an ACC a cooler, SCR and duct are
+  pipes (pressure loss) and a stack is a sink. The Components tab lists the
+  diagram's components under the same groups.
 * **Connection points** of turbines, compressors and pumps: select the
   component and choose, per port, where the stream meets the casing:
-  axially on either end face (3 or 4 points) or radially on the upper or
-  lower casing (3 points each); pumps have 3 points on each side. Combined
+  axially on either end face (3 or 4 points) or radially on the tilted
+  upper or lower casing line at one of five stages (stage 1 is the first in
+  the flow direction: the inlet end of a turbine, the suction end of a
+  compressor); pumps have 3 points on each side. Each machine keeps one
+  inlet and one outlet; a multi-section turbine is drawn as turbines in
+  series. Combined
   with rotate and mirror this gives any orientation with short, straight
   streams.
 * Streams route with as few bends as possible. When you release a moved

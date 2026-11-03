@@ -37,6 +37,22 @@ All notable changes to DF Studio are listed here. The format follows
   project.
 
 ### Cycle diagram
+- Component library in collapsible groups with monochrome icons that follow
+  the theme: turbines, compressors and fans, pumps, heat exchangers, HRSG
+  (economizer, evaporator, superheater, duct burner, SCR, duct, stack,
+  fan), condensers and cooling (water-cooled condenser, air-cooled
+  condenser, cooler, cooling tower), valves and piping, sources and sinks,
+  electrical, annotations. The Components tab uses the same groups.
+- Turbine and compressor connection points at five stages on each tilted
+  casing line (diagrams saved by 0.1 keep their points).
+
+### Fixed
+- A rare crash ("double free or corruption") when several threads created
+  CoolProp states at the same time, e.g. a parametric table or optimisation
+  starting its workers: creating a state now has exclusive access to
+  CoolProp. The states of a worker thread are released when it ends, so
+  repeated studies no longer accumulate memory.
+
 - Right sidebar with *KPI* and *States* tabs, and below them all the
   diagram settings (lock, stream labels, title, PDF export, fit view). The
   left sidebar keeps the palette, the templates and the selected

@@ -9,6 +9,7 @@ mod deps;
 mod editor;
 mod find;
 mod format;
+mod icons;
 mod markdown;
 mod pdf;
 mod plots;

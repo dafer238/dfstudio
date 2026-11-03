@@ -31,10 +31,50 @@ pub enum Kind {
     Motor,
     CoolingTower,
     Pipe,
+    Fan,
+    Economizer,
+    Evaporator,
+    Superheater,
+    DuctBurner,
+    Scr,
+    Duct,
+    Stack,
+    WaterCondenser,
+    AirCondenser,
 }
 
+/// Group of the component library, with its icon.
+pub struct Group {
+    pub name: &'static str,
+    pub icon: &'static str,
+    pub kinds: &'static [Kind],
+    /// open when first shown
+    pub open: bool,
+}
+
+/// Component library, by equipment family. A component may appear in
+/// more than one group (a fan is both a turbomachine and HRSG equipment).
+pub const GROUPS: [Group; 10] = [
+    Group { name: "Turbines", icon: "turbine", kinds: &[Kind::Turbine], open: true },
+    Group { name: "Compressors and fans", icon: "compressor", kinds: &[Kind::Compressor, Kind::Fan], open: true },
+    Group { name: "Pumps", icon: "pump", kinds: &[Kind::Pump], open: true },
+    Group { name: "Heat exchangers", icon: "heat_exchanger", kinds: &[Kind::HeatExchanger, Kind::Heater, Kind::Cooler], open: true },
+    Group {
+        name: "HRSG",
+        icon: "hrsg",
+        kinds: &[Kind::Economizer, Kind::Evaporator, Kind::Superheater, Kind::DuctBurner, Kind::Scr, Kind::Duct, Kind::Stack, Kind::Fan],
+        open: false,
+    },
+    Group { name: "Condensers and cooling", icon: "condenser", kinds: &[Kind::WaterCondenser, Kind::AirCondenser, Kind::Cooler, Kind::CoolingTower], open: false },
+    Group { name: "Valves and piping", icon: "valve", kinds: &[Kind::Valve, Kind::Pipe, Kind::Mixer, Kind::Splitter], open: true },
+    Group { name: "Sources and sinks", icon: "source_sink", kinds: &[Kind::Source, Kind::Sink, Kind::Stack], open: true },
+    Group { name: "Electrical", icon: "electrical", kinds: &[Kind::Generator, Kind::Motor], open: false },
+    Group { name: "Annotations", icon: "text", kinds: &[Kind::Label], open: false },
+];
+
 impl Kind {
-    pub const ALL: [Kind; 16] = [
+    #[cfg(test)]
+    pub const ALL: [Kind; 26] = [
         Kind::Turbine,
         Kind::Compressor,
         Kind::Pump,
@@ -50,8 +90,37 @@ impl Kind {
         Kind::Motor,
         Kind::CoolingTower,
         Kind::Pipe,
+        Kind::Fan,
+        Kind::Economizer,
+        Kind::Evaporator,
+        Kind::Superheater,
+        Kind::DuctBurner,
+        Kind::Scr,
+        Kind::Duct,
+        Kind::Stack,
+        Kind::WaterCondenser,
+        Kind::AirCondenser,
         Kind::Label,
     ];
+    /// The component whose model and results this one uses: HRSG sections
+    /// and the water-cooled condenser are two-stream heat exchangers, a fan
+    /// is a compressor, a duct burner a heater, an air-cooled condenser a
+    /// cooler, SCR and duct are pipes (pressure loss), a stack is a sink.
+    pub fn base(self) -> Kind {
+        match self {
+            Kind::Fan => Kind::Compressor,
+            Kind::Economizer | Kind::Evaporator | Kind::Superheater | Kind::WaterCondenser => Kind::HeatExchanger,
+            Kind::DuctBurner => Kind::Heater,
+            Kind::AirCondenser => Kind::Cooler,
+            Kind::Scr | Kind::Duct => Kind::Pipe,
+            Kind::Stack => Kind::Sink,
+            k => k,
+        }
+    }
+    /// Library group where the component is listed first.
+    pub fn group(self) -> &'static Group {
+        GROUPS.iter().find(|g| g.kinds.contains(&self)).unwrap_or(&GROUPS[GROUPS.len() - 1])
+    }
     pub fn name(self) -> &'static str {
         match self {
             Kind::Turbine => "Turbine",
@@ -70,6 +139,16 @@ impl Kind {
             Kind::Motor => "Motor",
             Kind::CoolingTower => "Cooling tower",
             Kind::Pipe => "Pipe",
+            Kind::Fan => "Fan",
+            Kind::Economizer => "Economizer",
+            Kind::Evaporator => "Evaporator",
+            Kind::Superheater => "Superheater",
+            Kind::DuctBurner => "Duct burner",
+            Kind::Scr => "SCR",
+            Kind::Duct => "Duct",
+            Kind::Stack => "Stack",
+            Kind::WaterCondenser => "Water-cooled condenser",
+            Kind::AirCondenser => "Air-cooled condenser (ACC)",
         }
     }
 }
@@ -155,6 +234,57 @@ fn shape(kind: Kind) -> Vec<Prim> {
             line(&[[8.0, -20.0], [8.0, -8.0]]),
         ],
         Kind::Pipe => vec![poly(&[[-18.0, -5.0], [18.0, -5.0], [18.0, 5.0], [-18.0, 5.0]], Some([150, 200, 120]))],
+        Kind::Fan => vec![
+            Circle { c: [0.0, 0.0], r: 16.0, fill: Some(COMP) },
+            // two blades and the hub
+            poly(&[[-2.0, -2.0], [-4.0, -13.0], [4.0, -13.0]], None),
+            poly(&[[2.0, 2.0], [4.0, 13.0], [-4.0, 13.0]], None),
+            Circle { c: [0.0, 0.0], r: 3.0, fill: None },
+        ],
+        // HRSG section: gas duct (horizontal, hot side) crossed by a tube coil
+        // (vertical, water side, in at the bottom and out at the top)
+        Kind::Economizer | Kind::Evaporator | Kind::Superheater => {
+            let (fill, tag) = match kind {
+                Kind::Economizer => (COLD, "ECO"),
+                Kind::Evaporator => (HX, "EVA"),
+                _ => (HOT, "SH"),
+            };
+            vec![
+                poly(&[[-16.0, -30.0], [16.0, -30.0], [16.0, 30.0], [-16.0, 30.0]], Some(fill)),
+                line(&[[-16.0, 0.0], [-11.0, 0.0]]),
+                line(&[[6.0, 30.0], [6.0, 20.0], [-6.0, 14.0], [6.0, 8.0], [-6.0, 2.0], [6.0, -4.0], [-6.0, -10.0], [6.0, -16.0], [-6.0, -20.0], [-6.0, -30.0]]),
+                Text { p: [0.0, -36.0], s: tag.into(), size: 7.0 },
+            ]
+        }
+        Kind::DuctBurner => vec![
+            poly(&[[-22.0, -14.0], [22.0, -14.0], [22.0, 14.0], [-22.0, 14.0]], Some([215, 215, 215])),
+            // flame
+            poly(&[[-6.0, 10.0], [6.0, 10.0], [0.0, -10.0]], Some(HOT)),
+            line(&[[-22.0, 0.0], [-10.0, 0.0]]),
+        ],
+        Kind::Scr => vec![
+            poly(&[[-18.0, -18.0], [18.0, -18.0], [18.0, 18.0], [-18.0, 18.0]], Some([215, 215, 215])),
+            // catalyst layers
+            line(&[[-8.0, -18.0], [-8.0, 18.0]]),
+            line(&[[0.0, -18.0], [0.0, 18.0]]),
+            line(&[[8.0, -18.0], [8.0, 18.0]]),
+            Text { p: [0.0, -24.0], s: "SCR".into(), size: 7.0 },
+        ],
+        Kind::Duct => vec![poly(&[[-22.0, -9.0], [22.0, -9.0], [22.0, 9.0], [-22.0, 9.0]], Some([215, 215, 215]))],
+        Kind::Stack => vec![poly(&[[-10.0, 30.0], [10.0, 30.0], [6.0, -30.0], [-6.0, -30.0]], Some([200, 200, 200]))],
+        // shell with a two-pass tube bundle; steam enters at the top
+        Kind::WaterCondenser => vec![
+            poly(&[[-30.0, -18.0], [30.0, -18.0], [30.0, 18.0], [-30.0, 18.0]], Some(COLD)),
+            line(&[[0.0, -18.0], [0.0, -12.0]]),
+            line(&[[30.0, 8.0], [-22.0, 8.0], [-22.0, -4.0], [30.0, -4.0]]),
+        ],
+        // A-frame of finned tubes over a fan
+        Kind::AirCondenser => vec![
+            poly(&[[-28.0, 16.0], [0.0, -22.0], [28.0, 16.0]], Some(COLD)),
+            line(&[[0.0, -22.0], [0.0, -10.0]]),
+            Circle { c: [0.0, 8.0], r: 6.0, fill: Some([235, 235, 235]) },
+            line(&[[-5.0, 8.0], [5.0, 8.0]]),
+        ],
         Kind::Label => vec![],
     }
 }
@@ -171,7 +301,15 @@ fn inner_port(kind: Kind, i: usize) -> Option<usize> {
         (Kind::Turbine | Kind::Compressor, 0) => Some(0),
         (Kind::Pump, 0 | 1) => Some(0),
         (Kind::Valve, 0 | 1) => Some(0),
-        (Kind::Pipe | Kind::Mixer | Kind::Splitter | Kind::Source | Kind::Sink, _) => Some(0),
+        (Kind::Pipe | Kind::Mixer | Kind::Splitter | Kind::Source | Kind::Sink | Kind::Duct | Kind::Stack, _) => Some(0),
+        (Kind::Fan, 0) => Some(0),
+        (Kind::Economizer | Kind::Evaporator | Kind::Superheater, 1) => Some(0),
+        (Kind::Economizer | Kind::Evaporator | Kind::Superheater, 2) => Some(2),
+        (Kind::DuctBurner, 2) => Some(0),
+        (Kind::Scr, 1..=3) => Some(0),
+        (Kind::WaterCondenser, 1) => Some(0),
+        (Kind::WaterCondenser, 2) => Some(2),
+        (Kind::AirCondenser, 1) => Some(0),
         _ => None,
     }
 }
@@ -210,12 +348,26 @@ pub fn anchor_options(kind: Kind) -> Vec<(String, [f32; 2], [f32; 2])> {
             for (k, y) in [-18.0, -9.0, 9.0, 18.0].into_iter().enumerate() {
                 v.push((format!("axial, {large} {}", k + 1), [-s * 25.0, y], [-s, 0.0]));
             }
-            for (side, sy) in [("upper", -1.0), ("lower", 1.0)] {
-                for (k, t) in [0.15, 0.5, 0.85].into_iter().enumerate() {
-                    // casing edge from the small end (half height 12) to the large end (26)
-                    let x = s * 25.0 - s * 50.0 * t;
-                    let y = sy * (12.0 + 14.0 * t);
-                    v.push((format!("radial, {side} casing {}", k + 1), [x, y], [0.0, sy]));
+            // radial points on the tilted casing lines at five stages, from the
+            // small end (half height 12) to the large end (26). Stage 1 is the
+            // first in the flow direction: the inlet end of a turbine, the
+            // suction end of a compressor. The first three per side keep the
+            // indices saved by earlier versions; stages 2 and 4 follow.
+            let stage = |t: f32| {
+                let k = (t * 5.0 - 0.5).round() as usize + 1;
+                if kind == Kind::Turbine {
+                    k
+                } else {
+                    6 - k
+                }
+            };
+            for ts in [[0.1, 0.5, 0.9], [0.3, 0.7, f32::NAN]] {
+                for (side, sy) in [("upper", -1.0), ("lower", 1.0)] {
+                    for t in ts.into_iter().filter(|t| t.is_finite()) {
+                        let x = s * 25.0 - s * 50.0 * t;
+                        let y = sy * (12.0 + 14.0 * t);
+                        v.push((format!("radial, {side} casing, stage {} of 5", stage(t)), [x, y], [0.0, sy]));
+                    }
                 }
             }
         }
@@ -261,6 +413,25 @@ pub fn ports(kind: Kind) -> Vec<Port> {
             p("air out", [0.0, -32.0], [0.0, -1.0], false),
         ],
         Kind::Pipe => vec![p("in", [-18.0, 0.0], [-1.0, 0.0], true), p("out", [18.0, 0.0], [1.0, 0.0], false)],
+        Kind::Fan => vec![p("in", [-16.0, 0.0], [-1.0, 0.0], true), p("out", [16.0, 0.0], [1.0, 0.0], false)],
+        // ports in the order of a heat exchanger: hot in, hot out, cold in, cold out
+        Kind::Economizer | Kind::Evaporator | Kind::Superheater => vec![
+            p("gas in", [-16.0, 0.0], [-1.0, 0.0], true),
+            p("gas out", [16.0, 0.0], [1.0, 0.0], false),
+            p("water in", [6.0, 30.0], [0.0, 1.0], true),
+            p(if kind == Kind::Superheater { "steam out" } else { "water out" }, [-6.0, -30.0], [0.0, -1.0], false),
+        ],
+        Kind::DuctBurner => vec![p("in", [-22.0, 0.0], [-1.0, 0.0], true), p("out", [22.0, 0.0], [1.0, 0.0], false)],
+        Kind::Scr => vec![p("in", [-18.0, 0.0], [-1.0, 0.0], true), p("out", [18.0, 0.0], [1.0, 0.0], false)],
+        Kind::Duct => vec![p("in", [-22.0, 0.0], [-1.0, 0.0], true), p("out", [22.0, 0.0], [1.0, 0.0], false)],
+        Kind::Stack => vec![p("in", [-9.0, 20.0], [-1.0, 0.0], true)],
+        Kind::WaterCondenser => vec![
+            p("steam in", [0.0, -18.0], [0.0, -1.0], true),
+            p("condensate out", [0.0, 18.0], [0.0, 1.0], false),
+            p("water in", [30.0, 8.0], [1.0, 0.0], true),
+            p("water out", [30.0, -4.0], [1.0, 0.0], false),
+        ],
+        Kind::AirCondenser => vec![p("steam in", [0.0, -22.0], [0.0, -1.0], true), p("condensate out", [-28.0, 16.0], [0.0, 1.0], false)],
         Kind::Generator | Kind::Motor | Kind::Label => vec![],
     }
 }
@@ -1232,7 +1403,8 @@ impl CycleUi {
         self.history_keys(ui, d);
         self.track(ui.ctx(), d);
         let mut items: Vec<(Kind, String, u32)> = d.comps.iter().filter(|c| c.kind != Kind::Label).map(|c| (c.kind, c.label.clone(), c.id)).collect();
-        items.sort_by(|a, b| a.0.name().cmp(b.0.name()).then(crate::app::natord(&a.1, &b.1)));
+        let gidx = |k: Kind| GROUPS.iter().position(|g| g.kinds.contains(&k)).unwrap_or(GROUPS.len());
+        items.sort_by(|a, b| gidx(a.0).cmp(&gidx(b.0)).then(a.0.name().cmp(b.0.name())).then(crate::app::natord(&a.1, &b.1)));
         if items.is_empty() {
             ui.label(RichText::new("No components yet: draw the flowsheet in the Cycle diagram tab and bind its streams to state numbers.").weak());
             return;
@@ -1248,17 +1420,23 @@ impl CycleUi {
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let f = self.tab_filter.to_lowercase();
-                let mut last: Option<Kind> = None;
+                let mut last: Option<&str> = None;
                 for (k, label, id) in &items {
                     if !f.is_empty() && !label.to_lowercase().contains(&f) && !k.name().to_lowercase().contains(&f) {
                         continue;
                     }
-                    if last != Some(*k) {
+                    // one header (icon and group name) per library group
+                    let g = k.group();
+                    if last != Some(g.name) {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(k.name()).small().strong());
-                        last = Some(*k);
+                        ui.horizontal(|ui| {
+                            ui.add(crate::icons::image(ui, g.icon, 14.0));
+                            ui.label(RichText::new(g.name).small().strong());
+                        });
+                        last = Some(g.name);
                     }
-                    if ui.selectable_label(self.tab_sel == Some(*id), label).clicked() {
+                    let r = ui.selectable_label(self.tab_sel == Some(*id), label).on_hover_text(k.name());
+                    if r.clicked() {
                         self.tab_sel = Some(*id);
                     }
                 }
@@ -1309,55 +1487,72 @@ impl CycleUi {
     fn side(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
         ui.strong("Components");
         ui.label(RichText::new("Drag onto the canvas. Drag from a port (dot) to another port to connect.").small().weak());
-        egui::Grid::new("palette").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-            for (i, k) in Kind::ALL.iter().enumerate() {
-                let r = ui.add(egui::Button::new(k.name()).min_size(Vec2::new(125.0, 22.0)).sense(Sense::click_and_drag()));
-                if r.dragged() {
-                    if let Some(p) = ui.ctx().pointer_interact_pos() {
-                        let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("cycle_ghost")));
-                        let view = View { origin: p, zoom: d.zoom };
-                        let ghost = Comp {
-                            id: 0,
-                            kind: *k,
-                            pos: [0.0, 0.0],
-                            rot: 0,
-                            flip: false,
-                            label: k.name().into(),
-                            vars: Vec::new(),
-                            shaft: Vec::new(),
-                            params: Default::default(),
-                            anchors: Vec::new(),
-                        };
-                        paint_comp(&painter, &ghost, &view, Color32::GRAY, false, ui.visuals().dark_mode, &|_| None);
-                    }
-                }
-                let drop_at = if r.drag_stopped() { ui.ctx().pointer_interact_pos().filter(|p| self.canvas.is_some_and(|c| c.contains(*p))) } else { None };
-                if r.clicked() || drop_at.is_some() {
-                    let canvas = self.canvas.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0)));
-                    let view = View { origin: canvas.min + Vec2::from(d.offset), zoom: d.zoom };
-                    let w = view.w(drop_at.unwrap_or(canvas.center()));
-                    let id = d.new_id();
-                    let n = d.comps.iter().filter(|c| c.kind == *k).count() + 1;
-                    let label = if *k == Kind::Label { "Text".into() } else { format!("{} {n}", k.name().split(' ').next().unwrap_or("")) };
-                    d.comps.push(Comp {
-                        id,
-                        kind: *k,
-                        pos: [(w[0] / 10.0).round() * 10.0, (w[1] / 10.0).round() * 10.0],
-                        rot: 0,
-                        flip: false,
-                        label,
-                        vars: Vec::new(),
-                        shaft: Vec::new(),
-                        params: Default::default(),
-                        anchors: Vec::new(),
+        for (gi, g) in GROUPS.iter().enumerate() {
+            let id = ui.make_persistent_id(("palette_group", gi));
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, g.open)
+                .show_header(ui, |ui| {
+                    ui.add(crate::icons::image(ui, g.icon, 18.0));
+                    ui.label(RichText::new(g.name).strong());
+                })
+                .body(|ui| {
+                    egui::Grid::new(("palette", gi)).num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
+                        for (i, k) in g.kinds.iter().enumerate() {
+                            let r = ui.add(egui::Button::new(k.name()).min_size(Vec2::new(125.0, 22.0)).sense(Sense::click_and_drag()));
+                            if r.dragged() {
+                                if let Some(p) = ui.ctx().pointer_interact_pos() {
+                                    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("cycle_ghost")));
+                                    let view = View { origin: p, zoom: d.zoom };
+                                    let ghost = Comp {
+                                        id: 0,
+                                        kind: *k,
+                                        pos: [0.0, 0.0],
+                                        rot: 0,
+                                        flip: false,
+                                        label: k.name().into(),
+                                        vars: Vec::new(),
+                                        shaft: Vec::new(),
+                                        params: Default::default(),
+                                        anchors: Vec::new(),
+                                    };
+                                    paint_comp(&painter, &ghost, &view, Color32::GRAY, false, ui.visuals().dark_mode, &|_| None);
+                                }
+                            }
+                            let drop_at = if r.drag_stopped() { ui.ctx().pointer_interact_pos().filter(|p| self.canvas.is_some_and(|c| c.contains(*p))) } else { None };
+                            if r.clicked() || drop_at.is_some() {
+                                let canvas = self.canvas.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0)));
+                                let view = View { origin: canvas.min + Vec2::from(d.offset), zoom: d.zoom };
+                                let w = view.w(drop_at.unwrap_or(canvas.center()));
+                                let id = d.new_id();
+                                let n = d.comps.iter().filter(|c| c.kind == *k).count() + 1;
+                                let short = match k {
+                                    Kind::Label => "Text",
+                                    Kind::DuctBurner => "Burner",
+                                    Kind::WaterCondenser => "Condenser",
+                                    Kind::AirCondenser => "ACC",
+                                    _ => k.name().split(' ').next().unwrap_or(""),
+                                };
+                                let label = if *k == Kind::Label { "Text".into() } else { format!("{short} {n}") };
+                                d.comps.push(Comp {
+                                    id,
+                                    kind: *k,
+                                    pos: [(w[0] / 10.0).round() * 10.0, (w[1] / 10.0).round() * 10.0],
+                                    rot: 0,
+                                    flip: false,
+                                    label,
+                                    vars: Vec::new(),
+                                    shaft: Vec::new(),
+                                    params: Default::default(),
+                                    anchors: Vec::new(),
+                                });
+                                self.sel = Some(Sel::Comp(id));
+                            }
+                            if i % 2 == 1 {
+                                ui.end_row();
+                            }
+                        }
                     });
-                    self.sel = Some(Sel::Comp(id));
-                }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+                });
+        }
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.label("Template").on_hover_text("Insert a ready-made flowsheet. In an empty diagram it starts the drawing; with an empty script its equations are added too.");
@@ -1413,8 +1608,11 @@ impl CycleUi {
                                 let text = if cur == 0 { "default".to_string() } else { opts.get(cur - 1).map(|o| o.0.clone()).unwrap_or_default() };
                                 egui::ComboBox::from_id_salt(("anchor", id, k)).selected_text(text).width(190.0).show_ui(ui, |ui| {
                                     ui.selectable_value(&mut c.anchors[k], 0, "default");
-                                    for (j, o) in opts.iter().enumerate() {
-                                        ui.selectable_value(&mut c.anchors[k], (j + 1) as u8, &o.0);
+                                    // listed by place and stage (the stored index is kept)
+                                    let mut order: Vec<usize> = (0..opts.len()).collect();
+                                    order.sort_by(|a, b| crate::app::natord(&opts[*a].0, &opts[*b].0));
+                                    for j in order {
+                                        ui.selectable_value(&mut c.anchors[k], (j + 1) as u8, &opts[j].0);
                                     }
                                 });
                                 ui.end_row();
@@ -2625,6 +2823,14 @@ mod tests {
             for side in ["face", "upper casing", "lower casing"] {
                 assert!(o.iter().filter(|a| a.0.contains(side)).count() >= 3, "{side}");
             }
+            // five stages on each tilted casing line, numbered in the flow direction
+            for side in ["upper", "lower"] {
+                for st in 1..=5 {
+                    assert_eq!(o.iter().filter(|a| a.0 == format!("radial, {side} casing, stage {st} of 5")).count(), 1);
+                }
+            }
+            // indices saved by 0.1 keep (nearly) their place: upper casing 1 -> index 8
+            assert_eq!(o[7].0, format!("radial, upper casing, stage {} of 5", if kind == Kind::Turbine { 1 } else { 5 }));
             // every point lies on the outline (|y| within the half height at x)
             for (_, p, _) in &o {
                 let half = if kind == Kind::Turbine { 12.0 + 14.0 * (p[0] + 25.0) / 50.0 } else { 26.0 - 14.0 * (p[0] + 25.0) / 50.0 };
@@ -2645,12 +2851,35 @@ mod tests {
             anchors: Vec::new(),
         };
         assert_eq!(c.port(0).unwrap().1, [-25.0, 0.0]);
-        let j = anchor_options(Kind::Turbine).iter().position(|a| a.0 == "radial, upper casing 1").unwrap();
+        let j = anchor_options(Kind::Turbine).iter().position(|a| a.0 == "radial, upper casing, stage 1 of 5").unwrap();
         c.anchors = vec![(j + 1) as u8];
         let (_, pos, dir) = c.port(0).unwrap();
         assert!(dir == [0.0, -1.0] && pos[1] < -12.0);
         let d = CycleDiagram::default();
         assert!(d.lock_comps && d.lock_streams && d.lock_labels && d.lock_text && d.cross_on_line && d.label_zoom && !d.show_numbers && d.label_size == LabelSize::Small);
+    }
+
+    #[test]
+    fn component_library() {
+        for k in Kind::ALL {
+            // every component is in the library and behaves like its base
+            assert!(GROUPS.iter().any(|g| g.kinds.contains(&k)), "{}", k.name());
+            let (p, pb) = (ports(k), ports(k.base()));
+            assert_eq!(p.len(), pb.len(), "{}", k.name());
+            for (a, b) in p.iter().zip(&pb) {
+                assert_eq!(a.inlet, b.inlet, "{} {}", k.name(), a.name);
+            }
+            // stream colours refer to existing ports; ports point outwards
+            for i in 0..shape(k).len() {
+                assert!(inner_port(k, i).is_none_or(|j| j < p.len()), "{}", k.name());
+            }
+            for q in &p {
+                assert!((q.dir[0].abs() + q.dir[1].abs() - 1.0).abs() < 1e-6);
+            }
+        }
+        assert_eq!(Kind::Economizer.group().name, "HRSG");
+        assert_eq!(Kind::AirCondenser.base(), Kind::Cooler);
+        assert_eq!(crate::icons::source("hrsg").uri(), Some("bytes://../assets/icons/hrsg.svg"));
     }
 
     #[test]
