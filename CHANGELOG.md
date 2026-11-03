@@ -36,6 +36,7 @@ All notable changes to DF Studio are listed here. The format follows
   picker, the value each variable started from and its source; saved in the
   project.
 
+
 ### Cycle diagram
 - Component library in collapsible groups with monochrome icons that follow
   the theme: turbines, compressors and fans, pumps, heat exchangers, HRSG
@@ -57,6 +58,7 @@ All notable changes to DF Studio are listed here. The format follows
   starting its workers: creating a state now has exclusive access to
   CoolProp. The states of a worker thread are released when it ends, so
   repeated studies no longer accumulate memory.
+
 
 - Right sidebar with *KPI* and *States* tabs, and below them all the
   diagram settings (lock, stream labels, title, PDF export, fit view). The
