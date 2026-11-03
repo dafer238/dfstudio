@@ -373,9 +373,26 @@ impl IdealGasCall {
     }
 }
 
+impl Key {
+    /// Range an input of this kind must lie in for a valid state.
+    pub fn arg_kind(self) -> Option<crate::funcs::ArgKind> {
+        use crate::funcs::ArgKind;
+        match self {
+            Key::T => Some(ArgKind::AbsTemp),
+            Key::P => Some(ArgKind::AbsPressure),
+            Key::Q => Some(ArgKind::Fraction),
+            Key::D => Some(ArgKind::Positive),
+            _ => None,
+        }
+    }
+}
+
 impl ExtFn for IdealGasCall {
     fn name(&self) -> &str {
         &self.label
+    }
+    fn arg_kinds(&self) -> Vec<Option<crate::funcs::ArgKind>> {
+        vec![self.inp.arg_kind()]
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
         Some((self.out.dim(), vec![self.inp.dim()]))
@@ -411,6 +428,9 @@ impl PropCall {
 impl ExtFn for PropCall {
     fn name(&self) -> &str {
         &self.label
+    }
+    fn arg_kinds(&self) -> Vec<Option<crate::funcs::ArgKind>> {
+        self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
         Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
@@ -490,6 +510,18 @@ impl HaCall {
 impl ExtFn for HaCall {
     fn name(&self) -> &str {
         &self.label
+    }
+    fn arg_kinds(&self) -> Vec<Option<crate::funcs::ArgKind>> {
+        use crate::funcs::ArgKind;
+        self.ins
+            .iter()
+            .map(|(k, d)| match (*k, *d) {
+                ("R", _) => Some(ArgKind::Fraction),
+                (_, Dim::TEMP) => Some(ArgKind::AbsTemp),
+                (_, Dim::PRESSURE) => Some(ArgKind::AbsPressure),
+                _ => None,
+            })
+            .collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
         Some((self.out.1, self.ins.iter().map(|i| i.1).collect()))
