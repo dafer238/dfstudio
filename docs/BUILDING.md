@@ -34,9 +34,9 @@ example projects, which the app writes itself during packaging
 as a `.df` project with its cycle diagram).
 
 * **Linux**: needs `curl`; [appimagetool](https://github.com/AppImage/appimagetool)
-  is downloaded when it is not on `PATH`. Build on the oldest distribution
-  you want to support (the release uses Ubuntu 22.04), because the AppImage
-  needs a glibc at least as new as the build machine's.
+  is downloaded when it is not on `PATH`. The prebuilt CoolProp library of
+  `coolprop-sys` needs glibc 2.38 or newer, so the build machine and the
+  user's system need it too (the release is built on Ubuntu 24.04).
 * **macOS**: install both Rust targets for a universal build:
   `rustup target add aarch64-apple-darwin x86_64-apple-darwin`. The app is
   signed ad hoc. For distribution without the Gatekeeper warning, sign it
