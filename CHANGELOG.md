@@ -6,22 +6,27 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
-### Plots
-- Logarithmic axes are drawn as on log paper: decade lines and fainter
-  lines at 2..9 times each decade (and 1.1, 1.2, ... when zoomed in), with
-  labels at the decades.
-- *Export Python* uses the SciencePlots style when installed, LaTeX text when
-  LaTeX is available (labels escaped), a journal-column figure size, and
-  minor grid lines on log axes.
+## [0.2.0] - 2026-11-03
 
-### Examples
-- New recuperated Brayton example (air, recuperator by effectiveness, LMTD
-  function).
-- Every example sets the mass flow of each state (`m[i]` with `Duplicate`),
-  so the cycle diagram shows the flow of every stream, and is commented to
-  introduce the language and the cycle.
-- The example projects include a solved parametric table, a goal seek or an
-  optimisation and plots (property diagram, XY or 3D).
+### Cycle diagram
+- Component library in collapsible groups with monochrome icons that follow
+  the theme: turbines, compressors and fans, pumps, heat exchangers, HRSG
+  (economizer, evaporator, superheater, duct burner, SCR, duct, stack,
+  fan), condensers and cooling (water-cooled condenser, air-cooled
+  condenser, cooler, cooling tower), valves and piping, sources and sinks,
+  electrical, annotations. The Components tab uses the same groups.
+- Turbine and compressor connection points at five stages on each tilted
+  casing line (diagrams saved by 0.1 keep their points).
+- Right sidebar with *KPI* and *States* tabs, and below them all the
+  diagram settings (lock, stream labels, title, PDF export, fit view). The
+  left sidebar keeps the palette, the templates and the selected
+  component's or stream's settings.
+- The state table adds mass flow, entropy, vapour quality,
+  superheating/subcooling degree, density, cp and the fluid, and has a
+  *Copy table (TSV)* button.
+- The PDF report keeps the label style, state numbering, label size and
+  positions, stream colours and the cross unit legend of the canvas, and
+  uses the same state table.
 
 ### Solver
 - Automatic starting values: 25 °C for temperatures, 1 bar for pressures and
@@ -35,6 +40,30 @@ All notable changes to DF Studio are listed here. The format follows
 - *Equations > Initial values*: guesses and bounds per variable with a unit
   picker, the value each variable started from and its source; saved in the
   project.
+
+### Plots
+- Logarithmic axes are drawn as on log paper: decade lines and fainter
+  lines at 2..9 times each decade (and 1.1, 1.2, ... when zoomed in), with
+  labels at the decades.
+- *Export Python* uses the SciencePlots style when installed, LaTeX text when
+  LaTeX is available (labels escaped), a journal-column figure size, and
+  minor grid lines on log axes.
+
+### Interface
+- Monochrome icons, following the light or dark theme, on the entries of
+  the File, Edit, Solve, Units, View and Help menus, with the keyboard
+  shortcuts right-aligned.
+- The toolbar's Solve button is hidden while *Solve > Live solve while
+  typing* is on (F2 still solves).
+
+### Examples
+- New recuperated Brayton example (air, recuperator by effectiveness, LMTD
+  function).
+- Every example sets the mass flow of each state (`m[i]` with `Duplicate`),
+  so the cycle diagram shows the flow of every stream, and is commented to
+  introduce the language and the cycle.
+- The example projects include a solved parametric table, a goal seek or an
+  optimisation and plots (property diagram, XY or 3D).
 
 ### Verification
 - Tests of the property pipeline against IAPWS-95 (Tables 7 and 8),
@@ -54,46 +83,11 @@ All notable changes to DF Studio are listed here. The format follows
   read as IAPWS-IF97. `R718` is accepted as water.
 - `converttemp(...)` results were labelled and display-converted as model
   temperatures; they are plain numbers now.
-
-
-### Cycle diagram
-- Component library in collapsible groups with monochrome icons that follow
-  the theme: turbines, compressors and fans, pumps, heat exchangers, HRSG
-  (economizer, evaporator, superheater, duct burner, SCR, duct, stack,
-  fan), condensers and cooling (water-cooled condenser, air-cooled
-  condenser, cooler, cooling tower), valves and piping, sources and sinks,
-  electrical, annotations. The Components tab uses the same groups.
-- Turbine and compressor connection points at five stages on each tilted
-  casing line (diagrams saved by 0.1 keep their points).
-
-### Interface
-- Monochrome icons, following the light or dark theme, on the entries of
-  the File, Edit, Solve, Units, View and Help menus, with the keyboard
-  shortcuts right-aligned.
-
-### Fixed
 - A rare crash ("double free or corruption") when several threads created
   CoolProp states at the same time, e.g. a parametric table or optimisation
   starting its workers: creating a state now has exclusive access to
   CoolProp. The states of a worker thread are released when it ends, so
   repeated studies no longer accumulate memory.
-
-
-
-- Right sidebar with *KPI* and *States* tabs, and below them all the
-  diagram settings (lock, stream labels, title, PDF export, fit view). The
-  left sidebar keeps the palette, the templates and the selected
-  component's or stream's settings.
-- The state table adds mass flow, entropy, vapour quality,
-  superheating/subcooling degree, density, cp and the fluid, and has a
-  *Copy table (TSV)* button.
-- The PDF report keeps the label style, state numbering, label size and
-  positions, stream colours and the cross unit legend of the canvas, and
-  uses the same state table.
-
-### Interface
-- The toolbar's Solve button is hidden while *Solve > Live solve while
-  typing* is on (F2 still solves).
 
 ## [0.1.1] - 2026-11-03
 
