@@ -1,0 +1,32 @@
+"Simple Brayton cycle (open, air) — engineering units (C, bar, kJ)"
+$UnitSystem Eng
+
+T[1] = 15 [C];  P[1] = 1.013 [bar]
+r_p = 12
+P[2] = r_p*P[1]
+dp_cc = 0.03                   "combustor pressure loss (fraction)"
+P[3] = P[2]*(1 - dp_cc)
+T[3] = 1100 [C]
+P[4] = P[1]
+eta_c = 0.86
+eta_t = 0.89
+m_dot = 20 [kg/s]
+
+"Air as a real fluid (CoolProp); the heat input stands for the combustor"
+h[1] = enthalpy(Air, T=T[1], P=P[1])
+s[1] = entropy(Air, T=T[1], P=P[1])
+h_s[2] = enthalpy(Air, P=P[2], s=s[1])
+eta_c = (h_s[2] - h[1]) / (h[2] - h[1])
+T[2] = temperature(Air, P=P[2], h=h[2])
+h[3] = enthalpy(Air, T=T[3], P=P[3])
+s[3] = entropy(Air, T=T[3], P=P[3])
+h_s[4] = enthalpy(Air, P=P[4], s=s[3])
+eta_t = (h[3] - h[4]) / (h[3] - h_s[4])
+T[4] = temperature(Air, P=P[4], h=h[4])
+
+W_c = m_dot*(h[2] - h[1])      {kW}
+W_t = m_dot*(h[3] - h[4])      {kW}
+Q_in = m_dot*(h[3] - h[2])     {kW}
+W_net = W_t - W_c              {kW}
+eta_th = W_net/Q_in
+bwr = W_c/W_t                  "back-work ratio"

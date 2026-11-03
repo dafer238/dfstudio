@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DF Studio
+Comment=Equation-oriented thermodynamic modelling
+Exec=dfstudio %f
+Icon=dfstudio
+Terminal=false
+Categories=Science;Education;Engineering;
+MimeType=application/x-dfstudio-project;
+StartupWMClass=dfstudio

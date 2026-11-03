@@ -1,0 +1,15 @@
+[package]
+name = "dfcli"
+description = "Command-line runner for DF Studio scripts"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dfs"
+path = "src/main.rs"
+
+[dependencies]
+dfcore.workspace = true
+serde_json.workspace = true

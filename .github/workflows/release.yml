@@ -1,0 +1,131 @@
+name: Release
+
+# Push a tag `vX.Y.Z` (matching the version in Cargo.toml) to build the
+# installers for Windows, macOS and Linux and publish them as a GitHub
+# release. Run it by hand (Actions > Release > Run workflow) to build the
+# packages as workflow artifacts without publishing anything.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+  linux:
+    needs: check-version
+    runs-on: ubuntu-22.04   # oldest supported glibc for the AppImage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked --release
+      - run: packaging/linux/build_appimage.sh dist
+      - name: Smoke test
+        run: |
+          chmod +x dist/*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage dfs run examples/rankine.dfs > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  macos:
+    needs: check-version
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked --release
+      - run: packaging/macos/build_app.sh dist
+      - name: Smoke test
+        run: '"dist/DF Studio.app/Contents/MacOS/dfs" run examples/rankine.dfs > /dev/null'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked --release
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v v="$version" '
+            $0 ~ "^## \\[?"v"\\]?" {on=1; next}
+            on && /^## / {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<'MD'
+
+          ### Downloads
+
+          | System | File |
+          |---|---|
+          | Windows 10/11 (x64) | `*-windows-x64-setup.exe` (installer; all users or current user) or `*-windows-x64-portable.zip` |
+          | macOS 11+ (Apple silicon and Intel) | `*-macos-universal.dmg` (first launch: right-click > Open) |
+          | Linux (x86-64) | `*-linux-x86_64.AppImage` (`chmod +x`, then run) |
+
+          `SHA256SUMS.txt` lists the checksums of all files.
+          MD
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: DF Studio ${{ github.ref_name }}
+          body_path: notes.md
+          files: dist/*
+          fail_on_unmatched_files: true

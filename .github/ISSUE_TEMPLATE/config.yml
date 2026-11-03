@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/dafer238/dfstudio/tree/main/docs
+    about: User guide, language reference and how the solver works.

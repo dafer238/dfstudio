@@ -1,0 +1,29 @@
+"Simple Rankine cycle — engineering units (C, bar, kJ)"
+$UnitSystem Eng
+
+P[1] = 0.1 [bar];  x[1] = 0
+P[2] = 150 [bar]
+T[3] = 550 [C]
+P[3] = P[2]
+P[4] = P[1]
+eta_p = 0.85
+eta_t = 0.88
+m_dot = 50 [kg/s]
+
+h[1] = enthalpy(Water, P=P[1], x=x[1])
+s[1] = entropy(Water, P=P[1], x=x[1])
+h_s[2] = enthalpy(Water, P=P[2], s=s[1])
+eta_p = (h_s[2] - h[1]) / (h[2] - h[1])
+T[1] = temperature(Water, P=P[1], h=h[1])
+T[2] = temperature(Water, P=P[2], h=h[2])
+h[3] = enthalpy(Water, P=P[3], T=T[3])
+s[3] = entropy(Water, P=P[3], T=T[3])
+h_s[4] = enthalpy(Water, P=P[4], s=s[3])
+eta_t = (h[3] - h[4]) / (h[3] - h_s[4])
+x[4] = quality(Water, P=P[4], h=h[4])
+T[4] = temperature(Water, P=P[4], h=h[4])
+
+W_t = m_dot*(h[3] - h[4])     {kW}
+W_p = m_dot*(h[2] - h[1])     {kW}
+Q_in = m_dot*(h[3] - h[2])    {kW}
+eta_th = (W_t - W_p)/Q_in
