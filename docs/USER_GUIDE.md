@@ -46,7 +46,7 @@ Download the installer for your system from the
 |---|---|---|
 | Windows 10/11 (x64) | `DF_Studio-<version>-windows-x64-setup.exe` | The installer asks whether to install **for all users** (needs administrator rights, installs to `C:\Program Files\DF Studio`) or **for you only** (no administrator rights, installs to `%LOCALAPPDATA%\Programs\DF Studio`). A portable `.zip` is also provided. |
 | macOS 11+ (Apple silicon and Intel) | `DF_Studio-<version>-macos-universal.dmg` | Drag *DF Studio* to *Applications*. The app is not notarised by Apple: the first time, right-click it and choose *Open*. |
-| Linux (x86-64) | `DF_Studio-<version>-linux-x86_64.AppImage` | `chmod +x` the file and run it. `./DF_Studio-*.AppImage dfs run model.dfs` runs the command-line solver. |
+| Linux (x86-64, glibc 2.38 or newer: Ubuntu 24.04, Debian 13, Fedora 39 or later) | `DF_Studio-<version>-linux-x86_64.AppImage` | `chmod +x` the file and run it. `./DF_Studio-*.AppImage dfs run model.dfs` runs the command-line solver. |
 
 Every package contains the desktop app, the `dfs` command-line runner, the
 CoolProp library and the example projects (in the `examples` folder of the

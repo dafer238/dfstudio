@@ -31,7 +31,7 @@ results in sync with tables, plots and a flowsheet of your cycle.
 |---|---|
 | **Windows** 10/11 (x64) | [Installer `.exe`](https://github.com/dafer238/dfstudio/releases/latest): installs for all users (Program Files) or, without administrator rights, for you only. A portable `.zip` is also available. |
 | **macOS** 11+ (Apple silicon and Intel) | [Universal `.dmg`](https://github.com/dafer238/dfstudio/releases/latest). First launch: right-click the app and choose *Open*. |
-| **Linux** (x86-64) | [`.AppImage`](https://github.com/dafer238/dfstudio/releases/latest): `chmod +x` and run. |
+| **Linux** (x86-64, glibc 2.38+: Ubuntu 24.04, Debian 13, Fedora 39 or newer) | [`.AppImage`](https://github.com/dafer238/dfstudio/releases/latest): `chmod +x` and run. |
 
 Each package includes the desktop app, the `dfs` command-line solver, the
 CoolProp property library and example projects (Rankine, Brayton and
