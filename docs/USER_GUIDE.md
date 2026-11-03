@@ -302,7 +302,20 @@ The Plots tab holds any number of plots, saved with the project.
 * **3D**: x, y, z from the parametric table (surface for a full grid,
   scatter otherwise).
 
+**Logarithmic axes** (*log x*, *log y*; on by default for the pressure
+of P-h and P-v diagrams) are drawn as on log paper: strong lines at each
+decade and fainter lines at 2, 3, ... 9 times the decade, which crowd
+towards the next decade. Decades are labelled; within a few decades 2 and 5
+are labelled too, and every line when less than a decade is visible.
+
 *Export Python…* writes a self-contained matplotlib script with the data.
+It uses the [SciencePlots](https://github.com/garrettj403/SciencePlots)
+style (`pip install SciencePlots`) when it is installed: serif fonts,
+inward ticks on all four sides and a single-column figure size
+(`FIGSIZE = (3.5, 2.6)` inches at the top of the script; `(7.0, 4.3)` for a
+full page width). Text is set with LaTeX when a LaTeX installation is found
+(labels are escaped for it) and with matplotlib's own renderer otherwise.
+Without SciencePlots the script runs with the matplotlib defaults.
 
 Hovering any plot (XY plots, property diagrams and the charts of the
 component results) shows a vertical guide and a tooltip with the value of
