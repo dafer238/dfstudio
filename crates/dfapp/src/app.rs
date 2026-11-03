@@ -1,6 +1,6 @@
 //! Main window: menus, tabs, variables and solution tables.
 
-use crate::analysis::{Analysis, Request, Worker};
+use crate::analysis::{Analysis, InitEntry, Request, Worker};
 use crate::cycle::{CycleDiagram, CycleInputs, CycleUi};
 use crate::deps::{DepAction, Deps, GraphState};
 use crate::editor::{fmt_num, status_color, Editor, EditorContext, Focus};
@@ -90,6 +90,7 @@ enum RoleFilter {
 enum EqView {
     Editor,
     Dependencies,
+    InitialValues,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -110,6 +111,9 @@ pub struct Settings {
     pub plots: PlotsState,
     #[serde(default)]
     pub cycle: CycleDiagram,
+    /// Guesses and bounds from the Initial values table (canonical name).
+    #[serde(default)]
+    pub init: std::collections::BTreeMap<String, InitEntry>,
     #[serde(default)]
     pub format: crate::format::FormatOptions,
     /// Format the script before every save.
@@ -157,6 +161,7 @@ impl Default for Settings {
             opt: OptForm::default(),
             plots: PlotsState::default(),
             cycle: CycleDiagram::default(),
+            init: Default::default(),
             format: Default::default(),
             format_on_save: true,
             format_on_blur: true,
@@ -205,6 +210,14 @@ pub struct DfApp {
     changed_at: Option<Instant>,
     last_check: Option<Instant>,
     ctx: egui::Context,
+    /// Last known value of every variable that has been solved (canonical
+    /// name -> value, unit symbol): the start of the next solve. Values
+    /// of blocks that fail to converge do not replace good ones.
+    warm: HashMap<String, (f64, String)>,
+    /// Initial values table: filter, "iterative only", cell being edited.
+    init_filter: String,
+    init_all: bool,
+    init_edit: Option<(String, u8, String)>,
 }
 
 impl DfApp {
@@ -260,6 +273,10 @@ impl DfApp {
             changed_at: None,
             last_check: None,
             ctx: cc.egui_ctx.clone(),
+            warm: HashMap::new(),
+            init_filter: String::new(),
+            init_all: false,
+            init_edit: None,
         };
         match file {
             Some(f) => app.load_path(PathBuf::from(f)),
@@ -275,10 +292,7 @@ impl DfApp {
 
     fn submit(&mut self, solve: bool) {
         self.gen += 1;
-        let warm = self.analysis.as_ref().and_then(|a| {
-            let sol = a.solution.as_ref()?;
-            Some(Arc::new(a.model.vars.iter().enumerate().filter(|(i, _)| sol.known[*i]).map(|(i, v)| (v.name.clone(), sol.x[i])).collect::<HashMap<_, _>>()))
-        });
+        let warm = (!self.warm.is_empty()).then(|| Arc::new(self.warm.clone()));
         self.worker.submit(Request {
             gen: self.gen,
             text: self.s.text.clone(),
@@ -286,6 +300,7 @@ impl DfApp {
             solve,
             solve_opts: SolveOptions::default(),
             warm,
+            init: Arc::new(self.s.init.clone()),
         });
     }
 
@@ -370,7 +385,33 @@ impl DfApp {
         }
     }
 
+    /// Keep the values of the converged blocks for the next warm start.
+    fn remember_solution(&mut self, a: &Analysis) {
+        let Some(sol) = &a.solution else { return };
+        for (i, v) in a.model.vars.iter().enumerate() {
+            if sol.known[i] && sol.x[i].is_finite() {
+                let unit = a.model.var_dim(i as u32).map(|d| a.model.unit_system.unit_for(d).symbol).unwrap_or_default();
+                self.warm.insert(v.name.clone(), (sol.x[i], unit));
+            }
+        }
+    }
+
+    /// Start a new set of warm-start values, from the results stored in a
+    /// project file if any.
+    fn reset_warm(&mut self, results: Option<&dfcore::dffile::Results>) {
+        self.warm.clear();
+        if let Some(r) = results {
+            for i in 0..r.names.len() {
+                if r.known.get(i).copied().unwrap_or(false) && r.values[i].is_finite() {
+                    self.warm.insert(dfcore::parser::canon(&r.names[i]), (r.values[i], r.units.get(i).cloned().unwrap_or_default()));
+                }
+            }
+        }
+    }
+
     fn new_project(&mut self) {
+        self.reset_warm(None);
+        self.s.init.clear();
         self.s.text.clear();
         self.cycle.clear_history();
         self.s.path = None;
@@ -458,6 +499,7 @@ impl DfApp {
             match DfFile::from_bytes(&bytes) {
                 Ok(f) => {
                     self.meta = f.meta.clone();
+                    self.reset_warm(f.results.as_ref());
                     let n_unknown = f.unknown.len();
                     self.files = crate::project::apply_df(f, &mut self.s);
                     self.status = format!(
@@ -477,6 +519,8 @@ impl DfApp {
             // EES model: binary (equations + Variable Information) or text
             match dfcore::ees::read(&bytes) {
                 Ok(e) => {
+                    self.reset_warm(None);
+                    self.s.init.clear();
                     self.s.text = e.to_script();
                     self.files.clear();
                     self.meta = Meta::default();
@@ -496,6 +540,8 @@ impl DfApp {
                 }
             }
         } else {
+            self.reset_warm(None);
+            self.s.init.clear();
             self.s.text = String::from_utf8_lossy(&bytes).to_string();
             self.files.clear();
             self.meta = Meta::default();
@@ -657,6 +703,10 @@ impl DfApp {
     }
 
     fn unit_combo(&mut self, ui: &mut egui::Ui, a: &Analysis, i: usize, current: &str) {
+        self.unit_combo_in(ui, a, i, current, "");
+    }
+
+    fn unit_combo_in(&mut self, ui: &mut egui::Ui, a: &Analysis, i: usize, current: &str, salt: &str) {
         let Some(dim) = a.model.var_dim(i as u32) else {
             ui.label(current);
             return;
@@ -670,7 +720,7 @@ impl DfApp {
             return;
         }
         let mut sel = current.to_string();
-        egui::ComboBox::from_id_salt(("unit", i)).selected_text(current).width(90.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(("unit", i, salt)).selected_text(current).width(90.0).show_ui(ui, |ui| {
             for o in &opts {
                 ui.selectable_value(&mut sel, o.to_string(), *o);
             }
@@ -831,6 +881,234 @@ impl DfApp {
             if self.eq_view == EqView::Editor {
                 self.editor.jump_to_line = Some(l);
             }
+        }
+    }
+
+    /// Equations > Initial values: the value each variable starts from in
+    /// Newton's method, and optional guesses and bounds, like EES's
+    /// Variable Information.
+    fn initial_values_view(&mut self, ui: &mut egui::Ui) {
+        use dfcore::solver::StartSource;
+        let Some(a) = self.analysis.clone() else {
+            ui.label("Analysing…");
+            return;
+        };
+        let m = &a.model;
+        let st = &a.plan.structure;
+        ui.label(
+            RichText::new(
+                "Empty cells are automatic. Newton's method starts each variable from its guess, else from the last solution, \
+                 else from an automatic value (25 °C for temperatures, 1 bar for pressures, 0.5 for qualities, 1 otherwise). \
+                 Bounds marked auto come from property-function inputs (temperature above 0 K, pressure above 0, quality 0 to 1): \
+                 a valid state always lies inside them.",
+            )
+            .weak(),
+        );
+        // variables solved iteratively (the only ones whose start value matters)
+        let iterative = |i: usize| -> bool {
+            st.var_block[i]
+                .map(|b| match a.solution.as_ref().and_then(|s| s.blocks.get(b as usize)) {
+                    Some(r) => !r.explicit,
+                    None => st.blocks[b as usize].eqs.len() > 1,
+                })
+                .unwrap_or(false)
+        };
+        let f = self.init_filter.to_lowercase();
+        let mut idx: Vec<usize> = (0..m.vars.len())
+            .filter(|&i| {
+                let v = &m.vars[i];
+                (f.is_empty() || v.name.contains(&f)) && (self.init_all || iterative(i) || self.s.init.contains_key(&v.name))
+            })
+            .collect();
+        idx.sort_by(|x, y| natord(&m.vars[*x].name, &m.vars[*y].name));
+        let mut status: Option<String> = None;
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label("Filter");
+            ui.text_edit_singleline(&mut self.init_filter);
+            ui.checkbox(&mut self.init_all, "All variables").on_hover_text("Off: only variables solved iteratively (in Newton blocks) and those with a guess or bounds set here");
+            if ui.button("Use last solution as guesses").on_hover_text("Set the guess of every variable listed to its current value").clicked() {
+                if let Some(sol) = &a.solution {
+                    for &i in &idx {
+                        if sol.known[i] && sol.x[i].is_finite() {
+                            let (d, u) = self.display(&a, i, sol.x[i]);
+                            let e = self.s.init.entry(m.vars[i].name.clone()).or_default();
+                            set_unit(e, &u);
+                            e.guess = Some(d);
+                        }
+                    }
+                    changed = true;
+                    status = Some("Guesses set from the last solution".into());
+                }
+            }
+            if ui.button("Clear guesses").clicked() {
+                self.s.init.values_mut().for_each(|e| e.guess = None);
+                changed = true;
+            }
+            if ui.button("Clear bounds").clicked() {
+                self.s.init.values_mut().for_each(|e| {
+                    e.lower = None;
+                    e.upper = None;
+                });
+                changed = true;
+            }
+        });
+        ui.separator();
+        if idx.is_empty() {
+            ui.label("No variable is solved iteratively: every equation is evaluated directly, so no starting values are needed. Tick \"All variables\" to set guesses or bounds anyway.");
+        }
+        let mut edit = self.init_edit.take();
+        // (variable, column 0 guess / 1 lower / 2 upper, new value, display unit)
+        let mut commits: Vec<(String, u8, Option<f64>, String)> = Vec::new();
+        let mut unit_change: Option<(usize, String)> = None;
+        let init = self.s.init.clone();
+        let du = self.s.display_units.clone();
+        ui.push_id("init_values", |ui| {
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .column(Column::initial(130.0).at_least(60.0).clip(true))
+                .column(Column::initial(130.0).at_least(80.0))
+                .column(Column::initial(100.0).at_least(60.0))
+                .column(Column::initial(100.0).at_least(60.0))
+                .column(Column::initial(100.0).at_least(60.0))
+                .column(Column::initial(100.0).at_least(60.0))
+                .column(Column::remainder().at_least(80.0))
+                .header(20.0, |mut h| {
+                    for (t, tip) in [
+                        ("Variable", ""),
+                        ("Start", "Value the last solve started from: guess, last solution or automatic"),
+                        ("Guess", "Starting value (empty: last solution, else automatic)"),
+                        ("Lower", "Lower bound (empty: none, or automatic)"),
+                        ("Upper", "Upper bound (empty: none, or automatic)"),
+                        ("Unit", "Unit of the start, guess, bounds and solution"),
+                        ("Solution", ""),
+                    ] {
+                        h.col(|ui| {
+                            let r = ui.strong(t);
+                            if !tip.is_empty() {
+                                r.on_hover_text(tip);
+                            }
+                        });
+                    }
+                })
+                .body(|body| {
+                    body.rows(24.0, idx.len(), |mut row| {
+                        let i = idx[row.index()];
+                        let v = &m.vars[i];
+                        let (_, unit) = display_in(&du, &a, i, 0.0);
+                        let shown = |x: f64| display_in(&du, &a, i, x).0;
+                        let ent = init.get(&v.name);
+                        let in_unit = |x: f64, e: &InitEntry| convert_sym(x, &e.unit, &unit);
+                        row.col(|ui| {
+                            ui.label(RichText::new(&v.display).monospace());
+                        });
+                        row.col(|ui| {
+                            if let (Some(x), Some(src)) = (a.start.get(i), a.start_src.get(i)) {
+                                let tag = match src {
+                                    StartSource::Guess => "guess",
+                                    StartSource::Previous => "last",
+                                    StartSource::Automatic => "auto",
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(fmt_num(shown(*x))).monospace());
+                                    ui.label(RichText::new(tag).small().weak());
+                                });
+                            }
+                        });
+                        let script_guess = m.guesses.get(&(i as u32)).filter(|_| ent.and_then(|e| e.guess).is_none());
+                        let (lo, hi) = m.bounds.get(&(i as u32)).copied().unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+                        let auto = m.auto_bounds.contains(&(i as u32));
+                        let bhint = |b: f64| -> String {
+                            if !b.is_finite() {
+                                return String::new();
+                            }
+                            format!("{} ({})", fmt_num(shown(b)), if auto { "auto" } else { "$Bounds" })
+                        };
+                        let cells: [(Option<f64>, String); 3] = [
+                            (ent.and_then(|e| e.guess.map(|g| in_unit(g, e))), script_guess.map(|g| format!("{} ($Guess)", fmt_num(shown(*g)))).unwrap_or_default()),
+                            (ent.and_then(|e| e.lower.map(|g| in_unit(g, e))), if ent.and_then(|e| e.lower).is_none() { bhint(lo) } else { String::new() }),
+                            (ent.and_then(|e| e.upper.map(|g| in_unit(g, e))), if ent.and_then(|e| e.upper).is_none() { bhint(hi) } else { String::new() }),
+                        ];
+                        for (col, (val, hint)) in cells.into_iter().enumerate() {
+                            let col = col as u8;
+                            row.col(|ui| {
+                                let mine = edit.as_ref().is_some_and(|(n, c, _)| *n == v.name && *c == col);
+                                let mut buf = if mine { edit.as_ref().unwrap().2.clone() } else { val.map(fmt_num).unwrap_or_default() };
+                                let r = ui.add(egui::TextEdit::singleline(&mut buf).hint_text(hint).desired_width(f32::INFINITY));
+                                if r.has_focus() {
+                                    edit = Some((v.name.clone(), col, buf.clone()));
+                                }
+                                if r.lost_focus() {
+                                    let t = buf.trim().replace(',', ".");
+                                    let new = if t.is_empty() { Some(None) } else { t.parse::<f64>().ok().map(Some) };
+                                    if let Some(new) = new {
+                                        if new != val {
+                                            commits.push((v.name.clone(), col, new, unit.clone()));
+                                        }
+                                    }
+                                    edit = None;
+                                }
+                            });
+                        }
+                        row.col(|ui| {
+                            let before = unit.clone();
+                            let mut sel = before.clone();
+                            if let Some(dim) = m.var_dim(i as u32) {
+                                let mut opts = choices(dim);
+                                if !opts.iter().any(|o| *o == before) && !before.is_empty() {
+                                    opts.insert(0, Box::leak(before.clone().into_boxed_str()));
+                                }
+                                if opts.len() > 1 {
+                                    egui::ComboBox::from_id_salt(("init_unit", i)).selected_text(&before).width(90.0).show_ui(ui, |ui| {
+                                        for o in &opts {
+                                            ui.selectable_value(&mut sel, o.to_string(), *o);
+                                        }
+                                    });
+                                } else {
+                                    ui.label(&before);
+                                }
+                            } else {
+                                ui.label(&before);
+                            }
+                            if sel != before {
+                                unit_change = Some((i, sel));
+                            }
+                        });
+                        row.col(|ui| {
+                            let t = match &a.solution {
+                                Some(sol) if sol.known[i] => fmt_num(shown(sol.x[i])),
+                                _ => "—".into(),
+                            };
+                            ui.label(RichText::new(t).monospace());
+                        });
+                    });
+                });
+        });
+        self.init_edit = edit;
+        if let Some((i, u)) = unit_change {
+            self.s.display_units.insert(m.vars[i].name.clone(), u);
+        }
+        for (name, col, val, unit) in commits {
+            let e = self.s.init.entry(name.clone()).or_default();
+            set_unit(e, &unit);
+            match col {
+                0 => e.guess = val,
+                1 => e.lower = val,
+                _ => e.upper = val,
+            }
+            if e.is_empty() {
+                self.s.init.remove(&name);
+            }
+            changed = true;
+        }
+        if changed {
+            self.s.init.retain(|_, e| !e.is_empty());
+            self.dirty = true;
+            self.submit(self.s.live_solve);
+        }
+        if let Some(s) = status {
+            self.status = s;
         }
     }
 
@@ -1149,6 +1427,7 @@ impl eframe::App for DfApp {
                         self.status = sol.message.clone();
                     }
                 }
+                self.remember_solution(&a);
                 self.analysis = Some(Arc::new(a));
             }
         }
@@ -1385,6 +1664,8 @@ impl eframe::App for DfApp {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.eq_view, EqView::Editor, "Editor");
                     ui.selectable_value(&mut self.eq_view, EqView::Dependencies, "Dependencies");
+                    ui.selectable_value(&mut self.eq_view, EqView::InitialValues, "Initial values")
+                        .on_hover_text("Starting values and bounds of the variables for Newton's method");
                     if let Some(a) = &an {
                         if let Some(v) = self.focus_id(a) {
                             ui.separator();
@@ -1413,6 +1694,7 @@ impl eframe::App for DfApp {
                         }
                     }
                     EqView::Dependencies => self.deps_view(ui),
+                    EqView::InitialValues => self.initial_values_view(ui),
                 }
             }
             Tab::Solution => self.solution_tab(ui),
@@ -1492,6 +1774,29 @@ impl eframe::App for DfApp {
 }
 
 /// (value in display unit, unit symbol) for variable `i`.
+/// Convert a value between two unit symbols of the same dimension (unchanged
+/// if either is empty, unknown or of another dimension).
+fn convert_sym(x: f64, from: &str, to: &str) -> f64 {
+    if from == to || from.is_empty() || to.is_empty() {
+        return x;
+    }
+    match (parse_unit(from), parse_unit(to)) {
+        (Ok(f), Ok(t)) if f.dim == t.dim => f.convert(x, &t),
+        _ => x,
+    }
+}
+
+/// Express an Initial values entry in `unit`, converting the values it holds.
+fn set_unit(e: &mut InitEntry, unit: &str) {
+    if e.unit != unit {
+        let from = e.unit.clone();
+        for v in [&mut e.guess, &mut e.lower, &mut e.upper].into_iter().flatten() {
+            *v = convert_sym(*v, &from, unit);
+        }
+        e.unit = unit.to_string();
+    }
+}
+
 pub fn display_in(units: &HashMap<String, String>, a: &Analysis, i: usize, x: f64) -> (f64, String) {
     let m = &a.model;
     if let Some(u) = units.get(&m.vars[i].name) {

@@ -2,7 +2,8 @@
 //! off the UI thread so typing never blocks. Requests are coalesced: only
 //! the most recent text is processed.
 
-use dfcore::solver::{initial_values, solve_with_plan, Plan};
+use dfcore::solver::{solve_with_plan, start_values, Plan, StartSource};
+use dfcore::units::parse_unit;
 use dfcore::{compile, CompileOptions, EqStatus, Model, Solution, SolveOptions, VarStatus};
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -16,8 +17,72 @@ pub struct Request {
     pub opts: CompileOptions,
     pub solve: bool,
     pub solve_opts: SolveOptions,
-    /// Guesses from a previous solution (warm start), by canonical name.
-    pub warm: Option<Arc<HashMap<String, f64>>>,
+    /// Values of a previous solution (warm start), by canonical name, with
+    /// the unit they are expressed in (empty: model units, no conversion).
+    pub warm: Option<Arc<HashMap<String, (f64, String)>>>,
+    /// Guesses and bounds from the Initial values table, by canonical name.
+    pub init: Arc<std::collections::BTreeMap<String, InitEntry>>,
+}
+
+/// Guess and bounds of one variable set in the Initial values table, in
+/// `unit` (empty: model units). `None`: not set (automatic).
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct InitEntry {
+    pub guess: Option<f64>,
+    pub lower: Option<f64>,
+    pub upper: Option<f64>,
+    pub unit: String,
+}
+
+impl InitEntry {
+    pub fn is_empty(&self) -> bool {
+        self.guess.is_none() && self.lower.is_none() && self.upper.is_none()
+    }
+}
+
+/// Convert `v` from the unit symbol `from` into the model unit of the same
+/// dimension (no conversion for an empty or unknown unit).
+pub fn to_model_units(model: &Model, v: f64, from: &str) -> f64 {
+    to_unit_system(&model.unit_system, v, from)
+}
+
+fn to_unit_system(us: &dfcore::UnitSystem, v: f64, from: &str) -> f64 {
+    if from.trim().is_empty() {
+        return v;
+    }
+    match parse_unit(from) {
+        Ok(u) if !u.dim.is_none() => u.convert(v, &us.unit_for(u.dim)),
+        Ok(u) => u.to_si(v),
+        Err(_) => v,
+    }
+}
+
+/// Apply the Initial values table to a compiled model: its guesses replace
+/// `$Guess` values, its bounds replace `$Bounds` and the automatic bounds.
+pub fn apply_init(model: &mut Model, init: &std::collections::BTreeMap<String, InitEntry>) {
+    for (name, e) in init {
+        let Some(v) = model.var(name) else { continue };
+        let us = model.unit_system.clone();
+        let c = |x: f64| to_unit_system(&us, x, &e.unit);
+        if let Some(g) = e.guess {
+            model.guesses.insert(v, c(g));
+        }
+        if e.lower.is_some() || e.upper.is_some() {
+            let (mut lo, mut hi) = model.bounds.get(&v).copied().unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+            if model.auto_bounds.contains(&v) {
+                (lo, hi) = (f64::NEG_INFINITY, f64::INFINITY);
+            }
+            if let Some(l) = e.lower {
+                lo = c(l);
+            }
+            if let Some(h) = e.upper {
+                hi = c(h);
+            }
+            model.bounds.insert(v, (lo, hi));
+            model.auto_bounds.remove(&v);
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -41,6 +106,9 @@ pub struct Analysis {
     pub analyse_ms: f64,
     pub explicit_solve: bool,
     pub control_log: Vec<String>,
+    /// Value each variable started from in the last solve, and its source.
+    pub start: Vec<f64>,
+    pub start_src: Vec<StartSource>,
 }
 
 pub struct Worker {
@@ -96,13 +164,15 @@ impl Worker {
 
 pub(crate) fn run(req: Request) -> Analysis {
     let t0 = Instant::now();
-    let model = compile(&req.text, &req.opts);
+    let mut model = compile(&req.text, &req.opts);
+    apply_init(&mut model, &req.init);
     let compile_ms = t0.elapsed().as_secs_f64() * 1e3;
     let t1 = Instant::now();
     let mut plan = Plan::new(&model, &[]);
     let mut control_log = Vec::new();
+    let warm: Option<Vec<f64>> = req.warm.as_ref().map(|w| model.vars.iter().map(|v| w.get(&v.name).map(|(x, u)| to_model_units(&model, *x, u)).unwrap_or(f64::NAN)).collect());
+    let (start, start_src) = start_values(&model, &req.solve_opts, warm.as_deref());
     let solution = if req.solve && !model.has_errors() {
-        let warm: Option<Vec<f64>> = req.warm.as_ref().map(|w| model.vars.iter().map(|v| w.get(&v.name).copied().unwrap_or(f64::NAN)).collect());
         if !model.controls.is_empty() {
             match dfcore::studies::solve_with_controls(&model, &req.solve_opts, warm.as_deref()) {
                 Ok((p, s, log)) => {
@@ -116,14 +186,7 @@ pub(crate) fn run(req: Request) -> Analysis {
                 }
             }
         } else {
-            let mut x = initial_values(&model, &req.solve_opts);
-            if let Some(w) = &warm {
-                for (i, v) in w.iter().enumerate() {
-                    if v.is_finite() && !model.guesses.contains_key(&(i as u32)) {
-                        x[i] = *v;
-                    }
-                }
-            }
+            let mut x = start.clone();
             Some(solve_with_plan(&model, &plan, &mut x, &req.solve_opts))
         }
     } else {
@@ -195,5 +258,7 @@ pub(crate) fn run(req: Request) -> Analysis {
         analyse_ms: t1.elapsed().as_secs_f64() * 1e3,
         explicit_solve: req.solve,
         control_log,
+        start,
+        start_src,
     }
 }
