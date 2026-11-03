@@ -21,6 +21,7 @@ struct ProjectState {
     opt: OptForm,
     plots: PlotsState,
     cycle: crate::cycle::CycleDiagram,
+    init: std::collections::BTreeMap<String, crate::analysis::InitEntry>,
 }
 
 const PARAM_TABLE: &str = "Parametric";
@@ -36,6 +37,7 @@ pub fn to_df(s: &Settings, analysis: Option<&Analysis>, files: &[Artifact], meta
         opt: s.opt.clone(),
         plots: s.plots.clone(),
         cycle: s.cycle.clone(),
+        init: s.init.clone(),
     };
     let mut f = DfFile::new(s.text.clone());
     f.meta = meta.clone();
@@ -83,6 +85,7 @@ pub fn apply_df(f: DfFile, s: &mut Settings) -> Vec<Artifact> {
     s.opt = st.opt;
     s.plots = st.plots;
     s.cycle = st.cycle;
+    s.init = st.init;
     // restore parametric results so plots show without re-running the table
     if let Some(tab) = f.tables.iter().find(|t| t.name == PARAM_TABLE) {
         let t = &mut s.table;
@@ -112,7 +115,7 @@ mod tests {
         s.table.cells = vec![vec!["20".into()], vec!["40".into()]];
         s.table.results = vec![Some(vec![0.30]), Some(vec![0.33])];
         s.table.converged = vec![true, false];
-        let a = run(Request { gen: 1, text: s.text.clone(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None });
+        let a = run(Request { gen: 1, text: s.text.clone(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None, init: Default::default() });
         let files = vec![Artifact { name: "notes.txt".into(), data: b"hello".to_vec() }];
         let mut f = to_df(&s, Some(&a), &files, &Meta::default());
         let dir = std::env::temp_dir().join("dfstudio-test");

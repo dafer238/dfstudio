@@ -6,6 +6,19 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Solver
+- Automatic starting values: 25 °C for temperatures, 1 bar for pressures and
+  0.5 for qualities instead of 1 in model units (1 K and 1 Pa in SI).
+- Automatic bounds for variables used directly as property inputs
+  (temperature above 0 K, pressure above 0, quality 0 to 1), which never
+  exclude a valid solution.
+- Warm start keeps the last converged value of each variable when a later
+  solve fails, and starts from the solution saved in a `.df` project when it
+  is opened.
+- *Equations > Initial values*: guesses and bounds per variable with a unit
+  picker, the value each variable started from and its source; saved in the
+  project.
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution
