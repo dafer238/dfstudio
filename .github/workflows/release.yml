@@ -2,12 +2,16 @@ name: Release
 
 # Push a tag `vX.Y.Z` (matching the version in Cargo.toml) to build the
 # installers for Windows, macOS and Linux and publish them as a GitHub
-# release. Run it by hand (Actions > Release > Run workflow) to build the
-# packages as workflow artifacts without publishing anything.
+# release. Pull requests that change the packaging, and manual runs
+# (Actions > Release > Run workflow), build the packages as workflow
+# artifacts without publishing anything.
 
 on:
   push:
     tags: ["v*"]
+  # build (but do not publish) the packages when the packaging changes
+  pull_request:
+    paths: ["packaging/**", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 env:
