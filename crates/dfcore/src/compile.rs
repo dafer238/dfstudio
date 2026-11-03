@@ -73,6 +73,12 @@ pub struct Model {
     pub var_dims: Vec<Option<Dim>>,
     /// Equations whose additive terms have inconsistent dimensions.
     pub unit_conflicts: Vec<u32>,
+    /// Physical range implied by the use of each variable as a property
+    /// argument (`P=P[1]`: absolute pressure; `x=x[2]`: quality, ...).
+    pub var_kinds: Vec<Option<crate::funcs::ArgKind>>,
+    /// Variables whose entry in `bounds` was set automatically from
+    /// `var_kinds` (not by `$Bounds`).
+    pub auto_bounds: std::collections::HashSet<VarId>,
 }
 
 #[derive(Debug, Clone)]
@@ -211,7 +217,46 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
     let (dims, conflicts) = crate::dims::infer(&b.m);
     b.m.var_dims = dims;
     b.m.unit_conflicts = conflicts;
+    // 7. physical ranges from property arguments, and safe bounds from them
+    b.m.var_kinds = var_kinds(&b.m);
+    for (v, k) in b.m.var_kinds.iter().enumerate() {
+        let v = v as VarId;
+        if let Some(k) = k {
+            if !b.m.bounds.contains_key(&v) {
+                b.m.bounds.insert(v, crate::solver::kind_bounds(*k, &b.m.unit_system));
+                b.m.auto_bounds.insert(v);
+            }
+        }
+    }
     b.m
+}
+
+/// Range implied for each variable that is passed directly (not inside an
+/// expression) as an argument of a property function. At any solution the
+/// call must evaluate, so the variable lies in that range: bounds derived
+/// from it never exclude a valid solution. Conflicting uses give no kind.
+fn var_kinds(m: &Model) -> Vec<Option<crate::funcs::ArgKind>> {
+    let mut kinds: Vec<Option<Option<crate::funcs::ArgKind>>> = vec![None; m.vars.len()];
+    for eq in &m.eqs {
+        let t = &eq.tape;
+        for op in &t.ops {
+            let Op::Ext(f, s, l) = op else { continue };
+            let ak = f.arg_kinds();
+            for (i, k) in ak.iter().enumerate().take(*l as usize) {
+                let Some(k) = k else { continue };
+                let node = t.args[(*s as usize) + i] as usize;
+                if let Op::Var(v) = t.ops[node] {
+                    let slot = &mut kinds[v as usize];
+                    *slot = match *slot {
+                        None => Some(Some(*k)),
+                        Some(Some(prev)) if prev == *k => Some(Some(prev)),
+                        _ => Some(None),
+                    };
+                }
+            }
+        }
+    }
+    kinds.into_iter().map(|k| k.flatten()).collect()
 }
 
 impl<'s> Builder<'s> {
