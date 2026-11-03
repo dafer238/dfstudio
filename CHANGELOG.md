@@ -6,6 +6,15 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Distribution
+- Windows installer: options, checked by default, to add a Start menu
+  entry, add DF Studio to the PATH (the user PATH for a per-user install,
+  the system PATH for an all-users install; removed on uninstall), and open
+  `.df`/`.dfs` and `.ees` files with DF Studio on double-click. DF Studio is
+  also listed under *Open with* for these file types.
+
 ## [0.1.0] - 2026-11-03
 
 First public release.
@@ -50,9 +59,9 @@ First public release.
 
 ### Distribution
 - Windows installer (all users or current user, no administrator rights
-  needed for the latter) with optional Start menu entry, PATH entry and
-  `.df`/`.dfs`/`.ees` file associations, and portable zip; universal macOS DMG; Linux
+  needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/dafer238/dfstudio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dafer238/dfstudio/releases/tag/v0.1.0
