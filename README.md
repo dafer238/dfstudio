@@ -47,7 +47,9 @@ orange when more equations are needed, red when it is over-specified. The
 header tells you how many degrees of freedom are still open, and which
 variables they are.
 
-![Editing the supercritical CO₂ model: the variables panel follows each keystroke, the 172 equations solve once the model is complete, and the dependency view traces how a variable is computed](docs/img/editor-sco2.gif)
+[![Editing the supercritical CO₂ model: the variables panel follows each keystroke, the 172 equations solve once the model is complete, and the dependency view traces how a variable is computed](docs/img/editor-sco2.png)](https://dfstudio.neodafer.com/assets/video/editor-sco2.mp4)
+
+*Click the image to watch the 46-second recording.*
 
 **See how your model is solved.** *Equations > Dependencies* shows the solve
 order: which equations are evaluated directly, which are solved together in a
