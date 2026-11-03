@@ -331,7 +331,7 @@ mod tests {
     fn templates_solve_and_label_every_stream() {
         for t in &ALL {
             let d = (t.diagram)();
-            let a = run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None });
+            let a = run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None, init: Default::default() });
             let sol = a.solution.as_ref().expect("solved");
             assert!(sol.converged, "{}", t.name);
             let du = HashMap::new();

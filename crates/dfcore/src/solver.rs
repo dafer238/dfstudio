@@ -12,8 +12,10 @@
 //!   partials).
 
 use crate::compile::Model;
+use crate::funcs::ArgKind;
 use crate::structure::{analyze_active, EqStatus, Structure, VarStatus};
 use crate::tape::{Op, Scratch, VarId};
+use crate::units::{Dim, UnitSystem};
 use serde::Serialize;
 use std::time::Instant;
 
@@ -23,7 +25,8 @@ pub struct SolveOptions {
     /// Convergence on the scaled residual `|lhs - rhs| / s`, where `s` is the
     /// largest absolute additive term of the equation (1 if that is ~0).
     pub rtol: f64,
-    /// Default guess for variables without guess (1).
+    /// Guess for variables without a guess whose kind and dimension give no
+    /// better choice (1). See [`auto_start`].
     pub default_guess: f64,
 }
 
@@ -125,13 +128,72 @@ impl Plan {
     }
 }
 
-/// Initial values: guesses, then defaults.
+/// Where the starting value of a variable comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum StartSource {
+    /// `$Guess` or the Initial values table.
+    Guess,
+    /// The last solution (warm start).
+    Previous,
+    /// Chosen from the variable's kind or dimension ([`auto_start`]).
+    Automatic,
+}
+
+/// Safe bounds, in model units, for a variable of a given kind. The lower
+/// limits are just above zero, so they never exclude a valid state.
+pub fn kind_bounds(k: ArgKind, us: &UnitSystem) -> (f64, f64) {
+    match k {
+        ArgKind::AbsTemp => (us.unit_for(Dim::TEMP).from_si(1e-3), f64::INFINITY),
+        ArgKind::AbsPressure => (us.unit_for(Dim::PRESSURE).from_si(1e-6), f64::INFINITY),
+        ArgKind::Fraction => (0.0, 1.0),
+        ArgKind::Positive => (1e-12, f64::INFINITY),
+    }
+}
+
+/// Automatic starting value of a variable without a guess, in model units:
+/// 25 °C for temperatures, 1 bar for pressures, 0.5 for a quality and
+/// `default_guess` (1) otherwise. Only blocks solved by Newton's method use
+/// it; a variable computed explicitly does not need a start value.
+pub fn auto_start(model: &Model, v: VarId, opts: &SolveOptions) -> f64 {
+    let us = &model.unit_system;
+    let kind = model.var_kinds.get(v as usize).copied().flatten();
+    let dim = model.var_dim(v);
+    match (kind, dim) {
+        (Some(ArgKind::Fraction), _) => 0.5,
+        (Some(ArgKind::AbsTemp), _) | (_, Some(Dim::TEMP)) => us.unit_for(Dim::TEMP).from_si(298.15),
+        (Some(ArgKind::AbsPressure), _) | (_, Some(Dim::PRESSURE)) => us.unit_for(Dim::PRESSURE).from_si(1e5),
+        _ => opts.default_guess,
+    }
+}
+
+/// Initial values: guesses, then automatic values ([`auto_start`]).
 pub fn initial_values(model: &Model, opts: &SolveOptions) -> Vec<f64> {
-    let mut x = vec![opts.default_guess; model.vars.len()];
+    let mut x: Vec<f64> = (0..model.vars.len()).map(|v| auto_start(model, v as VarId, opts)).collect();
     for (v, g) in &model.guesses {
         x[*v as usize] = *g;
     }
     x
+}
+
+/// Initial values with a warm start: guesses first, then the previous
+/// solution (finite entries of `warm`, indexed like the variables), then
+/// automatic values. Returns the values and their sources.
+pub fn start_values(model: &Model, opts: &SolveOptions, warm: Option<&[f64]>) -> (Vec<f64>, Vec<StartSource>) {
+    let mut x = initial_values(model, opts);
+    let mut src = vec![StartSource::Automatic; x.len()];
+    if let Some(w) = warm {
+        for (i, v) in w.iter().enumerate().take(x.len()) {
+            if v.is_finite() {
+                x[i] = *v;
+                src[i] = StartSource::Previous;
+            }
+        }
+    }
+    for (v, g) in &model.guesses {
+        x[*v as usize] = *g;
+        src[*v as usize] = StartSource::Guess;
+    }
+    (x, src)
 }
 
 #[inline]

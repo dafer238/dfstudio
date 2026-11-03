@@ -7,6 +7,22 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
+/// What an argument of an external function must physically be. A variable
+/// passed directly as such an argument can only take values in that range
+/// at any valid solution, which the solver uses for safe automatic bounds
+/// and starting values (see `solver::auto_start`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ArgKind {
+    /// Thermodynamic (absolute) temperature: > 0 K.
+    AbsTemp,
+    /// Absolute pressure: > 0 Pa.
+    AbsPressure,
+    /// Vapour quality or relative humidity: 0 ..= 1.
+    Fraction,
+    /// Density: > 0.
+    Positive,
+}
+
 /// A scalar function of numeric arguments evaluated outside the tape.
 ///
 /// Implementations must be thread-safe: parametric studies evaluate models
@@ -19,6 +35,10 @@ pub trait ExtFn: Send + Sync {
         None
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String>;
+    /// Physical range of each argument, if restricted (empty: unknown).
+    fn arg_kinds(&self) -> Vec<Option<ArgKind>> {
+        Vec::new()
+    }
     /// Value and gradient. The default uses central finite differences with
     /// a relative step of 1e-6 (Dennis & Schnabel 1996, §5.6).
     fn eval_grad(&self, args: &[f64], grad: &mut [f64]) -> Result<f64, String> {

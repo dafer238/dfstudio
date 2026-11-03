@@ -41,6 +41,7 @@ fn report(args: &[String]) -> std::process::ExitCode {
         solve: true,
         solve_opts: Default::default(),
         warm: None,
+        init: Default::default(),
     });
     let converged = a.solution.as_ref().is_some_and(|x| x.converged);
     let bytes = cycle::report_pdf(&s.cycle, &cycle::CycleInputs { analysis: &a, display_units: &s.display_units, script: &s.text });
@@ -81,6 +82,7 @@ fn write_examples(args: &[String]) -> i32 {
             solve: true,
             solve_opts: Default::default(),
             warm: None,
+            init: Default::default(),
         });
         if !a.solution.as_ref().is_some_and(|x| x.converged) {
             eprintln!("{}: not converged", t.name);
