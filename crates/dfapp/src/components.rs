@@ -212,7 +212,7 @@ pub fn stream_fluid(l: &Link, default: &Option<String>) -> Option<String> {
     stream_fluid_ex(l, default).map(|x| x.0)
 }
 
-fn stream_fluid_ex(l: &Link, default: &Option<String>) -> Option<(String, bool)> {
+pub(crate) fn stream_fluid_ex(l: &Link, default: &Option<String>) -> Option<(String, bool)> {
     match l.fluid.trim() {
         "-" => None,
         "" => match l.color {
@@ -468,11 +468,11 @@ pub fn shaft_machines(d: &CycleDiagram, gen: u32) -> (Vec<u32>, bool) {
     if !g.shaft.is_empty() {
         return (g.shaft.iter().copied().filter(|id| d.comps.iter().any(|c| c.id == *id)).collect(), false);
     }
-    let explicit: Vec<u32> = d.comps.iter().filter(|c| matches!(c.kind, Kind::Generator | Kind::Motor)).flat_map(|c| c.shaft.iter().copied()).collect();
+    let explicit: Vec<u32> = d.comps.iter().filter(|c| matches!(c.kind.base(), Kind::Generator | Kind::Motor)).flat_map(|c| c.shaft.iter().copied()).collect();
     let dist = |c: &crate::cycle::Comp| (c.pos[0] - g.pos[0]).powi(2) + (c.pos[1] - g.pos[1]).powi(2);
     let explicit = &explicit;
-    let free = |k: Kind| d.comps.iter().filter(move |c| c.kind == k && !explicit.contains(&c.id));
-    let n_gen = d.comps.iter().filter(|c| c.kind == Kind::Generator).count();
+    let free = |k: Kind| d.comps.iter().filter(move |c| c.kind.base() == k && !explicit.contains(&c.id));
+    let n_gen = d.comps.iter().filter(|c| c.kind.base() == Kind::Generator).count();
     let ids = match g.kind {
         Kind::Generator if n_gen == 1 => free(Kind::Turbine).map(|c| c.id).collect(),
         Kind::Generator => free(Kind::Turbine).min_by(|a, b| dist(a).total_cmp(&dist(b))).map(|c| vec![c.id]).unwrap_or_default(),
@@ -502,12 +502,12 @@ pub fn machine_power(d: &CycleDiagram, inp: &CycleInputs, id: u32) -> Option<(Ki
     let ps = port_states(d, inp, &b, id, c.kind);
     let (i, o) = (ps.first()?.as_ref()?, ps.get(1)?.as_ref()?);
     let m = if i.m.is_finite() { i.m } else { o.m };
-    let w = match c.kind {
+    let w = match c.kind.base() {
         Kind::Turbine => m * (i.h - o.h),
         Kind::Compressor | Kind::Pump => m * (o.h - i.h),
         _ => return None,
     };
-    w.is_finite().then(|| (c.kind, c.label.clone(), w))
+    w.is_finite().then(|| (c.kind.base(), c.label.clone(), w))
 }
 
 /// Duty intervals of the T-Q profile (phase-change points are added).
@@ -797,14 +797,14 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
     };
     let pw = Dim::POWER;
     let pr = Dim::PRESSURE;
-    match c.kind {
+    match c.kind.base() {
         Kind::Turbine | Kind::Compressor | Kind::Pump => {
             let (Some(i), Some(o)) = (p_(0), p_(1)) else {
                 r.notes.push("Connect the inlet and outlet streams (with state numbers).".into());
                 return r;
             };
             let m = mflow(i, o);
-            let turb = c.kind == Kind::Turbine;
+            let turb = c.kind.base() == Kind::Turbine;
             let w = if turb { m * (i.h - o.h) } else { m * (o.h - i.h) };
             let hs = i.s_cp().and_then(|s| i.h_ps(o.p, s));
             let eta = hs.map(|hs| if turb { (i.h - o.h) / (i.h - hs) } else { (hs - i.h) / (o.h - i.h) }).unwrap_or(f64::NAN);
@@ -839,7 +839,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             if vi.is_finite() {
                 size.push(fm.num("Inlet volume flow", m * vi, "m3/s", ""));
                 size.push(fm.num("Outlet volume flow", m * vo, "m3/s", ""));
-                if c.kind == Kind::Pump {
+                if c.kind.base() == Kind::Pump {
                     let dp = o.p - i.p;
                     size.push(fm.row("Hydraulic power V dP", pw, m * vi * dp, ""));
                     size.push(fm.num("Head", dp * vi / 9.80665, "m", "dP/(rho g)"));
@@ -872,7 +872,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             if let Some(ch) = process_chart(
                 &fm,
                 diag,
-                &[(if turb { "expansion" } else { "compression" }, i, o, Proc::Polytropic(c.kind != Kind::Pump), if turb { HOT_C } else { COLD_C })],
+                &[(if turb { "expansion" } else { "compression" }, i, o, Proc::Polytropic(c.kind.base() != Kind::Pump), if turb { HOT_C } else { COLD_C })],
                 Some((i, o.p)),
             ) {
                 r.charts.push(ch);
@@ -1019,7 +1019,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             let m = mflow(i, o);
             let q = m * (o.h - i.h);
             let mut rows = vec![fm.row("Mass flow", Dim::MASS_FLOW, m, "")];
-            match c.kind {
+            match c.kind.base() {
                 Kind::Heater => rows.push(fm.row("Heat added", pw, q, "m (h_out - h_in)")),
                 Kind::Cooler => rows.push(fm.row("Heat rejected", pw, -q, "m (h_in - h_out)")),
                 Kind::Pipe => rows.push(fm.row("Heat loss", pw, -q, "m (h_in - h_out)")),
@@ -1030,12 +1030,12 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             rows.push(fm.pct("Pressure drop / P_out", (i.p - o.p) / o.p, ""));
             rows.push(fm.pct("Pressure drop / P_in", (i.p - o.p) / i.p, ""));
             let ds = o.s - i.s;
-            if matches!(c.kind, Kind::Heater | Kind::Cooler) && ds.abs() > 1e-12 {
+            if matches!(c.kind.base(), Kind::Heater | Kind::Cooler) && ds.abs() > 1e-12 {
                 rows.push(fm.row("Thermodynamic mean temperature dh/ds", Dim::TEMP, (o.h - i.h) / ds, "temperature at which the heat is exchanged"));
                 let tm = (o.h - i.h) / ds;
                 rows.push(fm.row("Exergy of the heat Q(1 - T0/T_m)", pw, q.abs() * (1.0 - t0 / tm), ""));
             }
-            if c.kind == Kind::Pipe {
+            if c.kind.base() == Kind::Pipe {
                 let ql = -q;
                 rows.push(fm.pct("Temperature drop / T_out (K)", (i.t - o.t) / o.t, ""));
                 if let Some(h0) = o.h_pt(o.p, t0) {
@@ -1048,15 +1048,15 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 }
             }
             r.sections.push(Section { title: "Performance".into(), rows });
-            if matches!(c.kind, Kind::Valve | Kind::Pipe) {
-                second_law(&mut r, if c.kind == Kind::Pipe { -q } else { 0.0 });
+            if matches!(c.kind.base(), Kind::Valve | Kind::Pipe) {
+                second_law(&mut r, if c.kind.base() == Kind::Pipe { -q } else { 0.0 });
             }
-            let col = match c.kind {
+            let col = match c.kind.base() {
                 Kind::Heater => HOT_C,
                 Kind::Cooler => COLD_C,
                 _ => GREEN,
             };
-            if let Some(ch) = process_chart(&fm, diag, &[(c.kind.name(), i, o, if c.kind == Kind::Valve { Proc::Throttle } else { Proc::Linear }, col)], None) {
+            if let Some(ch) = process_chart(&fm, diag, &[(c.kind.name(), i, o, if c.kind.base() == Kind::Valve { Proc::Throttle } else { Proc::Linear }, col)], None) {
                 r.charts.push(ch);
             }
         }
@@ -1072,7 +1072,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 fm.row("Mass balance (in - out)", Dim::MASS_FLOW, mi - mo, ""),
                 fm.row("Energy balance (in - out)", pw, ei - eo, ""),
             ];
-            if c.kind == Kind::Splitter {
+            if c.kind.base() == Kind::Splitter {
                 for (k, s) in outs.iter().enumerate() {
                     rows.push(fm.pct(&format!("Split fraction to stream {} (out {})", s.k, k + 1), s.m / mi, ""));
                 }
@@ -1080,7 +1080,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 rows.push(fm.dt("Inlet temperature difference", ins[0].t - ins[1].t, "0 for isothermal mixing"));
             }
             r.sections.push(Section { title: "Balances".into(), rows });
-            if c.kind == Kind::Mixer {
+            if c.kind.base() == Kind::Mixer {
                 second_law(&mut r, f64::NAN);
             }
         }
@@ -1153,7 +1153,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             if auto {
                 r.notes.push("Shaft machines chosen automatically (nearest); set them in the parameters.".into());
             }
-            let gen = c.kind == Kind::Generator;
+            let gen = c.kind.base() == Kind::Generator;
             let w_mech = if gen { w_shaft } else { -w_shaft };
             rows.push(fm.row(if gen { "Net shaft power to the gearbox" } else { "Shaft power demand" }, pw, w_mech, ""));
             let em = param(inp, &c.params, "eta_mech", Dim::NONE);
@@ -1202,12 +1202,12 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             let u = fm.unit(pw);
             r.charts.push(Chart { title: "Energy chain".into(), x_label: String::new(), y_label: format!("Power [{}]", u.symbol), bars, ..Default::default() });
         }
-        Kind::Source | Kind::Sink | Kind::Label => {}
+        _ => {}
     }
     // energy balance of components with streams only
-    if !r.streams.is_empty() && !matches!(c.kind, Kind::Turbine | Kind::Compressor | Kind::Pump | Kind::Heater | Kind::Cooler | Kind::Pipe | Kind::Source | Kind::Sink) {
+    if !r.streams.is_empty() && !matches!(c.kind.base(), Kind::Turbine | Kind::Compressor | Kind::Pump | Kind::Heater | Kind::Cooler | Kind::Pipe | Kind::Source | Kind::Sink) {
         let e: f64 = r.streams.iter().map(|s| if s.inlet { s.st.m * s.st.h } else { -s.st.m * s.st.h }).sum();
-        if e.is_finite() && !matches!(c.kind, Kind::Mixer | Kind::Splitter | Kind::HeatExchanger | Kind::CoolingTower) {
+        if e.is_finite() && !matches!(c.kind.base(), Kind::Mixer | Kind::Splitter | Kind::HeatExchanger | Kind::CoolingTower) {
             r.sections.push(Section { title: "Energy balance".into(), rows: vec![fm.row("sum m h (in - out)", pw, e, "")] });
         }
     }
@@ -1253,7 +1253,7 @@ fn c32(c: [u8; 3]) -> Color32 {
 
 /// Parameters of a component used by its results.
 pub fn params_ui(ui: &mut egui::Ui, d: &mut CycleDiagram, id: u32, inp: &CycleInputs) {
-    let Some(kind) = d.comps.iter().find(|c| c.id == id).map(|c| c.kind) else { return };
+    let Some(kind) = d.comps.iter().find(|c| c.id == id).map(|c| c.kind.base()) else { return };
     let fields: &[(&str, &str)] = match kind {
         Kind::HeatExchanger => &[("U", "Overall heat-transfer coefficient U, W/m2-K (number or variable) -> area")],
         Kind::Generator => &[("eta_mech", "Mechanical / gearbox efficiency (number, variable or product a*b)"), ("eta_elec", "Generator efficiency")],
@@ -1272,7 +1272,7 @@ pub fn params_ui(ui: &mut egui::Ui, d: &mut CycleDiagram, id: u32, inp: &CycleIn
         v
     };
     let machines: Vec<(u32, String, Kind)> =
-        d.comps.iter().filter(|c| matches!(c.kind, Kind::Turbine | Kind::Compressor | Kind::Pump)).map(|c| (c.id, c.label.clone(), c.kind)).collect();
+        d.comps.iter().filter(|c| matches!(c.kind.base(), Kind::Turbine | Kind::Compressor | Kind::Pump)).map(|c| (c.id, c.label.clone(), c.kind)).collect();
     let (auto_ids, auto) = shaft_machines(d, id);
     let Some(c) = d.comps.iter_mut().find(|c| c.id == id) else { return };
     egui::Grid::new(("params", id)).num_columns(2).show(ui, |ui| {

@@ -213,6 +213,9 @@ struct Ctx<'a> {
     model: &'a Model,
     sc: Scratch,
     grad: Vec<f64>,
+    /// Newton on the equations as written instead of the form with the
+    /// denominators cleared (fallback when that form has a spurious root).
+    natural: bool,
 }
 
 impl Ctx<'_> {
@@ -235,7 +238,7 @@ fn Scratch_val(s: &Scratch, n: u32) -> f64 {
 /// on entry and the solution on exit.
 pub fn solve_with_plan(model: &Model, plan: &Plan, x: &mut [f64], opts: &SolveOptions) -> Solution {
     let t0 = Instant::now();
-    let mut ctx = Ctx { model, sc: Scratch::default(), grad: Vec::new() };
+    let mut ctx = Ctx { model, sc: Scratch::default(), grad: Vec::new(), natural: false };
     let mut reports = Vec::with_capacity(plan.blocks.len());
     let mut known = plan.fixed.clone();
     let mut converged = true;
@@ -247,7 +250,36 @@ pub fn solve_with_plan(model: &Model, plan: &Plan, x: &mut [f64], opts: &SolveOp
                 x[v as usize] = x[v as usize].clamp(*lo, *hi);
             }
         }
-        let rep = if let Some(ex) = b.explicit { solve_explicit(&mut ctx, b, ex, x) } else { newton(&mut ctx, b, x, opts) };
+        let rep = if let Some(ex) = b.explicit {
+            solve_explicit(&mut ctx, b, ex, x)
+        } else {
+            let start: Vec<f64> = b.vars.iter().map(|v| x[*v as usize]).collect();
+            ctx.natural = false;
+            let rep = newton(&mut ctx, b, x, opts);
+            if rep.converged {
+                rep
+            } else {
+                // clearing denominators adds roots where a denominator is
+                // zero (e.g. ln(dT1/dT2) = 0 in an LMTD); retry the block on
+                // the equations as written from the same start
+                let first: Vec<f64> = b.vars.iter().map(|v| x[*v as usize]).collect();
+                for (k, v) in b.vars.iter().enumerate() {
+                    x[*v as usize] = start[k];
+                }
+                presweep(&mut ctx, b, x);
+                ctx.natural = true;
+                let rep2 = newton(&mut ctx, b, x, opts);
+                ctx.natural = false;
+                if rep2.converged {
+                    rep2
+                } else {
+                    for (k, v) in b.vars.iter().enumerate() {
+                        x[*v as usize] = first[k];
+                    }
+                    rep
+                }
+            }
+        };
         if rep.converged {
             for &v in &b.vars {
                 known[v as usize] = true;
@@ -285,6 +317,12 @@ pub fn solve_with_plan(model: &Model, plan: &Plan, x: &mut [f64], opts: &SolveOp
     }
     let mut msg = String::new();
     let s = &plan.structure;
+    if first_fail.is_none() && !max_res.is_finite() {
+        // a computed equation that cannot be evaluated at the solution
+        converged = false;
+        let bad = residuals.iter().position(|r| r.is_nan()).map(|e| model.eqs[e].label.clone()).unwrap_or_default();
+        first_fail = Some(format!("an equation cannot be evaluated at the solution: {bad}"));
+    }
     if let Some(f) = first_fail {
         msg = f;
     } else if s.dof > 0 {
@@ -321,6 +359,30 @@ pub fn solve(model: &Model, opts: &SolveOptions) -> (Plan, Solution) {
     (plan, sol)
 }
 
+/// Start point for the retry of a block: evaluate the block's definitions
+/// (`v = expression without v`) in turn from the current values, so that
+/// e.g. temperature differences follow from guessed temperatures.
+fn presweep(ctx: &mut Ctx, b: &PBlock, x: &mut [f64]) {
+    for _ in 0..2 {
+        for &e in &b.eqs {
+            let eq = &ctx.model.eqs[e as usize];
+            for (side, other) in [(eq.lhs, eq.rhs), (eq.rhs, eq.lhs)] {
+                if let Op::Var(v) = eq.tape.ops[side as usize] {
+                    if b.vars.contains(&v) && !eq.tape.vars_of(other).contains(&v) {
+                        if let Ok(val) = eq.tape.eval(other, x, &mut ctx.sc) {
+                            if val.is_finite() {
+                                let (lo, hi) = ctx.model.bounds.get(&v).copied().unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
+                                x[v as usize] = val.clamp(lo, hi);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn solve_explicit(ctx: &mut Ctx, b: &PBlock, ex: Explicit, x: &mut [f64]) -> BlockReport {
     let eq = &ctx.model.eqs[b.eqs[0] as usize];
     let v = b.vars[0] as usize;
@@ -347,9 +409,10 @@ fn block_eval(ctx: &mut Ctx, b: &PBlock, x: &[f64], r: &mut [f64], jac: Option<&
         if let Some(j) = jac.as_deref_mut() {
             ctx.grad.clear();
             ctx.grad.resize(eq.vars.len(), 0.0);
-            let val = eq.tape.eval_grad(eq.nroot, x, &eq.vars, &mut ctx.grad, &mut ctx.sc).map_err(|e| e.0)?;
+            let (root, terms) = if ctx.natural { (eq.root, &eq.terms) } else { (eq.nroot, &eq.nterms) };
+            let val = eq.tape.eval_grad(root, x, &eq.vars, &mut ctx.grad, &mut ctx.sc).map_err(|e| e.0)?;
             if sc[i] == 0.0 {
-                sc[i] = scale_of(&ctx.sc, &eq.nterms);
+                sc[i] = scale_of(&ctx.sc, terms);
             }
             let s = sc[i];
             r[i] = val / s;
@@ -362,9 +425,10 @@ fn block_eval(ctx: &mut Ctx, b: &PBlock, x: &[f64], r: &mut [f64], jac: Option<&
                 }
             }
         } else {
-            let val = eq.tape.eval(eq.nroot, x, &mut ctx.sc).map_err(|e| e.0)?;
+            let (root, terms) = if ctx.natural { (eq.root, &eq.terms) } else { (eq.nroot, &eq.nterms) };
+            let val = eq.tape.eval(root, x, &mut ctx.sc).map_err(|e| e.0)?;
             if sc[i] == 0.0 {
-                sc[i] = scale_of(&ctx.sc, &eq.nterms);
+                sc[i] = scale_of(&ctx.sc, terms);
             }
             r[i] = val / sc[i];
         }
@@ -379,9 +443,10 @@ fn block_eval(ctx: &mut Ctx, b: &PBlock, x: &[f64], r: &mut [f64], jac: Option<&
 fn true_residual(ctx: &mut Ctx, b: &PBlock, x: &[f64]) -> f64 {
     let mut m = 0.0f64;
     for &e in &b.eqs {
+        // NaN must not pass as converged (f64::max ignores NaN)
         match ctx.resid(e, x) {
-            Some(v) => m = m.max(v.abs()),
-            None => return f64::INFINITY,
+            Some(v) if v.is_finite() => m = m.max(v.abs()),
+            _ => return f64::INFINITY,
         }
     }
     m
@@ -451,8 +516,17 @@ fn newton(ctx: &mut Ctx, b: &PBlock, x: &mut [f64], opts: &SolveOptions) -> Bloc
                 x[b.vars[k] as usize] = x_old[k];
             }
             if r.iter().all(|v| v.abs() <= 1e-13) {
+                // the equations as written must hold too: the form with the
+                // denominators cleared can vanish where they cannot be evaluated
                 let maxr = true_residual(ctx, b, x);
-                return BlockReport { size: n, iterations: it, residual: maxr, converged: true, explicit: false, message: Some("converged at machine precision".into()) };
+                if maxr <= opts.rtol.sqrt() {
+                    return BlockReport { size: n, iterations: it, residual: maxr, converged: true, explicit: false, message: Some("converged at machine precision".into()) };
+                }
+                return fail(
+                    it,
+                    maxr,
+                    format!("reached a point where the equations as written do not hold (residual {maxr:.3e}): a denominator is zero there; give guess values or bounds"),
+                );
             }
             if lambda >= 1e6 {
                 let maxr = r.iter().fold(0.0f64, |m, v| m.max(v.abs()));

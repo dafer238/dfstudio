@@ -354,7 +354,7 @@ mod tests {
         for t in &ALL {
             let mut s = Settings::default();
             (t.studies)(&mut s);
-            let a = run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None });
+            let a = run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None, init: Default::default() });
             let m = &a.model;
             let du = HashMap::new();
             s.table.solve_now(&a, &du).unwrap();

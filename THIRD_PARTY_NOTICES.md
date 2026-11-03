@@ -64,6 +64,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | android-activity | 0.6.1 | MIT OR Apache-2.0 |
 | android-properties | 0.2.2 | MIT |
 | arboard | 3.7.0 | MIT OR Apache-2.0 |
+| arrayref | 0.3.9 | BSD-2-Clause |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 |
 | as-raw-xcb-connection | 1.0.1 | MIT OR Apache-2.0 |
 | ashpd | 0.11.1 | MIT |
@@ -81,6 +82,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT |
+| base64 | 0.22.1 | MIT OR Apache-2.0 |
 | bit-set | 0.10.0 | Apache-2.0 OR MIT |
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT |
 | bitflags | 1.3.2 | MIT/Apache-2.0 |
@@ -123,6 +125,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 |
 | crunchy | 0.2.4 | MIT |
 | cursor-icon | 1.2.0 | MIT OR Apache-2.0 OR Zlib |
+| data-url | 0.3.2 | MIT OR Apache-2.0 |
 | dispatch | 0.2.0 | MIT |
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 |
@@ -161,6 +164,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | find-msvc-tools | 0.1.15 | MIT OR Apache-2.0 |
 | fixedbitset | 0.5.7 | MIT OR Apache-2.0 |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 |
+| float-cmp | 0.9.0 | MIT |
 | foldhash | 0.1.5 | Zlib |
 | foldhash | 0.2.0 | Zlib |
 | font-types | 0.12.7 | MIT OR Apache-2.0 |
@@ -203,6 +207,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | idna | 1.1.0 | MIT OR Apache-2.0 |
 | idna_adapter | 1.2.2 | Apache-2.0 OR MIT |
 | image | 0.25.10 | MIT OR Apache-2.0 |
+| imagesize | 0.13.0 | MIT |
 | indexmap | 2.14.2 | Apache-2.0 OR MIT |
 | itertools | 0.15.0 | MIT OR Apache-2.0 |
 | itoa | 1.0.18 | MIT OR Apache-2.0 |
@@ -214,6 +219,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | jobserver | 0.1.35 | MIT OR Apache-2.0 |
 | js-sys | 0.3.107 | MIT OR Apache-2.0 |
 | khronos_api | 3.1.0 | Apache-2.0 |
+| kurbo | 0.11.3 | Apache-2.0 OR MIT |
 | kurbo | 0.13.1 | Apache-2.0 OR MIT |
 | libc | 0.2.191 | MIT OR Apache-2.0 |
 | libloading | 0.8.9 | ISC |
@@ -282,12 +288,14 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | phf_generator | 0.11.3 | MIT |
 | phf_macros | 0.11.3 | MIT |
 | phf_shared | 0.11.3 | MIT |
+| pico-args | 0.5.0 | MIT |
 | pin-project | 1.1.13 | Apache-2.0 OR MIT |
 | pin-project-internal | 1.1.13 | Apache-2.0 OR MIT |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |
 | piper | 0.2.5 | MIT OR Apache-2.0 |
 | pkg-config | 0.3.34 | MIT OR Apache-2.0 |
 | plain | 0.2.3 | MIT/Apache-2.0 |
+| png | 0.17.16 | MIT OR Apache-2.0 |
 | png | 0.18.1 | MIT OR Apache-2.0 |
 | polling | 3.11.0 | Apache-2.0 OR MIT |
 | pollster | 0.4.0 | Apache-2.0/MIT |
@@ -318,8 +326,11 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | redox_syscall | 0.5.18 | MIT |
 | redox_syscall | 0.9.5 | MIT |
 | renderdoc-sys | 1.1.0 | MIT OR Apache-2.0 |
+| resvg | 0.45.1 | Apache-2.0 OR MIT |
 | rfd | 0.15.4 | MIT |
+| rgb | 0.8.53 | MIT |
 | ron | 0.12.3 | MIT OR Apache-2.0 |
+| roxmltree | 0.20.0 | MIT OR Apache-2.0 |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
@@ -343,6 +354,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | simd-adler32 | 0.3.10 | MIT |
 | simd_cesu8 | 1.2.0 | Apache-2.0 OR MIT |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 |
+| simplecss | 0.2.2 | Apache-2.0 OR MIT |
 | siphasher | 1.0.4 | MIT OR Apache-2.0 |
 | skrifa | 0.44.0 | MIT OR Apache-2.0 |
 | slab | 0.4.12 | MIT |
@@ -354,6 +366,8 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | smol_str | 0.2.2 | MIT OR Apache-2.0 |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 |
 | static_assertions | 1.1.0 | MIT OR Apache-2.0 |
+| strict-num | 0.1.1 | MIT |
+| svgtypes | 0.15.3 | Apache-2.0 OR MIT |
 | syn | 2.0.119 | MIT OR Apache-2.0 |
 | syn | 3.0.9 | MIT OR Apache-2.0 |
 | synstructure | 0.14.0 | MIT |
@@ -363,6 +377,8 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 |
 | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 |
 | tiff | 0.11.3 | MIT |
+| tiny-skia | 0.11.4 | BSD-3-Clause |
+| tiny-skia-path | 0.11.4 | BSD-3-Clause |
 | tinystr | 0.8.5 | Unicode-3.0 |
 | tokio | 1.54.1 | MIT |
 | toml | 1.1.8+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -385,6 +401,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | unicode-width | 0.2.3 | MIT OR Apache-2.0 |
 | url | 2.5.8 | MIT OR Apache-2.0 |
 | urlencoding | 2.1.3 | MIT |
+| usvg | 0.45.1 | Apache-2.0 OR MIT |
 | utf8_iter | 1.1.0 | Apache-2.0 OR MIT |
 | utf_types | 1.0.0 | Apache-2.0 OR MIT |
 | uuid | 1.29.0 | Apache-2.0 OR MIT |
@@ -446,6 +463,7 @@ package). Regenerate with `cargo metadata` (see docs/BUILDING.md).
 | xkbcommon-dl | 0.4.2 | MIT |
 | xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib |
 | xml-rs | 0.8.29 | MIT |
+| xmlwriter | 0.1.0 | MIT |
 | yoke | 0.8.4 | Unicode-3.0 |
 | yoke-derive | 0.8.4 | Unicode-3.0 |
 | zbus | 5.19.0 | MIT |

@@ -141,7 +141,7 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
 
 * **Live structure.** Each edit is re-analysed about 120 ms after you stop
   typing; with *Solve > Live solve while typing* the determined part is also
-  solved.
+  solved, and the toolbar's Solve button is hidden (F2 still solves).
 * **Completion** (`Ctrl+Space`): functions, property names, fluids,
   variables, directives and, inside `[...]`, units. Signature help appears
   inside calls.
@@ -367,17 +367,49 @@ linearly. On a property diagram the tooltip names the state it snapped to.
 A flowsheet whose streams are bound to state numbers, so labels read
 `T[k]`, `P[k]`, `h[k]`, ... of the solution.
 
+Layout: the **left sidebar** holds the component palette, the templates
+and, when a component or stream is selected, its settings. The **right
+sidebar** has two tabs, **KPI** and **States**, and below them the settings
+of the whole diagram: *Lock*, *Stream labels* (style, size, cross
+quadrants, stream variables, fluid properties) and *Diagram* (KPI box,
+title, *Export PDF report…*, *Fit view*).
+
 * **Templates**: the *Template* row under the palette inserts a complete,
   labelled cycle (simple Rankine, simple and recuperated Brayton,
   vapour-compression refrigeration). In an empty project the template also brings its
   equations, so it solves at once; in an existing drawing it is placed to
   the right, with state numbers that continue after the highest one in use.
-* Drag components from the palette; drag from an outlet port (red) to an
+* Drag components from the library; drag from an outlet port (red) to an
   inlet port (blue) to connect. `R` rotates, `M` mirrors, `Del` deletes.
+* **Component library**, in collapsible groups with an icon each:
+
+  | Group | Components |
+  |---|---|
+  | Turbines | turbine |
+  | Compressors and fans | compressor, fan |
+  | Pumps | pump |
+  | Heat exchangers | heat exchanger, heater / boiler, cooler / condenser |
+  | HRSG | economizer, evaporator, superheater, duct burner, SCR, duct, stack, fan |
+  | Condensers and cooling | water-cooled condenser, air-cooled condenser (ACC), cooler, cooling tower |
+  | Valves and piping | valve, pipe, mixer, splitter |
+  | Sources and sinks | source, sink, stack |
+  | Electrical | generator, motor |
+  | Annotations | text |
+
+  The specialised items use the results of a general one: economizer,
+  evaporator, superheater and water-cooled condenser are two-stream heat
+  exchangers (gas or steam = hot side, water = cold side), a fan is a
+  compressor, a duct burner a heater, an ACC a cooler, SCR and duct are
+  pipes (pressure loss) and a stack is a sink. The Components tab lists the
+  diagram's components under the same groups.
 * **Connection points** of turbines, compressors and pumps: select the
   component and choose, per port, where the stream meets the casing:
-  axially on either end face (3 or 4 points) or radially on the upper or
-  lower casing (3 points each); pumps have 3 points on each side. Combined
+  axially on either end face (3 or 4 points) or radially on the tilted
+  upper or lower casing line at one of five stages (stage 1 is the first in
+  the flow direction: the inlet end of a turbine, the suction end of a
+  compressor); pumps have 3 points on each side. Each machine keeps one
+  inlet and one outlet; a multi-section turbine is drawn as turbines in
+  series. Combined
   with rotate and mirror this gives any orientation with short, straight
   streams.
 * Streams route with as few bends as possible. When you release a moved
@@ -419,10 +451,21 @@ A flowsheet whose streams are bound to state numbers, so labels read
   typing in that field. The history is cleared when another project is
   opened.
 * Double-click an empty part of the canvas to fit the drawing to the view.
-* **KPIs**: label + variable; *Suggest* proposes powers, heats and
+* **KPIs** (KPI tab): label + variable; *Suggest* proposes powers, heats and
   efficiencies. The KPI box can be hidden from the canvas.
+* **States** tab: one row per state number. The columns are the stream
+  variables ticked under *Stream labels*, then the mass flow and the
+  entropy from the model (an entropy the model does not compute is taken
+  from CoolProp when the fluid's reference matches), then from CoolProp
+  at the stream's P and h: vapour quality `x` (or *liquid*, *vapour*,
+  *supercritical*), `dT_sat` (degree of superheating `T - T_dew`, positive,
+  or of subcooling `T_bubble - T`, negative, at the stream pressure;
+  *sat* inside the dome), density, cp and the fluid used. *Copy table
+  (TSV)* copies it with names and units for a spreadsheet.
 * *Export PDF report…* writes the diagram, the KPI table and the state table
-  (A4 or A3 landscape); also `dfstudio --report model.df out.pdf`.
+  (A4 or A3 landscape); also `dfstudio --report model.df out.pdf`. The PDF
+  keeps the canvas labels: cross or box style, state numbers shown or
+  hidden, label size, positions, stream colours and the cross unit legend.
 
 ## 11. Component results
 

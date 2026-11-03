@@ -179,8 +179,9 @@ pub fn coolprop_fluid(name: &str) -> String {
     let l = name.to_lowercase();
     match l.as_str() {
         "carbondioxide" | "co2" | "r744" => "CO2".into(),
-        "steam" | "steam_nbs" | "water" | "h2o" => "Water".into(),
-        "steam_iapws" => "IF97::Water".into(),
+        "steam" | "steam_nbs" | "water" | "h2o" | "r718" => "Water".into(),
+        // EES Steam_IAPWS is IAPWS-95, like Water and Steam (EES help, "Steam_IAPWS")
+        "steam_iapws" => "Water".into(),
         "air" | "air_ha" => "Air".into(),
         "nitrogen" | "n2" => "Nitrogen".into(),
         "oxygen" | "o2" => "Oxygen".into(),
@@ -747,12 +748,30 @@ pub mod backend {
         None
     }
 
+    /// AbstractState handles of a thread, one per fluid, released when the
+    /// thread ends (study workers are short-lived threads).
+    struct Handles(HashMap<String, c_long>);
+
+    impl Drop for Handles {
+        fn drop(&mut self) {
+            if self.0.is_empty() {
+                return;
+            }
+            let cp = COOLPROP.exclusive_access();
+            let mut err: c_long = 0;
+            let mut buf = [0u8; BUF];
+            for h in self.0.values() {
+                unsafe { cp.AbstractState_free(*h, &mut err, buf.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            }
+        }
+    }
+
     thread_local! {
-        static STATES: RefCell<HashMap<String, c_long>> = RefCell::new(HashMap::new());
+        static STATES: RefCell<Handles> = RefCell::new(Handles(HashMap::new()));
     }
 
     fn state(fluid: &str) -> Result<c_long, String> {
-        if let Some(h) = STATES.with(|s| s.borrow().get(fluid).copied()) {
+        if let Some(h) = STATES.with(|s| s.borrow().0.get(fluid).copied()) {
             return Ok(h);
         }
         let (backend, names) = match fluid.split_once("::") {
@@ -774,8 +793,10 @@ pub mod backend {
         let cf = CString::new(comps.join("&")).map_err(|e| e.to_string())?;
         let mut err: c_long = 0;
         let mut buf = vec![0u8; BUF];
+        // CoolProp keeps every AbstractState in one global handle table: adding
+        // to it must not overlap any other call, which reads that table
         let h = {
-            let cp = COOLPROP.shared_access();
+            let cp = COOLPROP.exclusive_access();
             unsafe { cp.AbstractState_factory(cb.as_ptr(), cf.as_ptr(), &mut err, buf.as_mut_ptr() as *mut c_char, BUF as c_long) }
         };
         if err != 0 {
@@ -785,13 +806,13 @@ pub mod backend {
             if fracs.len() != comps.len() {
                 return Err(format!("fluid '{fluid}': every component needs a fraction"));
             }
-            let cp = COOLPROP.shared_access();
+            let cp = COOLPROP.exclusive_access();
             unsafe { cp.AbstractState_set_fractions(h, fracs.as_ptr(), fracs.len() as c_long, &mut err, buf.as_mut_ptr() as *mut c_char, BUF as c_long) };
             if err != 0 {
                 return Err(format!("fluid '{fluid}': {}", msg(&buf)));
             }
         }
-        STATES.with(|s| s.borrow_mut().insert(fluid.to_string(), h));
+        STATES.with(|s| s.borrow_mut().0.insert(fluid.to_string(), h));
         Ok(h)
     }
 

@@ -222,6 +222,8 @@ pub struct DfApp {
 
 impl DfApp {
     pub fn new(cc: &eframe::CreationContext<'_>, file: Option<String>) -> Self {
+        // SVG icons (components library, menus)
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         // a little more air between rows and widgets than egui's defaults
         cc.egui_ctx.all_styles_mut(|st| {
             st.spacing.item_spacing = egui::vec2(8.0, 6.0);
@@ -1472,48 +1474,50 @@ impl eframe::App for DfApp {
         egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New  (Ctrl+N)").clicked() {
+                    if crate::icons::menu_item(ui, "new", "New", "Ctrl+N").clicked() {
                         self.new_project();
                     }
-                    if ui.button("Open…  (Ctrl+O)").clicked() {
+                    if crate::icons::menu_item(ui, "open", "Open…", "Ctrl+O").clicked() {
                         self.open();
                     }
-                    if ui.button("Save  (Ctrl+S)").clicked() {
+                    if crate::icons::menu_item(ui, "save", "Save", "Ctrl+S").clicked() {
                         self.save(false);
                     }
-                    if ui.button("Save as…").clicked() {
+                    if crate::icons::menu_item(ui, "save_as", "Save as…", "").clicked() {
                         self.save(true);
                     }
                     ui.checkbox(&mut self.auto_save, "Auto save")
                         .on_hover_text("Save to the current file 3 s after each change. Off for opened files; on for a new project after its first Save as.");
-                    if ui.button(format!("Project files… ({})", self.files.len())).clicked() {
+                    if crate::icons::menu_item(ui, "files", &format!("Project files… ({})", self.files.len()), "").clicked() {
                         self.show_files = true;
                     }
                     ui.separator();
-                    if ui.button("Load example…").on_hover_text("Open a model from the examples folder").clicked() {
+                    if crate::icons::menu_item(ui, "example", "Load example…", "").on_hover_text("Open a model from the examples folder").clicked() {
                         self.load_example();
                     }
                 });
                 ui.menu_button("Edit", |ui| {
-                    if ui.button("Undo  (Ctrl+Z)").clicked() {
+                    if crate::icons::menu_item(ui, "undo", "Undo", "Ctrl+Z").clicked() {
                         self.undo_redo(false);
                     }
-                    if ui.button("Redo  (Ctrl+Y / Ctrl+Shift+Z)").clicked() {
+                    if crate::icons::menu_item(ui, "redo", "Redo", "Ctrl+Y").clicked() {
                         self.undo_redo(true);
                     }
                     ui.separator();
-                    if ui.button("Find…  (Ctrl+F)").clicked() {
+                    if crate::icons::menu_item(ui, "find", "Find…", "Ctrl+F").clicked() {
                         self.tab = Tab::Equations;
                         self.eq_view = EqView::Editor;
                         self.editor.open_find(false, &self.s.text);
                     }
-                    if ui.button("Replace…  (Ctrl+H)").clicked() {
+                    if crate::icons::menu_item(ui, "replace", "Replace…", "Ctrl+H").clicked() {
                         self.tab = Tab::Equations;
                         self.eq_view = EqView::Editor;
                         self.editor.open_find(true, &self.s.text);
                     }
                     ui.separator();
-                    if ui.button("Format script  (Shift+Alt+F)").on_hover_text("Indent blocks, align trailing comments, normalise spacing (the equations do not change)").clicked()
+                    if crate::icons::menu_item(ui, "format", "Format script", "Shift+Alt+F")
+                        .on_hover_text("Indent blocks, align trailing comments, normalise spacing (the equations do not change)")
+                        .clicked()
                     {
                         self.format_script();
                     }
@@ -1538,7 +1542,7 @@ impl eframe::App for DfApp {
                     }
                 });
                 ui.menu_button("Solve", |ui| {
-                    if ui.button("Solve  (F2)").clicked() {
+                    if crate::icons::menu_item(ui, "solve", "Solve", "F2").clicked() {
                         self.submit(true);
                     }
                     ui.checkbox(&mut self.s.live_solve, "Live solve while typing");
@@ -1556,19 +1560,19 @@ impl eframe::App for DfApp {
                     ui.separator();
                     ui.label(RichText::new("Display units preset").strong());
                     for p in DisplayPreset::ALL {
-                        if ui.button(p.label()).clicked() {
+                        if crate::icons::menu_item(ui, "units", p.label(), "").clicked() {
                             self.apply_preset(p);
                         }
                     }
-                    if ui.button("Reset display units").clicked() {
+                    if crate::icons::menu_item(ui, "reset", "Reset display units", "").clicked() {
                         self.s.display_units.clear();
                     }
                 });
                 ui.menu_button("View", |ui| {
-                    if ui.button("Larger font").clicked() {
+                    if crate::icons::menu_item(ui, "font_larger", "Larger font", "").clicked() {
                         self.editor.font_size = (self.editor.font_size + 1.0).min(28.0);
                     }
-                    if ui.button("Smaller font").clicked() {
+                    if crate::icons::menu_item(ui, "font_smaller", "Smaller font", "").clicked() {
                         self.editor.font_size = (self.editor.font_size - 1.0).max(9.0);
                     }
                     ui.checkbox(&mut self.show_diag, "Problems panel");
@@ -1576,22 +1580,30 @@ impl eframe::App for DfApp {
                     ui.label("Theme");
                     let cur = ui.ctx().options(|o| o.theme_preference);
                     ui.horizontal(|ui| {
-                        for (t, name) in [(egui::ThemePreference::Light, "Light"), (egui::ThemePreference::Dark, "Dark"), (egui::ThemePreference::System, "System")] {
-                            if ui.selectable_label(cur == t, name).clicked() {
+                        for (t, name, icon) in
+                            [(egui::ThemePreference::Light, "Light", "sun"), (egui::ThemePreference::Dark, "Dark", "moon"), (egui::ThemePreference::System, "System", "monitor")]
+                        {
+                            if ui.add(egui::Button::selectable(cur == t, (crate::icons::image(ui, icon, 14.0), name))).clicked() {
                                 ui.ctx().set_theme(t);
                             }
                         }
                     });
                 });
                 ui.menu_button("Help", |ui| {
-                    if ui.button("Language reference").clicked() {
+                    if crate::icons::menu_item(ui, "book", "Language reference", "").clicked() {
                         self.show_help = true;
                     }
                     ui.label("Ctrl+Space: completion · F2: solve");
                     ui.separator();
-                    ui.hyperlink_to("Documentation", "https://github.com/dafer238/dfstudio/tree/main/docs");
-                    ui.hyperlink_to("Report a problem", "https://github.com/dafer238/dfstudio/issues");
-                    ui.hyperlink_to("Releases", "https://github.com/dafer238/dfstudio/releases");
+                    for (icon, text, url) in [
+                        ("book", "Documentation", "https://github.com/dafer238/dfstudio/tree/main/docs"),
+                        ("bug", "Report a problem", "https://github.com/dafer238/dfstudio/issues"),
+                        ("download", "Releases", "https://github.com/dafer238/dfstudio/releases"),
+                    ] {
+                        if crate::icons::menu_item(ui, icon, text, "").on_hover_text(url).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    }
                     ui.separator();
                     ui.label(format!("DF Studio {}", env!("CARGO_PKG_VERSION")));
                     ui.label("Free software, GNU AGPL-3.0. Properties: CoolProp.");
@@ -1601,11 +1613,14 @@ impl eframe::App for DfApp {
 
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("Solve").strong()).on_hover_text("F2").clicked() {
-                    self.submit(true);
-                    self.status = "Solving…".into();
+                // with live solve the model is solved while typing: no button (F2 still works)
+                if !self.s.live_solve {
+                    if ui.button(RichText::new("Solve").strong()).on_hover_text("F2").clicked() {
+                        self.submit(true);
+                        self.status = "Solving…".into();
+                    }
+                    ui.separator();
                 }
-                ui.separator();
                 for (t, label) in [
                     (Tab::Equations, "Equations"),
                     (Tab::Solution, "Solution"),

@@ -150,8 +150,9 @@ or reference state, not to the solver.
 
 | EES name | DF Studio / CoolProp fluid | Remark |
 |---|---|---|
-| `Water`, `Steam`, `Steam_NBS`, `H2O` | `Water` (IAPWS-95) | |
-| `Steam_IAPWS` | `IF97::Water` | industrial formulation |
+| `Water`, `Steam`, `Steam_IAPWS`, `R718`, `H2O` | `Water` (IAPWS-95) | EES uses IAPWS-95 for all four names ([EES help: Steam_IAPWS](https://fchartsoftware.com/ees/eeshelp/steam_iapws.htm)) |
+| `Steam_NBS` | `Water` (IAPWS-95) | EES uses the older Haar, Gallagher & Kell (1984) formulation; differences are small but not zero |
+| — | `'IF97::Water'` | IAPWS-IF97 industrial formulation, when a model needs it |
 | `CarbonDioxide`, `CO2`, `R744` | `CO2` (Span & Wagner) | |
 | `Air`, `Air_ha` | `Air` (pseudo-pure, Lemmon et al.) | real fluid, see below |
 | `Nitrogen`/`N2`, `Oxygen`/`O2`, `Argon`/`Ar`, `Hydrogen`/`H2`, `Helium`/`He`, `Methane`/`CH4`, `Ammonia`/`NH3`/`R717` | CoolProp pure fluid | |

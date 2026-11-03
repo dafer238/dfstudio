@@ -63,6 +63,7 @@ pub fn infer(m: &Model) -> (Vec<Option<Dim>>, Vec<u32>) {
                                 o => o,
                             },
                             F1::Sign | F1::Step | F1::Not => D::Wild,
+                            F1::Opaque => D::Unknown,
                             _ => D::K(Dim::NONE),
                         }
                     }

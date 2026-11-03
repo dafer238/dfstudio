@@ -31,10 +31,50 @@ pub enum Kind {
     Motor,
     CoolingTower,
     Pipe,
+    Fan,
+    Economizer,
+    Evaporator,
+    Superheater,
+    DuctBurner,
+    Scr,
+    Duct,
+    Stack,
+    WaterCondenser,
+    AirCondenser,
 }
 
+/// Group of the component library, with its icon.
+pub struct Group {
+    pub name: &'static str,
+    pub icon: &'static str,
+    pub kinds: &'static [Kind],
+    /// open when first shown
+    pub open: bool,
+}
+
+/// Component library, by equipment family. A component may appear in
+/// more than one group (a fan is both a turbomachine and HRSG equipment).
+pub const GROUPS: [Group; 10] = [
+    Group { name: "Turbines", icon: "turbine", kinds: &[Kind::Turbine], open: true },
+    Group { name: "Compressors and fans", icon: "compressor", kinds: &[Kind::Compressor, Kind::Fan], open: true },
+    Group { name: "Pumps", icon: "pump", kinds: &[Kind::Pump], open: true },
+    Group { name: "Heat exchangers", icon: "heat_exchanger", kinds: &[Kind::HeatExchanger, Kind::Heater, Kind::Cooler], open: true },
+    Group {
+        name: "HRSG",
+        icon: "hrsg",
+        kinds: &[Kind::Economizer, Kind::Evaporator, Kind::Superheater, Kind::DuctBurner, Kind::Scr, Kind::Duct, Kind::Stack, Kind::Fan],
+        open: false,
+    },
+    Group { name: "Condensers and cooling", icon: "condenser", kinds: &[Kind::WaterCondenser, Kind::AirCondenser, Kind::Cooler, Kind::CoolingTower], open: false },
+    Group { name: "Valves and piping", icon: "valve", kinds: &[Kind::Valve, Kind::Pipe, Kind::Mixer, Kind::Splitter], open: true },
+    Group { name: "Sources and sinks", icon: "source_sink", kinds: &[Kind::Source, Kind::Sink, Kind::Stack], open: true },
+    Group { name: "Electrical", icon: "electrical", kinds: &[Kind::Generator, Kind::Motor], open: false },
+    Group { name: "Annotations", icon: "text", kinds: &[Kind::Label], open: false },
+];
+
 impl Kind {
-    pub const ALL: [Kind; 16] = [
+    #[cfg(test)]
+    pub const ALL: [Kind; 26] = [
         Kind::Turbine,
         Kind::Compressor,
         Kind::Pump,
@@ -50,8 +90,37 @@ impl Kind {
         Kind::Motor,
         Kind::CoolingTower,
         Kind::Pipe,
+        Kind::Fan,
+        Kind::Economizer,
+        Kind::Evaporator,
+        Kind::Superheater,
+        Kind::DuctBurner,
+        Kind::Scr,
+        Kind::Duct,
+        Kind::Stack,
+        Kind::WaterCondenser,
+        Kind::AirCondenser,
         Kind::Label,
     ];
+    /// The component whose model and results this one uses: HRSG sections
+    /// and the water-cooled condenser are two-stream heat exchangers, a fan
+    /// is a compressor, a duct burner a heater, an air-cooled condenser a
+    /// cooler, SCR and duct are pipes (pressure loss), a stack is a sink.
+    pub fn base(self) -> Kind {
+        match self {
+            Kind::Fan => Kind::Compressor,
+            Kind::Economizer | Kind::Evaporator | Kind::Superheater | Kind::WaterCondenser => Kind::HeatExchanger,
+            Kind::DuctBurner => Kind::Heater,
+            Kind::AirCondenser => Kind::Cooler,
+            Kind::Scr | Kind::Duct => Kind::Pipe,
+            Kind::Stack => Kind::Sink,
+            k => k,
+        }
+    }
+    /// Library group where the component is listed first.
+    pub fn group(self) -> &'static Group {
+        GROUPS.iter().find(|g| g.kinds.contains(&self)).unwrap_or(&GROUPS[GROUPS.len() - 1])
+    }
     pub fn name(self) -> &'static str {
         match self {
             Kind::Turbine => "Turbine",
@@ -70,6 +139,16 @@ impl Kind {
             Kind::Motor => "Motor",
             Kind::CoolingTower => "Cooling tower",
             Kind::Pipe => "Pipe",
+            Kind::Fan => "Fan",
+            Kind::Economizer => "Economizer",
+            Kind::Evaporator => "Evaporator",
+            Kind::Superheater => "Superheater",
+            Kind::DuctBurner => "Duct burner",
+            Kind::Scr => "SCR",
+            Kind::Duct => "Duct",
+            Kind::Stack => "Stack",
+            Kind::WaterCondenser => "Water-cooled condenser",
+            Kind::AirCondenser => "Air-cooled condenser (ACC)",
         }
     }
 }
@@ -155,6 +234,57 @@ fn shape(kind: Kind) -> Vec<Prim> {
             line(&[[8.0, -20.0], [8.0, -8.0]]),
         ],
         Kind::Pipe => vec![poly(&[[-18.0, -5.0], [18.0, -5.0], [18.0, 5.0], [-18.0, 5.0]], Some([150, 200, 120]))],
+        Kind::Fan => vec![
+            Circle { c: [0.0, 0.0], r: 16.0, fill: Some(COMP) },
+            // two blades and the hub
+            poly(&[[-2.0, -2.0], [-4.0, -13.0], [4.0, -13.0]], None),
+            poly(&[[2.0, 2.0], [4.0, 13.0], [-4.0, 13.0]], None),
+            Circle { c: [0.0, 0.0], r: 3.0, fill: None },
+        ],
+        // HRSG section: gas duct (horizontal, hot side) crossed by a tube coil
+        // (vertical, water side, in at the bottom and out at the top)
+        Kind::Economizer | Kind::Evaporator | Kind::Superheater => {
+            let (fill, tag) = match kind {
+                Kind::Economizer => (COLD, "ECO"),
+                Kind::Evaporator => (HX, "EVA"),
+                _ => (HOT, "SH"),
+            };
+            vec![
+                poly(&[[-16.0, -30.0], [16.0, -30.0], [16.0, 30.0], [-16.0, 30.0]], Some(fill)),
+                line(&[[-16.0, 0.0], [-11.0, 0.0]]),
+                line(&[[6.0, 30.0], [6.0, 20.0], [-6.0, 14.0], [6.0, 8.0], [-6.0, 2.0], [6.0, -4.0], [-6.0, -10.0], [6.0, -16.0], [-6.0, -20.0], [-6.0, -30.0]]),
+                Text { p: [0.0, -36.0], s: tag.into(), size: 7.0 },
+            ]
+        }
+        Kind::DuctBurner => vec![
+            poly(&[[-22.0, -14.0], [22.0, -14.0], [22.0, 14.0], [-22.0, 14.0]], Some([215, 215, 215])),
+            // flame
+            poly(&[[-6.0, 10.0], [6.0, 10.0], [0.0, -10.0]], Some(HOT)),
+            line(&[[-22.0, 0.0], [-10.0, 0.0]]),
+        ],
+        Kind::Scr => vec![
+            poly(&[[-18.0, -18.0], [18.0, -18.0], [18.0, 18.0], [-18.0, 18.0]], Some([215, 215, 215])),
+            // catalyst layers
+            line(&[[-8.0, -18.0], [-8.0, 18.0]]),
+            line(&[[0.0, -18.0], [0.0, 18.0]]),
+            line(&[[8.0, -18.0], [8.0, 18.0]]),
+            Text { p: [0.0, -24.0], s: "SCR".into(), size: 7.0 },
+        ],
+        Kind::Duct => vec![poly(&[[-22.0, -9.0], [22.0, -9.0], [22.0, 9.0], [-22.0, 9.0]], Some([215, 215, 215]))],
+        Kind::Stack => vec![poly(&[[-10.0, 30.0], [10.0, 30.0], [6.0, -30.0], [-6.0, -30.0]], Some([200, 200, 200]))],
+        // shell with a two-pass tube bundle; steam enters at the top
+        Kind::WaterCondenser => vec![
+            poly(&[[-30.0, -18.0], [30.0, -18.0], [30.0, 18.0], [-30.0, 18.0]], Some(COLD)),
+            line(&[[0.0, -18.0], [0.0, -12.0]]),
+            line(&[[30.0, 8.0], [-22.0, 8.0], [-22.0, -4.0], [30.0, -4.0]]),
+        ],
+        // A-frame of finned tubes over a fan
+        Kind::AirCondenser => vec![
+            poly(&[[-28.0, 16.0], [0.0, -22.0], [28.0, 16.0]], Some(COLD)),
+            line(&[[0.0, -22.0], [0.0, -10.0]]),
+            Circle { c: [0.0, 8.0], r: 6.0, fill: Some([235, 235, 235]) },
+            line(&[[-5.0, 8.0], [5.0, 8.0]]),
+        ],
         Kind::Label => vec![],
     }
 }
@@ -171,7 +301,15 @@ fn inner_port(kind: Kind, i: usize) -> Option<usize> {
         (Kind::Turbine | Kind::Compressor, 0) => Some(0),
         (Kind::Pump, 0 | 1) => Some(0),
         (Kind::Valve, 0 | 1) => Some(0),
-        (Kind::Pipe | Kind::Mixer | Kind::Splitter | Kind::Source | Kind::Sink, _) => Some(0),
+        (Kind::Pipe | Kind::Mixer | Kind::Splitter | Kind::Source | Kind::Sink | Kind::Duct | Kind::Stack, _) => Some(0),
+        (Kind::Fan, 0) => Some(0),
+        (Kind::Economizer | Kind::Evaporator | Kind::Superheater, 1) => Some(0),
+        (Kind::Economizer | Kind::Evaporator | Kind::Superheater, 2) => Some(2),
+        (Kind::DuctBurner, 2) => Some(0),
+        (Kind::Scr, 1..=3) => Some(0),
+        (Kind::WaterCondenser, 1) => Some(0),
+        (Kind::WaterCondenser, 2) => Some(2),
+        (Kind::AirCondenser, 1) => Some(0),
         _ => None,
     }
 }
@@ -210,12 +348,26 @@ pub fn anchor_options(kind: Kind) -> Vec<(String, [f32; 2], [f32; 2])> {
             for (k, y) in [-18.0, -9.0, 9.0, 18.0].into_iter().enumerate() {
                 v.push((format!("axial, {large} {}", k + 1), [-s * 25.0, y], [-s, 0.0]));
             }
-            for (side, sy) in [("upper", -1.0), ("lower", 1.0)] {
-                for (k, t) in [0.15, 0.5, 0.85].into_iter().enumerate() {
-                    // casing edge from the small end (half height 12) to the large end (26)
-                    let x = s * 25.0 - s * 50.0 * t;
-                    let y = sy * (12.0 + 14.0 * t);
-                    v.push((format!("radial, {side} casing {}", k + 1), [x, y], [0.0, sy]));
+            // radial points on the tilted casing lines at five stages, from the
+            // small end (half height 12) to the large end (26). Stage 1 is the
+            // first in the flow direction: the inlet end of a turbine, the
+            // suction end of a compressor. The first three per side keep the
+            // indices saved by earlier versions; stages 2 and 4 follow.
+            let stage = |t: f32| {
+                let k = (t * 5.0 - 0.5).round() as usize + 1;
+                if kind == Kind::Turbine {
+                    k
+                } else {
+                    6 - k
+                }
+            };
+            for ts in [[0.1, 0.5, 0.9], [0.3, 0.7, f32::NAN]] {
+                for (side, sy) in [("upper", -1.0), ("lower", 1.0)] {
+                    for t in ts.into_iter().filter(|t| t.is_finite()) {
+                        let x = s * 25.0 - s * 50.0 * t;
+                        let y = sy * (12.0 + 14.0 * t);
+                        v.push((format!("radial, {side} casing, stage {} of 5", stage(t)), [x, y], [0.0, sy]));
+                    }
                 }
             }
         }
@@ -261,6 +413,25 @@ pub fn ports(kind: Kind) -> Vec<Port> {
             p("air out", [0.0, -32.0], [0.0, -1.0], false),
         ],
         Kind::Pipe => vec![p("in", [-18.0, 0.0], [-1.0, 0.0], true), p("out", [18.0, 0.0], [1.0, 0.0], false)],
+        Kind::Fan => vec![p("in", [-16.0, 0.0], [-1.0, 0.0], true), p("out", [16.0, 0.0], [1.0, 0.0], false)],
+        // ports in the order of a heat exchanger: hot in, hot out, cold in, cold out
+        Kind::Economizer | Kind::Evaporator | Kind::Superheater => vec![
+            p("gas in", [-16.0, 0.0], [-1.0, 0.0], true),
+            p("gas out", [16.0, 0.0], [1.0, 0.0], false),
+            p("water in", [6.0, 30.0], [0.0, 1.0], true),
+            p(if kind == Kind::Superheater { "steam out" } else { "water out" }, [-6.0, -30.0], [0.0, -1.0], false),
+        ],
+        Kind::DuctBurner => vec![p("in", [-22.0, 0.0], [-1.0, 0.0], true), p("out", [22.0, 0.0], [1.0, 0.0], false)],
+        Kind::Scr => vec![p("in", [-18.0, 0.0], [-1.0, 0.0], true), p("out", [18.0, 0.0], [1.0, 0.0], false)],
+        Kind::Duct => vec![p("in", [-22.0, 0.0], [-1.0, 0.0], true), p("out", [22.0, 0.0], [1.0, 0.0], false)],
+        Kind::Stack => vec![p("in", [-9.0, 20.0], [-1.0, 0.0], true)],
+        Kind::WaterCondenser => vec![
+            p("steam in", [0.0, -18.0], [0.0, -1.0], true),
+            p("condensate out", [0.0, 18.0], [0.0, 1.0], false),
+            p("water in", [30.0, 8.0], [1.0, 0.0], true),
+            p("water out", [30.0, -4.0], [1.0, 0.0], false),
+        ],
+        Kind::AirCondenser => vec![p("steam in", [0.0, -22.0], [0.0, -1.0], true), p("condensate out", [-28.0, 16.0], [0.0, 1.0], false)],
         Kind::Generator | Kind::Motor | Kind::Label => vec![],
     }
 }
@@ -837,6 +1008,137 @@ impl CycleInputs<'_> {
     }
 }
 
+// ------------------------------------------------------------------ state table
+
+/// Table of the diagram's states: the chosen stream variables, then mass
+/// flow and entropy from the model, then quality, superheating/subcooling,
+/// density and cp from CoolProp at (P, h) of each stream's fluid.
+#[derive(Clone, Debug, Default)]
+pub struct StateTable {
+    /// (name, unit) of each column after the state number
+    pub heads: Vec<(String, String)>,
+    pub rows: Vec<(i64, Vec<String>)>,
+}
+
+impl StateTable {
+    /// Tab-separated text with a header line of names and units.
+    pub fn tsv(&self) -> String {
+        let mut s = String::from("State");
+        for (h, u) in &self.heads {
+            s.push('\t');
+            s.push_str(h);
+            if !u.is_empty() {
+                s.push_str(&format!(" [{u}]"));
+            }
+        }
+        s.push('\n');
+        for (k, r) in &self.rows {
+            s.push_str(&k.to_string());
+            for v in r {
+                s.push('\t');
+                s.push_str(v);
+            }
+            s.push('\n');
+        }
+        s
+    }
+}
+
+pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
+    use crate::components::{bases, main_fluid, state, stream_fluid_ex, Phase};
+    use dfcore::props::Key;
+    use dfcore::units::Dim;
+    let mut states: Vec<i64> = d.links.iter().filter_map(|l| l.state).collect();
+    states.sort_unstable();
+    states.dedup();
+    if states.is_empty() {
+        return StateTable::default();
+    }
+    let b = bases(inp);
+    let main = main_fluid(inp.script);
+    let sts: Vec<_> = states
+        .iter()
+        .map(|k| {
+            let l = d.links.iter().find(|l| l.state == Some(*k)).unwrap();
+            state(inp, &b, *k, stream_fluid_ex(l, &main))
+        })
+        .collect();
+    let us = &inp.analysis.model.unit_system;
+    let shown = |base: &str| d.state_vars.iter().any(|v| v.eq_ignore_ascii_case(base));
+    let model_col = |base: &str| -> (String, String, Vec<String>) {
+        let unit = states.iter().find_map(|k| inp.value(&format!("{base}[{k}]"))).map(|v| v.2).unwrap_or_default();
+        let vals = states.iter().map(|k| inp.value(&format!("{base}[{k}]")).map(|v| fmt_sig(v.1)).unwrap_or_else(|| "—".into())).collect();
+        (inp.base_display(base), unit, vals)
+    };
+    let mut cols: Vec<(String, String, Vec<String>)> = d.state_vars.iter().map(|v| model_col(v)).collect();
+    if let Some(m) = b.m.as_ref().filter(|m| !shown(m)) {
+        cols.push(model_col(m));
+    }
+    let any_fluid = sts.iter().any(|s| s.fluid.is_some());
+    let cp_col = |name: &str, key: Key, f: &dyn Fn(&crate::components::St) -> f64| -> (String, String, Vec<String>) {
+        let u = us.unit_for(key.dim());
+        let vals = sts.iter().map(|s| if s.fluid.is_some() { f(s) } else { f64::NAN }).map(|x| if x.is_finite() { fmt_sig(u.from_si(x)) } else { "—".into() }).collect();
+        (name.to_string(), if u.symbol == "-" { String::new() } else { u.symbol.clone() }, vals)
+    };
+    match b.s.as_ref() {
+        Some(sb) if !shown(sb) => {
+            // states the model leaves without s: CoolProp, when its reference matches the model's
+            let mut c = model_col(sb);
+            let u = us.unit_for(Dim::SPEC_ENTROPY);
+            for (i, st) in sts.iter().enumerate() {
+                if c.2[i] == "—" && st.fluid.is_some() && st.h_off == 0.0 && c.1 == u.symbol {
+                    if let Some(x) = st.s_cp() {
+                        c.2[i] = fmt_sig(u.from_si(x));
+                    }
+                }
+            }
+            cols.push(c);
+        }
+        None if any_fluid => cols.push(cp_col("s", Key::S, &|s| s.s_cp().unwrap_or(f64::NAN))),
+        _ => {}
+    }
+    if any_fluid {
+        let phases: Vec<Phase> = sts.iter().map(|s| s.phase()).collect();
+        if !shown("x") {
+            let vals = phases
+                .iter()
+                .map(|p| match p {
+                    Phase::TwoPhase(x) => format!("{x:.4}"),
+                    Phase::Subcooled(_) => "liquid".into(),
+                    Phase::Superheated(_) => "vapour".into(),
+                    Phase::Supercritical => "supercritical".into(),
+                    Phase::Unknown => "—".into(),
+                })
+                .collect();
+            cols.push(("x".into(), String::new(), vals));
+        }
+        // temperature difference in the unit system's degree size
+        let tu = us.unit_for(Dim::TEMP);
+        let (f, unit) = if (tu.factor - 1.0).abs() < 1e-12 { (1.0, "K".to_string()) } else { (1.0 / tu.factor, tu.symbol.clone()) };
+        let vals = phases
+            .iter()
+            .map(|p| match p {
+                Phase::Superheated(dt) => format!("+{}", fmt_sig(dt * f)),
+                Phase::Subcooled(dt) => format!("-{}", fmt_sig(dt * f)),
+                Phase::TwoPhase(_) => "sat".into(),
+                _ => "—".into(),
+            })
+            .collect();
+        cols.push(("dT_sat".into(), unit, vals));
+        if !shown("rho") && !shown("d") {
+            cols.push(cp_col("rho", Key::D, &|s| s.derived(Key::D)));
+        }
+        if !shown("cp") {
+            cols.push(cp_col("cp", Key::Cp, &|s| s.derived(Key::Cp)));
+        }
+        cols.push(("fluid".into(), String::new(), sts.iter().map(|s| s.fluid.clone().unwrap_or_else(|| "—".into())).collect()));
+    }
+    StateTable {
+        heads: cols.iter().map(|c| (c.0.clone(), c.1.clone())).collect(),
+        rows: states.iter().enumerate().map(|(i, k)| (*k, cols.iter().map(|c| c.2[i].clone()).collect())).collect(),
+    }
+}
+
 // ------------------------------------------------------------------ UI
 
 #[derive(Clone, Copy, PartialEq)]
@@ -885,6 +1187,17 @@ pub struct CycleUi {
     hist: History,
     /// Equations of an inserted template, for an empty script (taken by the app).
     pub script_request: Option<String>,
+    /// Tab of the right sidebar.
+    side_tab: SideTab,
+    /// State table, cached on the solution and the diagram streams.
+    table_cache: Option<(u64, std::sync::Arc<StateTable>)>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+enum SideTab {
+    #[default]
+    Kpi,
+    States,
 }
 
 /// Undo history: snapshots of the diagram (JSON, without the pan and zoom,
@@ -1047,9 +1360,7 @@ impl CycleUi {
         egui::Panel::left("cycle_side").resizable(true).default_size(300.0).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| self.side(ui, d, inp));
         });
-        egui::Panel::right("cycle_kpi").resizable(true).default_size(260.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.tables(ui, d, inp));
-        });
+        egui::Panel::right("cycle_kpi").resizable(true).default_size(330.0).show(ui, |ui| self.right(ui, d, inp));
         self.canvas_ui(ui, d, inp);
         if let Some(id) = self.popup {
             let mut open = true;
@@ -1092,7 +1403,8 @@ impl CycleUi {
         self.history_keys(ui, d);
         self.track(ui.ctx(), d);
         let mut items: Vec<(Kind, String, u32)> = d.comps.iter().filter(|c| c.kind != Kind::Label).map(|c| (c.kind, c.label.clone(), c.id)).collect();
-        items.sort_by(|a, b| a.0.name().cmp(b.0.name()).then(crate::app::natord(&a.1, &b.1)));
+        let gidx = |k: Kind| GROUPS.iter().position(|g| g.kinds.contains(&k)).unwrap_or(GROUPS.len());
+        items.sort_by(|a, b| gidx(a.0).cmp(&gidx(b.0)).then(a.0.name().cmp(b.0.name())).then(crate::app::natord(&a.1, &b.1)));
         if items.is_empty() {
             ui.label(RichText::new("No components yet: draw the flowsheet in the Cycle diagram tab and bind its streams to state numbers.").weak());
             return;
@@ -1108,17 +1420,23 @@ impl CycleUi {
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let f = self.tab_filter.to_lowercase();
-                let mut last: Option<Kind> = None;
+                let mut last: Option<&str> = None;
                 for (k, label, id) in &items {
                     if !f.is_empty() && !label.to_lowercase().contains(&f) && !k.name().to_lowercase().contains(&f) {
                         continue;
                     }
-                    if last != Some(*k) {
+                    // one header (icon and group name) per library group
+                    let g = k.group();
+                    if last != Some(g.name) {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(k.name()).small().strong());
-                        last = Some(*k);
+                        ui.horizontal(|ui| {
+                            ui.add(crate::icons::image(ui, g.icon, 14.0));
+                            ui.label(RichText::new(g.name).small().strong());
+                        });
+                        last = Some(g.name);
                     }
-                    if ui.selectable_label(self.tab_sel == Some(*id), label).clicked() {
+                    let r = ui.selectable_label(self.tab_sel == Some(*id), label).on_hover_text(k.name());
+                    if r.clicked() {
                         self.tab_sel = Some(*id);
                     }
                 }
@@ -1169,55 +1487,72 @@ impl CycleUi {
     fn side(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
         ui.strong("Components");
         ui.label(RichText::new("Drag onto the canvas. Drag from a port (dot) to another port to connect.").small().weak());
-        egui::Grid::new("palette").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-            for (i, k) in Kind::ALL.iter().enumerate() {
-                let r = ui.add(egui::Button::new(k.name()).min_size(Vec2::new(125.0, 22.0)).sense(Sense::click_and_drag()));
-                if r.dragged() {
-                    if let Some(p) = ui.ctx().pointer_interact_pos() {
-                        let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("cycle_ghost")));
-                        let view = View { origin: p, zoom: d.zoom };
-                        let ghost = Comp {
-                            id: 0,
-                            kind: *k,
-                            pos: [0.0, 0.0],
-                            rot: 0,
-                            flip: false,
-                            label: k.name().into(),
-                            vars: Vec::new(),
-                            shaft: Vec::new(),
-                            params: Default::default(),
-                            anchors: Vec::new(),
-                        };
-                        paint_comp(&painter, &ghost, &view, Color32::GRAY, false, ui.visuals().dark_mode, &|_| None);
-                    }
-                }
-                let drop_at = if r.drag_stopped() { ui.ctx().pointer_interact_pos().filter(|p| self.canvas.is_some_and(|c| c.contains(*p))) } else { None };
-                if r.clicked() || drop_at.is_some() {
-                    let canvas = self.canvas.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0)));
-                    let view = View { origin: canvas.min + Vec2::from(d.offset), zoom: d.zoom };
-                    let w = view.w(drop_at.unwrap_or(canvas.center()));
-                    let id = d.new_id();
-                    let n = d.comps.iter().filter(|c| c.kind == *k).count() + 1;
-                    let label = if *k == Kind::Label { "Text".into() } else { format!("{} {n}", k.name().split(' ').next().unwrap_or("")) };
-                    d.comps.push(Comp {
-                        id,
-                        kind: *k,
-                        pos: [(w[0] / 10.0).round() * 10.0, (w[1] / 10.0).round() * 10.0],
-                        rot: 0,
-                        flip: false,
-                        label,
-                        vars: Vec::new(),
-                        shaft: Vec::new(),
-                        params: Default::default(),
-                        anchors: Vec::new(),
+        for (gi, g) in GROUPS.iter().enumerate() {
+            let id = ui.make_persistent_id(("palette_group", gi));
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, g.open)
+                .show_header(ui, |ui| {
+                    ui.add(crate::icons::image(ui, g.icon, 18.0));
+                    ui.label(RichText::new(g.name).strong());
+                })
+                .body(|ui| {
+                    egui::Grid::new(("palette", gi)).num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
+                        for (i, k) in g.kinds.iter().enumerate() {
+                            let r = ui.add(egui::Button::new(k.name()).min_size(Vec2::new(125.0, 22.0)).sense(Sense::click_and_drag()));
+                            if r.dragged() {
+                                if let Some(p) = ui.ctx().pointer_interact_pos() {
+                                    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("cycle_ghost")));
+                                    let view = View { origin: p, zoom: d.zoom };
+                                    let ghost = Comp {
+                                        id: 0,
+                                        kind: *k,
+                                        pos: [0.0, 0.0],
+                                        rot: 0,
+                                        flip: false,
+                                        label: k.name().into(),
+                                        vars: Vec::new(),
+                                        shaft: Vec::new(),
+                                        params: Default::default(),
+                                        anchors: Vec::new(),
+                                    };
+                                    paint_comp(&painter, &ghost, &view, Color32::GRAY, false, ui.visuals().dark_mode, &|_| None);
+                                }
+                            }
+                            let drop_at = if r.drag_stopped() { ui.ctx().pointer_interact_pos().filter(|p| self.canvas.is_some_and(|c| c.contains(*p))) } else { None };
+                            if r.clicked() || drop_at.is_some() {
+                                let canvas = self.canvas.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0)));
+                                let view = View { origin: canvas.min + Vec2::from(d.offset), zoom: d.zoom };
+                                let w = view.w(drop_at.unwrap_or(canvas.center()));
+                                let id = d.new_id();
+                                let n = d.comps.iter().filter(|c| c.kind == *k).count() + 1;
+                                let short = match k {
+                                    Kind::Label => "Text",
+                                    Kind::DuctBurner => "Burner",
+                                    Kind::WaterCondenser => "Condenser",
+                                    Kind::AirCondenser => "ACC",
+                                    _ => k.name().split(' ').next().unwrap_or(""),
+                                };
+                                let label = if *k == Kind::Label { "Text".into() } else { format!("{short} {n}") };
+                                d.comps.push(Comp {
+                                    id,
+                                    kind: *k,
+                                    pos: [(w[0] / 10.0).round() * 10.0, (w[1] / 10.0).round() * 10.0],
+                                    rot: 0,
+                                    flip: false,
+                                    label,
+                                    vars: Vec::new(),
+                                    shaft: Vec::new(),
+                                    params: Default::default(),
+                                    anchors: Vec::new(),
+                                });
+                                self.sel = Some(Sel::Comp(id));
+                            }
+                            if i % 2 == 1 {
+                                ui.end_row();
+                            }
+                        }
                     });
-                    self.sel = Some(Sel::Comp(id));
-                }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+                });
+        }
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.label("Template").on_hover_text("Insert a ready-made flowsheet. In an empty diagram it starts the drawing; with an empty script its equations are added too.");
@@ -1273,8 +1608,11 @@ impl CycleUi {
                                 let text = if cur == 0 { "default".to_string() } else { opts.get(cur - 1).map(|o| o.0.clone()).unwrap_or_default() };
                                 egui::ComboBox::from_id_salt(("anchor", id, k)).selected_text(text).width(190.0).show_ui(ui, |ui| {
                                     ui.selectable_value(&mut c.anchors[k], 0, "default");
-                                    for (j, o) in opts.iter().enumerate() {
-                                        ui.selectable_value(&mut c.anchors[k], (j + 1) as u8, &o.0);
+                                    // listed by place and stage (the stored index is kept)
+                                    let mut order: Vec<usize> = (0..opts.len()).collect();
+                                    order.sort_by(|a, b| crate::app::natord(&opts[*a].0, &opts[*b].0));
+                                    for j in order {
+                                        ui.selectable_value(&mut c.anchors[k], (j + 1) as u8, &opts[j].0);
                                     }
                                 });
                                 ui.end_row();
@@ -1359,6 +1697,7 @@ impl CycleUi {
             }
             None => {
                 ui.label(RichText::new("Select a component or stream to edit it.").weak());
+                ui.label(RichText::new("Double-click a component for its results (also in the Components tab). The diagram settings are in the right sidebar.").small().weak());
             }
         }
         if let Some(Sel::Comp(id)) = self.sel {
@@ -1370,9 +1709,133 @@ impl CycleUi {
                 }
             }
         }
-        ui.add_space(4.0);
+        if !self.message.is_empty() {
+            ui.separator();
+            ui.label(RichText::new(&self.message).small().weak());
+        }
+    }
+
+    /// Right sidebar: KPI and States tabs, then the diagram settings.
+    fn right(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.side_tab, SideTab::Kpi, RichText::new("KPI").strong()).on_hover_text("Key performance indicators");
+            ui.selectable_value(&mut self.side_tab, SideTab::States, RichText::new("States").strong()).on_hover_text("State table of the streams");
+        });
         ui.separator();
-        ui.add_space(2.0);
+        let h = (ui.available_height() * 0.45).max(120.0);
+        egui::ScrollArea::vertical().id_salt("cycle_tab").max_height(h).auto_shrink([false, true]).show(ui, |ui| match self.side_tab {
+            SideTab::Kpi => self.kpi_ui(ui, d, inp),
+            SideTab::States => self.states_ui(ui, d, inp),
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().id_salt("cycle_settings").show(ui, |ui| self.settings(ui, d, inp));
+    }
+
+    fn kpi_ui(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
+        let scalars = inp.scalars();
+        let mut remove = None;
+        for (k, kp) in d.kpis.iter_mut().enumerate() {
+            ui.push_id(("kpi", k), |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut kp.label).desired_width(190.0).hint_text("label"));
+                    if ui.small_button("x").clicked() {
+                        remove = Some(k);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    var_combo(ui, "var", &mut kp.var, &scalars);
+                    match inp.value(&kp.var) {
+                        Some((_, x, u)) => ui.label(RichText::new(format!("{} {u}", fmt_sig(x))).strong().monospace()),
+                        None => ui.label(RichText::new("—").weak()),
+                    };
+                });
+                ui.add_space(4.0);
+            });
+        }
+        if let Some(k) = remove {
+            d.kpis.remove(k);
+        }
+        ui.horizontal(|ui| {
+            if ui.small_button("+ KPI").clicked() {
+                d.kpis.push(Kpi { label: String::new(), var: String::new() });
+            }
+            if ui.small_button("Suggest").on_hover_text("Add power, heat and efficiency variables of the model").clicked() {
+                for v in &scalars {
+                    let l = v.to_lowercase();
+                    let hit = l.starts_with("eta")
+                        || l.starts_with("w_")
+                        || l.starts_with("w_dot")
+                        || l.starts_with("q_")
+                        || l.starts_with("cop")
+                        || l.starts_with("p_net")
+                        || l.starts_with("p_gross");
+                    if hit && !d.kpis.iter().any(|k| k.var.eq_ignore_ascii_case(v)) {
+                        d.kpis.push(Kpi { label: kpi_label(v), var: v.clone() });
+                    }
+                }
+            }
+        });
+    }
+
+    /// State table, recomputed when the solution or the streams change.
+    fn state_table_cached(&mut self, d: &CycleDiagram, inp: &CycleInputs) -> std::sync::Arc<StateTable> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (inp.analysis as *const Analysis as usize).hash(&mut h);
+        inp.analysis.gen.hash(&mut h);
+        inp.analysis.solution.as_ref().map(|s| s.elapsed_ms.to_bits()).hash(&mut h);
+        serde_json::to_string(&(&d.links, &d.state_vars)).unwrap_or_default().hash(&mut h);
+        let mut du: Vec<_> = inp.display_units.iter().collect();
+        du.sort();
+        du.hash(&mut h);
+        inp.script.hash(&mut h);
+        let key = h.finish();
+        if let Some((k, t)) = &self.table_cache {
+            if *k == key {
+                return t.clone();
+            }
+        }
+        let t = std::sync::Arc::new(state_table(d, inp));
+        self.table_cache = Some((key, t.clone()));
+        t
+    }
+
+    fn states_ui(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
+        let t = self.state_table_cached(d, inp);
+        if t.rows.is_empty() || t.heads.is_empty() {
+            ui.label(RichText::new("Connect components and number their streams; the columns are the stream variables chosen below.").weak());
+            return;
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Copy table (TSV)").on_hover_text("Paste into Excel or a text editor").clicked() {
+                ui.ctx().copy_text(t.tsv());
+            }
+            ui.label(RichText::new("x, dT_sat, rho, cp: CoolProp at (P, h)").small().weak())
+                .on_hover_text("dT_sat > 0: degree of superheating, T - T_dew; < 0: degree of subcooling, T_bubble - T (at the stream pressure)");
+        });
+        egui::ScrollArea::horizontal().id_salt("states_h").show(ui, |ui| {
+            egui::Grid::new("states").striped(true).show(ui, |ui| {
+                ui.strong("k");
+                for (h, u) in &t.heads {
+                    ui.vertical(|ui| {
+                        ui.strong(h);
+                        ui.label(RichText::new(u).small().weak());
+                    });
+                }
+                ui.end_row();
+                for (k, r) in &t.rows {
+                    ui.label(k.to_string());
+                    for v in r {
+                        ui.label(RichText::new(v).monospace());
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+    }
+
+    /// Diagram-wide settings: locks, stream labels, export.
+    fn settings(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
         ui.strong("Lock");
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut d.lock_comps, "components").on_hover_text("Components cannot be moved, rotated or deleted");
@@ -1441,8 +1904,7 @@ impl CycleUi {
                 l.label_off = None;
             }
         }
-        ui.checkbox(&mut d.kpi_box, "Show the KPI box on the canvas");
-        ui.label(RichText::new("Double-click a component for its results (also in the Components tab).").small().weak());
+        ui.label(RichText::new("Stream variables (labels and States table):").small());
         ui.horizontal_wrapped(|ui| {
             for b in inp.array_bases() {
                 let mut on = d.state_vars.contains(&b);
@@ -1475,7 +1937,11 @@ impl CycleUi {
                 next += 1;
             }
         }
+        ui.add_space(4.0);
         ui.separator();
+        ui.add_space(2.0);
+        ui.strong("Diagram");
+        ui.checkbox(&mut d.kpi_box, "Show the KPI box on the canvas");
         ui.horizontal(|ui| {
             ui.label("Title");
             ui.text_edit_singleline(&mut d.title);
@@ -1499,82 +1965,6 @@ impl CycleUi {
         if !self.message.is_empty() {
             ui.label(RichText::new(&self.message).small().weak());
         }
-    }
-
-    fn tables(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
-        ui.heading("Key performance indicators");
-        let scalars = inp.scalars();
-        let mut remove = None;
-        for (k, kp) in d.kpis.iter_mut().enumerate() {
-            ui.push_id(("kpi", k), |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut kp.label).desired_width(190.0).hint_text("label"));
-                    if ui.small_button("x").clicked() {
-                        remove = Some(k);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    var_combo(ui, "var", &mut kp.var, &scalars);
-                    match inp.value(&kp.var) {
-                        Some((_, x, u)) => ui.label(RichText::new(format!("{} {u}", fmt_sig(x))).strong().monospace()),
-                        None => ui.label(RichText::new("—").weak()),
-                    };
-                });
-                ui.add_space(4.0);
-            });
-        }
-        if let Some(k) = remove {
-            d.kpis.remove(k);
-        }
-        ui.horizontal(|ui| {
-            if ui.small_button("+ KPI").clicked() {
-                d.kpis.push(Kpi { label: String::new(), var: String::new() });
-            }
-            if ui.small_button("Suggest").on_hover_text("Add power, heat and efficiency variables of the model").clicked() {
-                for v in &scalars {
-                    let l = v.to_lowercase();
-                    let hit = l.starts_with("eta")
-                        || l.starts_with("w_")
-                        || l.starts_with("w_dot")
-                        || l.starts_with("q_")
-                        || l.starts_with("cop")
-                        || l.starts_with("p_net")
-                        || l.starts_with("p_gross");
-                    if hit && !d.kpis.iter().any(|k| k.var.eq_ignore_ascii_case(v)) {
-                        d.kpis.push(Kpi { label: kpi_label(v), var: v.clone() });
-                    }
-                }
-            }
-        });
-        ui.add_space(8.0);
-        ui.heading("States");
-        let mut states: Vec<i64> = d.links.iter().filter_map(|l| l.state).collect();
-        states.sort_unstable();
-        states.dedup();
-        if states.is_empty() || d.state_vars.is_empty() {
-            ui.label(RichText::new("Connect components and choose the stream variables on the left.").weak());
-            return;
-        }
-        egui::ScrollArea::horizontal().show(ui, |ui| {
-            egui::Grid::new("states").striped(true).show(ui, |ui| {
-                ui.strong("k");
-                for b in &d.state_vars {
-                    let unit = states.iter().find_map(|k| inp.value(&format!("{b}[{k}]"))).map(|v| v.2).unwrap_or_default();
-                    ui.vertical(|ui| {
-                        ui.strong(inp.base_display(b));
-                        ui.label(RichText::new(unit).small().weak());
-                    });
-                }
-                ui.end_row();
-                for k in &states {
-                    ui.label(k.to_string());
-                    for b in &d.state_vars {
-                        ui.label(RichText::new(inp.value(&format!("{b}[{k}]")).map(|v| fmt_sig(v.1)).unwrap_or_else(|| "—".into())).monospace());
-                    }
-                    ui.end_row();
-                }
-            });
-        });
     }
 
     fn delete(&mut self, d: &mut CycleDiagram) {
@@ -2149,7 +2539,32 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         .filter_map(|k| inp.value(&k.var).map(|(n, x, u)| (if k.label.is_empty() { n } else { k.label.clone() }, format!("{} {u}", fmt_sig(x)).trim_end().to_string())))
         .collect();
     let kpi_w = if kpis.is_empty() { 0.0 } else { kpis.iter().map(|(l, v)| pdf::text_width(l, 8.5, false) + pdf::text_width(v, 8.5, true)).fold(0.0, f32::max) + 30.0 };
-    let area = [margin, margin + 34.0, pw - margin - kpi_w - if kpi_w > 0.0 { 12.0 } else { 0.0 }, ph * 0.64];
+    // unit legend of the cross labels, top left of the diagram
+    let legend = if d.show_values && d.label_style == LabelStyle::Cross && d.links.iter().any(|l| l.state.is_some()) {
+        Some(inp.cross_units(d)).filter(|u| u.iter().any(|x| !x.is_empty()))
+    } else {
+        None
+    };
+    let mut top = margin + 34.0;
+    if let Some(u) = &legend {
+        let fs = 8.0;
+        let pad = 3.0;
+        let w: Vec<f32> = u.iter().map(|x| pdf::text_width(x, fs, false)).collect();
+        let (wl, wr, rh) = (w[0].max(w[2]), w[1].max(w[3]), fs * 1.15);
+        let (x0, y0) = (margin, top);
+        let size = [wl + wr + 4.0 * pad, 2.0 * rh + 2.0 * pad];
+        page.rect(x0, y0, size[0], size[1], 0.4, Some([170, 170, 170]), None);
+        let (xv, yc) = (x0 + wl + 2.0 * pad, y0 + size[1] / 2.0);
+        page.line([x0, yc], [x0 + size[0], yc], 0.6, black);
+        page.line([xv, y0], [xv, y0 + size[1]], 0.6, black);
+        for (i, x) in u.iter().enumerate() {
+            let (px, al) = if i % 2 == 0 { (xv - pad, Align::Right) } else { (xv + pad, Align::Left) };
+            let py = if i < 2 { yc - pad * 0.5 - fs * 0.25 } else { yc + pad * 0.5 + fs * 0.8 };
+            page.text(px, py, fs, x, false, al, black);
+        }
+        top += size[1] + 6.0;
+    }
+    let area = [margin, top, pw - margin - kpi_w - if kpi_w > 0.0 { 12.0 } else { 0.0 }, ph * 0.64];
     if let Some((lo, hi)) = d.bounds() {
         // leave room for the value boxes around the streams
         let pad = if d.show_values && !d.state_vars.is_empty() { 60.0 } else { 15.0 };
@@ -2159,6 +2574,7 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         let oy = area[1] + ((area[3] - area[1]) - (hi[1] - lo[1]) * s) / 2.0;
         let t = |p: [f32; 2]| [ox + (p[0] - lo[0]) * s, oy + (p[1] - lo[1]) * s];
         let lw = (1.1 * s).clamp(0.5, 1.4);
+        let mut labels = Vec::new();
         for l in &d.links {
             let Some(pts) = d.route(l) else { continue };
             let tp: Vec<[f32; 2]> = pts.iter().map(|p| t(*p)).collect();
@@ -2183,24 +2599,93 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
                     None,
                 );
             }
-            if let Some(k) = l.state {
-                let (m, dir) = point_at(&pts, l.label_t.unwrap_or(0.5));
-                let c = t(m);
-                let r = 6.0 * s.clamp(0.7, 1.2);
-                page.circle(c, r, 0.8, Some(lc), Some([255, 255, 255]));
-                page.text(c[0], c[1] + r * 0.38, r * 1.15, &k.to_string(), true, Align::Center, black);
-                if d.show_values {
+            if l.state.is_some() {
+                labels.push((l, pts));
+            }
+        }
+        // stream labels as on the canvas (style, numbers, size, positions and
+        // colours), in world units scaled with the diagram
+        let comp_boxes: Vec<([f32; 2], [f32; 2])> = d.comps.iter().filter(|c| c.kind != Kind::Label).map(|c| c.bbox()).collect();
+        let overlaps = |lo: [f32; 2], hi: [f32; 2]| comp_boxes.iter().any(|(a, b)| lo[0] < b[0] && hi[0] > a[0] && lo[1] < b[1] && hi[1] > a[1]);
+        let f = d.label_size.factor();
+        let white = [255u8, 255, 255];
+        for (l, pts) in &labels {
+            let k = l.state.unwrap_or_default();
+            let (m, dir) = point_at(pts, l.label_t.unwrap_or(0.5));
+            let horizontal = dir[0].abs() > dir[1].abs();
+            let lc = l.color.unwrap_or(black);
+            let r = 8.0 * f;
+            let badge = |page: &mut pdf::Page, at: [f32; 2]| {
+                let c = t(at);
+                page.circle(c, r * s, 0.6, Some(lc), Some(white));
+                page.text(c[0], c[1] + r * s * 0.38, 10.5 * f * s, &k.to_string(), false, Align::Center, black);
+            };
+            let cross = if d.show_values && d.label_style == LabelStyle::Cross { Some(inp.cross_values(d, k)) } else { None };
+            if let Some(v) = cross.filter(|v| v.iter().any(|x| !x.is_empty())) {
+                let fs = 11.0 * f;
+                let pad = 3.0 * f;
+                let w: Vec<f32> = v.iter().map(|x| pdf::text_width(x, fs, false)).collect();
+                let (wl, wr, rh) = (w[0].max(w[2]), w[1].max(w[3]), fs * 1.15);
+                let size = [wl + wr + 4.0 * pad, 2.0 * rh + 2.0 * pad];
+                let num = if d.show_numbers { 2.0 * r + 2.0 } else { 0.0 };
+                let def = if d.cross_on_line {
+                    if horizontal {
+                        [0.0, 0.0]
+                    } else {
+                        [(wr - wl) / 2.0, 0.0]
+                    }
+                } else {
+                    let cands = if horizontal {
+                        [[0.0, -(size[1] / 2.0 + 4.0)], [0.0, size[1] / 2.0 + 4.0 + num]]
+                    } else {
+                        [[size[0] / 2.0 + 6.0, num / 2.0], [-(size[0] / 2.0 + 6.0), num / 2.0]]
+                    };
+                    cands
+                        .iter()
+                        .copied()
+                        .find(|o| {
+                            let c = [m[0] + o[0], m[1] + o[1]];
+                            !overlaps([c[0] - size[0] / 2.0, c[1] - size[1] / 2.0 - num], [c[0] + size[0] / 2.0, c[1] + size[1] / 2.0])
+                        })
+                        .unwrap_or(cands[0])
+                };
+                let off = l.label_off.unwrap_or(def);
+                let ctr = [m[0] + off[0], m[1] + off[1]];
+                let tl = [ctr[0] - size[0] / 2.0, ctr[1] - size[1] / 2.0];
+                let p0 = t(tl);
+                page.rect(p0[0], p0[1], size[0] * s, size[1] * s, 0.0, None, Some(white));
+                let xv = tl[0] + wl + 2.0 * pad;
+                let lw = (0.8 * s).clamp(0.3, 1.0);
+                page.line(t([tl[0], ctr[1]]), t([tl[0] + size[0], ctr[1]]), lw, lc);
+                page.line(t([xv, tl[1]]), t([xv, tl[1] + size[1]]), lw, lc);
+                for (i, x) in v.iter().enumerate() {
+                    let (px, al) = if i % 2 == 0 { (xv - pad, Align::Right) } else { (xv + pad, Align::Left) };
+                    let py = if i < 2 { ctr[1] - pad * 0.5 - fs * 0.25 } else { ctr[1] + pad * 0.5 + fs * 0.8 };
+                    let q = t([px, py]);
+                    page.text(q[0], q[1], fs * s, x, false, al, lc);
+                }
+                if d.show_numbers {
+                    badge(page, [xv, tl[1] - r - 2.0]);
+                }
+            } else {
+                if d.show_numbers {
+                    badge(page, m);
+                }
+                if d.show_values && d.label_style == LabelStyle::Box {
                     let mut lines = inp.state_lines(d, k);
                     lines.extend(crate::components::derived_lines(d, inp, l));
                     if !lines.is_empty() {
-                        let fs = (6.2 * s).clamp(5.0, 7.5);
-                        let w = lines.iter().map(|l| pdf::text_width(l, fs, false)).fold(0.0, f32::max) + 4.0;
-                        let h = lines.len() as f32 * fs * 1.15 + 3.0;
-                        let horizontal = dir[0].abs() > dir[1].abs();
-                        let tl = if horizontal { [c[0] - w / 2.0, c[1] - r - 2.0 - h] } else { [c[0] + r + 3.0, c[1] - h / 2.0] };
-                        page.rect(tl[0], tl[1], w, h, 0.3, Some([180, 180, 180]), Some([255, 255, 255]));
+                        let fs = 10.0 * f;
+                        let lh = fs * 1.2;
+                        let size = [lines.iter().map(|l| pdf::text_width(l, fs, false)).fold(0.0, f32::max) + 6.0, lines.len() as f32 * lh + 6.0];
+                        let def = if horizontal { [-size[0] / 2.0, -r - 3.0 - size[1]] } else { [r + 4.0, -size[1] / 2.0] };
+                        let off = l.label_off.unwrap_or(def);
+                        let tl = [m[0] + off[0], m[1] + off[1]];
+                        let p0 = t(tl);
+                        page.rect(p0[0], p0[1], size[0] * s, size[1] * s, 0.3, Some([180, 180, 180]), Some(white));
                         for (i, line) in lines.iter().enumerate() {
-                            page.text(tl[0] + 2.0, tl[1] + 1.5 + fs * (1.0 + 1.15 * i as f32) - fs * 0.2, fs, line, false, Align::Left, black);
+                            let q = t([tl[0] + 3.0, tl[1] + 3.0 + lh * i as f32 + fs * 0.9]);
+                            page.text(q[0], q[1], fs * s, line, false, Align::Left, black);
                         }
                     }
                 }
@@ -2268,24 +2753,22 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         page.line([x0, y + 4.0], [pw - margin, y + 4.0], 0.6, black);
     }
 
-    // state table
-    let mut states: Vec<i64> = d.links.iter().filter_map(|l| l.state).collect();
-    states.sort_unstable();
-    states.dedup();
-    if !states.is_empty() && !d.state_vars.is_empty() {
-        let heads: Vec<(String, String)> =
-            d.state_vars.iter().map(|b| (inp.base_display(b), states.iter().find_map(|k| inp.value(&format!("{b}[{k}]"))).map(|v| v.2).unwrap_or_default())).collect();
+    // state table (the same columns as the States tab)
+    let tab = state_table(d, inp);
+    if !tab.rows.is_empty() && !tab.heads.is_empty() {
+        let heads = &tab.heads;
         let col_w = ((pw - 2.0 * margin - 40.0) / heads.len() as f32).min(90.0);
+        let fs = if col_w < 60.0 { 7.0 } else { 8.0 };
         let row_h = 12.0;
         let mut y = ph * 0.64 + 22.0;
         let mut page = &mut *page;
         let header = |page: &mut pdf::Page, y: &mut f32| {
             page.text(margin, *y, 10.0, "States", true, Align::Left, black);
             *y += 14.0;
-            page.text(margin + 20.0, *y, 8.0, "State", true, Align::Right, black);
+            page.text(margin + 20.0, *y, fs, "State", true, Align::Right, black);
             for (i, (h, u)) in heads.iter().enumerate() {
                 let x = margin + 40.0 + col_w * (i as f32 + 1.0) - 6.0;
-                page.text(x, *y, 8.0, h, true, Align::Right, black);
+                page.text(x, *y, fs, h, true, Align::Right, black);
                 page.text(x, *y + 9.0, 6.5, &if u.is_empty() { "-".to_string() } else { format!("[{u}]") }, false, Align::Right, grey);
             }
             *y += 13.0;
@@ -2293,7 +2776,7 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         };
         header(page, &mut y);
         let mut new_page_needed = false;
-        let mut remaining: &[i64] = &states;
+        let mut remaining: &[(i64, Vec<String>)] = &tab.rows;
         while !remaining.is_empty() {
             if new_page_needed {
                 page = pdf_page_hack(&mut pdf);
@@ -2302,13 +2785,12 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
             }
             let fit = (((ph - margin) - y) / row_h).floor().max(1.0) as usize;
             let (now, rest) = remaining.split_at(fit.min(remaining.len()));
-            for k in now {
+            for (k, vals) in now {
                 y += row_h;
-                page.text(margin + 20.0, y, 8.0, &k.to_string(), true, Align::Right, black);
-                for (i, b) in d.state_vars.iter().enumerate() {
+                page.text(margin + 20.0, y, fs, &k.to_string(), true, Align::Right, black);
+                for (i, v) in vals.iter().enumerate() {
                     let x = margin + 40.0 + col_w * (i as f32 + 1.0) - 6.0;
-                    let v = inp.value(&format!("{b}[{k}]")).map(|v| fmt_sig(v.1)).unwrap_or_else(|| "–".into());
-                    page.text(x, y, 8.0, &v, false, Align::Right, black);
+                    page.text(x, y, fs, if v == "—" { "–" } else { v }, false, Align::Right, black);
                 }
             }
             remaining = rest;
@@ -2341,6 +2823,14 @@ mod tests {
             for side in ["face", "upper casing", "lower casing"] {
                 assert!(o.iter().filter(|a| a.0.contains(side)).count() >= 3, "{side}");
             }
+            // five stages on each tilted casing line, numbered in the flow direction
+            for side in ["upper", "lower"] {
+                for st in 1..=5 {
+                    assert_eq!(o.iter().filter(|a| a.0 == format!("radial, {side} casing, stage {st} of 5")).count(), 1);
+                }
+            }
+            // indices saved by 0.1 keep (nearly) their place: upper casing 1 -> index 8
+            assert_eq!(o[7].0, format!("radial, upper casing, stage {} of 5", if kind == Kind::Turbine { 1 } else { 5 }));
             // every point lies on the outline (|y| within the half height at x)
             for (_, p, _) in &o {
                 let half = if kind == Kind::Turbine { 12.0 + 14.0 * (p[0] + 25.0) / 50.0 } else { 26.0 - 14.0 * (p[0] + 25.0) / 50.0 };
@@ -2361,12 +2851,35 @@ mod tests {
             anchors: Vec::new(),
         };
         assert_eq!(c.port(0).unwrap().1, [-25.0, 0.0]);
-        let j = anchor_options(Kind::Turbine).iter().position(|a| a.0 == "radial, upper casing 1").unwrap();
+        let j = anchor_options(Kind::Turbine).iter().position(|a| a.0 == "radial, upper casing, stage 1 of 5").unwrap();
         c.anchors = vec![(j + 1) as u8];
         let (_, pos, dir) = c.port(0).unwrap();
         assert!(dir == [0.0, -1.0] && pos[1] < -12.0);
         let d = CycleDiagram::default();
         assert!(d.lock_comps && d.lock_streams && d.lock_labels && d.lock_text && d.cross_on_line && d.label_zoom && !d.show_numbers && d.label_size == LabelSize::Small);
+    }
+
+    #[test]
+    fn component_library() {
+        for k in Kind::ALL {
+            // every component is in the library and behaves like its base
+            assert!(GROUPS.iter().any(|g| g.kinds.contains(&k)), "{}", k.name());
+            let (p, pb) = (ports(k), ports(k.base()));
+            assert_eq!(p.len(), pb.len(), "{}", k.name());
+            for (a, b) in p.iter().zip(&pb) {
+                assert_eq!(a.inlet, b.inlet, "{} {}", k.name(), a.name);
+            }
+            // stream colours refer to existing ports; ports point outwards
+            for i in 0..shape(k).len() {
+                assert!(inner_port(k, i).is_none_or(|j| j < p.len()), "{}", k.name());
+            }
+            for q in &p {
+                assert!((q.dir[0].abs() + q.dir[1].abs() - 1.0).abs() < 1e-6);
+            }
+        }
+        assert_eq!(Kind::Economizer.group().name, "HRSG");
+        assert_eq!(Kind::AirCondenser.base(), Kind::Cooler);
+        assert_eq!(crate::icons::source("hrsg").uri(), Some("bytes://../assets/icons/hrsg.svg"));
     }
 
     #[test]
@@ -2429,8 +2942,27 @@ mod tests {
         let inp = CycleInputs { analysis: &a, display_units: &du, script: "" };
         let l3 = inp.state_lines(&d, 3);
         assert_eq!(l3, vec!["T = 550 C", "P = 150 bar", "h = 3450 kJ/kg", "m = 50 kg/s"]);
+        // state table: the chosen variables, then s, x, dT_sat, rho, cp from CoolProp
+        let tab = state_table(&d, &inp);
+        eprintln!("{}", tab.tsv());
+        let col = |n: &str| tab.heads.iter().position(|h| h.0 == n).unwrap_or_else(|| panic!("{n}"));
+        let row = |k: i64| &tab.rows.iter().find(|r| r.0 == k).unwrap().1;
+        assert_eq!(tab.rows.len(), 4);
+        assert_eq!(&tab.heads[..3].iter().map(|h| h.0.as_str()).collect::<Vec<_>>(), &["T", "P", "h"]);
+        assert_eq!(row(3)[col("x")], "vapour");
+        assert!(row(3)[col("dT_sat")].starts_with('+'));
+        assert!(row(2)[col("dT_sat")].starts_with('-'));
+        assert_eq!(row(3)[col("fluid")], "Water");
+        let rho1: f64 = row(1)[col("rho")].parse().unwrap();
+        assert!((900.0..1000.0).contains(&rho1), "{rho1}");
+        assert!(tab.tsv().starts_with("State\tT [C]\tP [bar]"));
         let pdf = report_pdf(&d, &inp);
         assert!(pdf.starts_with(b"%PDF-1.4"));
+        // the PDF follows the label settings: no state numbers, box style
+        let mut d2 = d.clone();
+        d2.show_numbers = false;
+        d2.label_style = LabelStyle::Box;
+        assert!(report_pdf(&d2, &inp).starts_with(b"%PDF-1.4"));
         if let Ok(p) = std::env::var("DF_PDF_OUT") {
             std::fs::write(p, &pdf).unwrap();
         }
