@@ -94,10 +94,41 @@ times the forward pass, whatever the number of variables.
 
 ### 2.3 Guesses and bounds
 
-Every unknown starts from a guess: `$Guess T = 300` or the guess column of
-the Variables panel; otherwise the last solution (*warm start*) when there
-is one; otherwise 1. `$Bounds x = lo, hi` limits a variable: every Newton
-step is clamped to the bounds (§5.2).
+Only the unknowns of Newton blocks (§5.2) need a starting value; explicit
+blocks are evaluated directly. Each unknown starts from, in this order:
+
+1. its **guess**: the *Equations > Initial values* table, else `$Guess T = 300`;
+2. the **last solution** (*warm start*): the last converged value of the
+   variable in this session, or, right after a project is opened, the
+   solution saved in the `.df` file (converted if the unit system changed).
+   Values of blocks that failed to converge never replace good ones;
+3. an **automatic value** (`solver::auto_start`): 25 °C for a temperature,
+   1 bar for a pressure, 0.5 for a quality, 1 otherwise. A variable is a
+   temperature or pressure when its inferred dimension (§3) says so, or
+   when it is passed as `T=` / `P=` to a property function. These values
+   are in the model's unit system, so in SI a temperature starts at
+   298.15 K rather than 1 K.
+
+`$Bounds x = lo .. hi`, or the Lower and Upper columns of the Initial values
+table, limit a variable: every Newton step is clamped to the bounds (§5.2).
+
+**Automatic bounds.** A variable passed *directly* as an input of a
+property function gets a bound that every valid solution satisfies, since
+the property call must evaluate there (`compile::var_kinds`):
+
+| Used as | Bound (SI) |
+|---|---|
+| `T=` (also humid-air temperatures) | T ≥ 0.001 K |
+| `P=` | P ≥ 1e-6 Pa |
+| `x=` (quality), relative humidity `R=` | 0 ≤ x ≤ 1 |
+| `d=` (density) | d > 0 |
+
+They keep Newton steps out of states where CoolProp cannot evaluate (a
+negative absolute temperature, a quality of 1.3) without excluding any
+solution. A variable used inside an expression (`T=T_in + 5`) gets none,
+because the expression, not the variable, must be in range, and neither does
+a variable with two conflicting uses. `$Bounds` or a bound typed in the
+table replaces the automatic one.
 
 ## 3. Units and dimensions
 
@@ -186,7 +217,8 @@ this block structure.
 
 `solver.rs` walks the blocks in order. Default options
 (`SolveOptions::default`): at most 250 iterations per block, relative
-tolerance 1e-10, default guess 1.
+tolerance 1e-10, default guess 1 (for variables that are not temperatures,
+pressures or qualities; §2.3).
 
 ### 5.1 Explicit blocks
 

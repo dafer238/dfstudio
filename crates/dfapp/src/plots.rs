@@ -1535,6 +1535,7 @@ mod tests {
             solve: true,
             solve_opts: dfcore::SolveOptions::default(),
             warm: None,
+            init: Default::default(),
         })
     }
 

@@ -252,15 +252,39 @@ affects.
 
 ### 6.4 Convergence tips
 
-* Give guesses close to the expected solution: `$Guess h[3] = 3000, T[5] = 400`
+* Give guesses close to the expected solution in *Equations > Initial
+  values* (section 6.5) or in the script: `$Guess h[3] = 3000, T[5] = 400`
   (state enthalpies and entropies of a cycle help most).
 * Bound variables that must stay in a range: `$Bounds x = 0 .. 1`.
+  Temperatures, pressures and qualities used as property inputs are bounded
+  automatically.
 * Check that the unit system matches the literals (section 5).
 * A singular Jacobian usually means the specification is not independent
   (e.g. the sum of balances that does not involve the unknowns): look at the
   failing block in the Dependencies view.
 * Once a model has solved, the next solve starts from the previous solution
-  (warm start).
+  (warm start). A `.df` project keeps its last solution, so a model that
+  needed good guesses solves again right away when the project is reopened.
+
+### 6.5 Initial values (Equations > Initial values)
+
+Like EES's Variable Information, this table lists, for each variable solved
+iteratively (in a Newton block):
+
+| Column | Meaning |
+|---|---|
+| Start | Value the last solve started from, and where it came from: *guess*, *last* (last solution) or *auto* |
+| Guess | Starting value. Empty: the last solution, else an automatic value (25 °C for temperatures, 1 bar for pressures, 0.5 for qualities, 1 otherwise) |
+| Lower, Upper | Bounds. Empty: none, or the automatic bound shown in grey (temperature above 0 K, pressure above 0, quality 0 to 1, for variables used as property inputs) |
+| Unit | Unit of the start, guess, bounds and solution; the same display unit as in the other tabs |
+| Solution | Current value |
+
+Type a value and press Enter; clear a cell to go back to automatic. Values
+keep their unit: changing the unit converts them. A guess or bound typed
+here replaces a `$Guess` or `$Bounds` of the script (whose values are shown
+in grey). *All variables* lists every variable, *Use last solution as
+guesses* copies the current solution into the Guess column, and the table is
+saved in the `.df` project.
 
 ## 7. Results: Solution and Arrays
 

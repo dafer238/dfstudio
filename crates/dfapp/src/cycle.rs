@@ -2416,8 +2416,15 @@ mod tests {
         ui.connect(&mut d2, (pump, 0), (boil, 0));
         assert_eq!(d2.links.len(), 4);
 
-        let a =
-            run(Request { gen: 1, text: include_str!("../../../examples/rankine.dfs").into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None });
+        let a = run(Request {
+            gen: 1,
+            text: include_str!("../../../examples/rankine.dfs").into(),
+            opts: Default::default(),
+            solve: true,
+            solve_opts: Default::default(),
+            warm: None,
+            init: Default::default(),
+        });
         let du = HashMap::new();
         let inp = CycleInputs { analysis: &a, display_units: &du, script: "" };
         let l3 = inp.state_lines(&d, 3);
