@@ -16,6 +16,11 @@ All notable changes to DF Studio are listed here. The format follows
 - Turbine and compressor connection points at five stages on each tilted
   casing line (diagrams saved by 0.1 keep their points).
 
+### Interface
+- Monochrome icons, following the light or dark theme, on the entries of
+  the File, Edit, Solve, Units, View and Help menus, with the keyboard
+  shortcuts right-aligned.
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution
