@@ -50,7 +50,8 @@ First public release.
 
 ### Distribution
 - Windows installer (all users or current user, no administrator rights
-  needed for the latter) and portable zip; universal macOS DMG; Linux
+  needed for the latter) with optional Start menu entry, PATH entry and
+  `.df`/`.dfs`/`.ees` file associations, and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
 [Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.0...HEAD

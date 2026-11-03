@@ -7,6 +7,14 @@
 ;   * "Install for me only"                   -> %LOCALAPPDATA%\Programs\DF Studio
 ; From the command line: /ALLUSERS or /CURRENTUSER (add /VERYSILENT for an
 ; unattended install).
+;
+; Optional tasks (all checked by default except the desktop icon; from the
+; command line, e.g. /TASKS="startmenu,addtopath" or /MERGETASKS="!assocees"):
+;   startmenu  Start menu entry
+;   addtopath  install folder on the PATH (user PATH for a per-user install,
+;              system PATH for an all-users install), removed on uninstall
+;   assocdf    open .df and .dfs files with DF Studio
+;   assocees   open .ees files with DF Studio
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -39,13 +47,17 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 ChangesAssociations=yes
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "assoc"; Description: "Open .df and .dfs files with DF Studio"; GroupDescription: "File associations:"
+Name: "startmenu"; Description: "Add DF Studio to the Start menu"; GroupDescription: "Shortcuts:"
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "addtopath"; Description: "Add DF Studio to the PATH (run dfstudio and dfs from any terminal)"; GroupDescription: "Command line:"
+Name: "assocdf"; Description: "DF Studio projects and scripts (.df, .dfs)"; GroupDescription: "Open these files with DF Studio on double-click:"
+Name: "assocees"; Description: "EES models (.ees)"; GroupDescription: "Open these files with DF Studio on double-click:"
 
 [Files]
 Source: "{#Stage}\dfstudio.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -57,20 +69,91 @@ Source: "{#Stage}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversio
 Source: "{#Stage}\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs
 
 [Icons]
-Name: "{autoprograms}\DF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"
-Name: "{autoprograms}\DF Studio examples"; Filename: "{app}\examples"
+Name: "{autoprograms}\DF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Comment: "dfstudio equation solver"; Tasks: startmenu
+Name: "{autoprograms}\DF Studio examples"; Filename: "{app}\examples"; Tasks: startmenu
 Name: "{autodesktop}\DF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Tasks: desktopicon
 
 [Registry]
 ; HKA = HKLM for an all-users install, HKCU for a per-user one.
-Root: HKA; Subkey: "Software\Classes\.df"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Project"; Flags: uninsdeletevalue; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\.dfs"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Script"; Flags: uninsdeletevalue; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Project"; ValueType: string; ValueName: ""; ValueData: "DF Studio project"; Flags: uninsdeletekey; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Script"; ValueType: string; ValueName: ""; ValueData: "DF Studio script"; Flags: uninsdeletekey; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Script\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\DFStudio.Script\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assoc
+Root: HKA; Subkey: "Software\Classes\.df"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Project"; Flags: uninsdeletevalue; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\.dfs"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Script"; Flags: uninsdeletevalue; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Project"; ValueType: string; ValueName: ""; ValueData: "DF Studio project"; Flags: uninsdeletekey; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Script"; ValueType: string; ValueName: ""; ValueData: "DF Studio script"; Flags: uninsdeletekey; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Script\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Script\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assocdf
+
+; Also list DF Studio under "Open with" for each extension, so it stays one
+; click away even when Windows keeps another program as the user's default.
+Root: HKA; Subkey: "Software\Classes\.df\OpenWithProgids"; ValueType: string; ValueName: "DFStudio.Project"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\.dfs\OpenWithProgids"; ValueType: string; ValueName: "DFStudio.Script"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdf
+; .ees: EES models, imported when opened.
+Root: HKA; Subkey: "Software\Classes\.ees"; ValueType: string; ValueName: ""; ValueData: "DFStudio.EES"; Flags: uninsdeletevalue; Tasks: assocees
+Root: HKA; Subkey: "Software\Classes\.ees\OpenWithProgids"; ValueType: string; ValueName: "DFStudio.EES"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocees
+Root: HKA; Subkey: "Software\Classes\DFStudio.EES"; ValueType: string; ValueName: ""; ValueData: "EES model"; Flags: uninsdeletekey; Tasks: assocees
+Root: HKA; Subkey: "Software\Classes\DFStudio.EES\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assocees
+Root: HKA; Subkey: "Software\Classes\DFStudio.EES\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assocees
+; App Paths: lets Win+R (and Start search) run "dfstudio" by name.
+Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\dfstudio.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.exe"; Flags: uninsdeletekey; Tasks: addtopath
 
 [Run]
 Filename: "{app}\dfstudio.exe"; Description: "{cm:LaunchProgram,DF Studio}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+{ PATH handling. The install folder is appended to the user PATH
+  (HKCU\Environment) for a per-user install, or to the system PATH
+  (HKLM\...\Session Manager\Environment) for an all-users install, and removed
+  again on uninstall. Entries are compared case-insensitively, so running the
+  installer twice does not add a duplicate. ChangesEnvironment=yes broadcasts
+  the change, so terminals opened afterwards see it. }
+const
+  EnvKeyUser = 'Environment';
+  EnvKeySystem = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+
+function EnvRoot(): Integer;
+begin
+  if IsAdminInstallMode then Result := HKEY_LOCAL_MACHINE else Result := HKEY_CURRENT_USER;
+end;
+
+function EnvKey(): String;
+begin
+  if IsAdminInstallMode then Result := EnvKeySystem else Result := EnvKeyUser;
+end;
+
+procedure AddToPath(Dir: String);
+var
+  Paths: String;
+begin
+  if not RegQueryStringValue(EnvRoot(), EnvKey(), 'Path', Paths) then Paths := '';
+  if Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Paths) + ';') > 0 then Exit;
+  if (Paths <> '') and (Copy(Paths, Length(Paths), 1) <> ';') then Paths := Paths + ';';
+  if not RegWriteExpandStringValue(EnvRoot(), EnvKey(), 'Path', Paths + Dir) then
+    Log('Could not add ' + Dir + ' to the PATH');
+end;
+
+procedure RemoveFromPath(Dir: String);
+var
+  Paths: String;
+  P: Integer;
+begin
+  if not RegQueryStringValue(EnvRoot(), EnvKey(), 'Path', Paths) then Exit;
+  Paths := ';' + Paths + ';';
+  P := Pos(';' + Uppercase(Dir) + ';', Uppercase(Paths));
+  if P = 0 then Exit;
+  Delete(Paths, P, Length(Dir) + 1);
+  Paths := Copy(Paths, 2, Length(Paths) - 2);
+  RegWriteExpandStringValue(EnvRoot(), EnvKey(), 'Path', Paths);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('addtopath') then
+    AddToPath(ExpandConstant('{app}'));
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RemoveFromPath(ExpandConstant('{app}'));
+end;

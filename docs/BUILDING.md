@@ -46,9 +46,13 @@ as a `.df` project with its cycle diagram).
   installer (`packaging/windows/dfstudio.iss`) asks whether to install for
   all users (administrator rights, `C:\Program Files\DF Studio`) or for the
   current user only (no administrator rights,
-  `%LOCALAPPDATA%\Programs\DF Studio`). Unattended:
+  `%LOCALAPPDATA%\Programs\DF Studio`). Optional tasks, checked by default
+  unless noted: `startmenu` (Start menu entry), `desktopicon` (unchecked),
+  `addtopath` (install folder appended to the user or system PATH by the
+  `[Code]` section and removed on uninstall, plus an App Paths entry),
+  `assocdf` (`.df`, `.dfs`) and `assocees` (`.ees`). Unattended:
   `DF_Studio-<v>-windows-x64-setup.exe /VERYSILENT /CURRENTUSER` (or
-  `/ALLUSERS`). The executable and the installer are not code-signed, so
+  `/ALLUSERS`); deselect tasks with e.g. `/MERGETASKS="!addtopath,!assocees"`. The executable and the installer are not code-signed, so
   SmartScreen may ask for confirmation on first run.
 
 ## Making a release
