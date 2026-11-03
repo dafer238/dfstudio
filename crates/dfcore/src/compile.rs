@@ -937,7 +937,11 @@ impl Lower<'_, '_> {
             let k = t.constant(from.factor / to.factor);
             let c = t.constant((from.offset - to.offset) / to.factor);
             let y = t.push(Op::F2(F2::Mul, x, k));
-            return Ok(t.push(Op::F2(F2::Add, y, c)));
+            let z = t.push(Op::F2(F2::Add, y, c));
+            // the result is in the target scale, not in the model's
+            // temperature unit: it must not take (or give) the dimension of
+            // a model temperature, or a display unit would convert it again
+            return Ok(t.push(Op::F1(F1::Opaque, z)));
         }
         // ---- unrolled reductions: sum(expr, i=a, b)
         if (name == "sum" || name == "product") && args.len() == 3 && args[1].name.is_some() {

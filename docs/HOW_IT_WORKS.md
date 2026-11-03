@@ -84,7 +84,13 @@ earlier ones (`tape.rs`). On the way:
   `eta_p = (h_s[2] - h[1]) / (h[2] - h[1])`, the residual in Newton form,
   `eta_p·(h[2] − h[1]) − (h_s[2] − h[1])`, is *linear* in h[2], and the
   pole at h[2] = h[1] disappears. The solver iterates on the Newton form and
-  checks convergence on the original form.
+  checks convergence on the original form. Clearing a denominator can also
+  add a root where the denominator vanishes (in an LMTD,
+  `Q·ln(dT1/dT2) = UA·(dT1 − dT2)` holds at dT1 = dT2, where the equation as
+  written is 0/0). Such a point is never accepted: if Newton on the Newton
+  form ends there or fails, the block is solved again on the original form,
+  from a start where the block's definitions (`v = expression`) are
+  evaluated from the current values first.
 * The top-level **additive terms** of each side are recorded. They define
   the scale of the equation used in the convergence test (§5.4).
 

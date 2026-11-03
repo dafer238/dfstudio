@@ -61,7 +61,9 @@ your equations and the analytic derivatives of the equations of state),
 block decomposition of the system, Newton's method with line search and a
 Levenberg–Marquardt fall-back. Every step, tolerance and reference is
 documented in [How DF Studio solves a model](docs/HOW_IT_WORKS.md), and the
-code is open.
+code is open. [Verification](docs/VERIFICATION.md) lists the tests against
+IAPWS, NIST-JANAF and closed-form solutions that run on every change, and a
+model for cross-checking with EES.
 
 **Real-fluid properties included.** Water, CO₂, refrigerants, air and over a
 hundred other fluids and mixtures through [CoolProp](http://www.coolprop.org),

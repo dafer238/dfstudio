@@ -6,6 +6,25 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Verification
+- Tests of the property pipeline against IAPWS-95 (Tables 7 and 8),
+  IAPWS-IF97 (Tables 5 and 15), NIST-JANAF and exact thermodynamic
+  identities in five unit systems; solver tests against closed-form
+  solutions and a direct CoolProp calculation. See `docs/VERIFICATION.md`.
+- `examples/ees_crosscheck.dfs`: a 198-equation model that runs unchanged in
+  EES, for comparing the two programs.
+
+### Fixed
+- The solver could report convergence at a spurious root created by
+  clearing a denominator (for example an LMTD at dT1 = dT2, where the
+  equation is 0/0), with an infinite residual. Such points are refused, the
+  block is retried on the equations as written, and a solution whose
+  residual cannot be evaluated is never reported as converged.
+- `Steam_IAPWS` (EES) now maps to IAPWS-95 like `Water`, as in EES; it was
+  read as IAPWS-IF97. `R718` is accepted as water.
+- `converttemp(...)` results were labelled and display-converted as model
+  temperatures; they are plain numbers now.
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution

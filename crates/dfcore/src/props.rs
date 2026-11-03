@@ -179,8 +179,9 @@ pub fn coolprop_fluid(name: &str) -> String {
     let l = name.to_lowercase();
     match l.as_str() {
         "carbondioxide" | "co2" | "r744" => "CO2".into(),
-        "steam" | "steam_nbs" | "water" | "h2o" => "Water".into(),
-        "steam_iapws" => "IF97::Water".into(),
+        "steam" | "steam_nbs" | "water" | "h2o" | "r718" => "Water".into(),
+        // EES Steam_IAPWS is IAPWS-95, like Water and Steam (EES help, "Steam_IAPWS")
+        "steam_iapws" => "Water".into(),
         "air" | "air_ha" => "Air".into(),
         "nitrogen" | "n2" => "Nitrogen".into(),
         "oxygen" | "o2" => "Oxygen".into(),
