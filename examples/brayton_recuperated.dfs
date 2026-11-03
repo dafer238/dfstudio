@@ -1,0 +1,82 @@
+"Recuperated Brayton cycle: open gas turbine with air and a recuperator, states 1 to 6
+
+ Compressor 1 -> 2, recuperator cold side 2 -> 3, combustor 3 -> 4, turbine 4 -> 5,
+ recuperator hot side 5 -> 6, exhaust. The recuperator preheats the compressed air with the
+ turbine exhaust, which raises the efficiency at low pressure ratios.
+
+ This example shows a heat exchanger defined by its effectiveness, a user Function (the
+ log-mean temperature difference) and property calls inside a Duplicate loop.
+
+ Also in this project:
+   Cycle diagram   the flowsheet with the recuperator
+   Parametric      efficiency, specific work and recuperator duty over the pressure ratio
+   Plots           T-s diagram, and efficiency and specific work against the pressure ratio
+   Goal seek       recuperator effectiveness for a thermal efficiency of 38 %
+   Optimisation    pressure ratio of maximum efficiency"
+
+"The unit system: C, bar, kJ, kg/s"
+$UnitSystem Eng
+
+"A user function: the log-mean temperature difference of a counter-flow exchanger"
+Function lmtd(dT_a, dT_b)
+  If abs(dT_a - dT_b) < 1e-6 Then
+    lmtd := dT_a
+  Else
+    lmtd := (dT_a - dT_b)/ln(dT_a/dT_b)
+  EndIf
+End
+
+"---------------------------------------------------------------- inputs"
+T[1] = 15 [C];  P[1] = 1.013 [bar]
+r_p = 5                        "compressor pressure ratio (recuperated cycles favour low ratios)"
+T[4] = 950 [C]                 "turbine inlet temperature"
+eps = 0.85                     "recuperator effectiveness"
+dp_rc = 0.02;  dp_rh = 0.03    "recuperator cold- and hot-side pressure losses (fractions)"
+dp_cc = 0.03                   "combustor pressure loss (fraction)"
+eta_c = 0.85;  eta_t = 0.88    "isentropic efficiencies"
+m_dot = 5 [kg/s]               "air mass flow"
+
+P[2] = r_p*P[1]
+P[3] = P[2]*(1 - dp_rc)
+P[4] = P[3]*(1 - dp_cc)
+P[6] = P[1]                    // exhaust to ambient
+P[5] = P[6]/(1 - dp_rh)        // the turbine exhausts at the pressure the recuperator needs
+
+Duplicate i = 1, 6
+  m[i] = m_dot
+End
+
+"---------------------------------------------------------------- states
+ Every state is written the same way, so a Duplicate loop gives h and s of all six states
+ from the T and P that the equations below determine."
+Duplicate i = 1, 6
+  h[i] = enthalpy(Air, T=T[i], P=P[i])
+  s[i] = entropy(Air, T=T[i], P=P[i])
+End
+
+"Compressor 1 -> 2"
+h_s[2] = enthalpy(Air, P=P[2], s=s[1])
+eta_c = (h_s[2] - h[1]) / (h[2] - h[1])
+
+"Turbine 4 -> 5"
+h_s[5] = enthalpy(Air, P=P[5], s=s[4])
+eta_t = (h[4] - h[5]) / (h[4] - h_s[5])
+
+"Recuperator: same flow on both sides, so the cold side gains what the hot side loses.
+ The effectiveness compares the duty with the largest possible one. The cold side, being
+ cooler, has the smaller heat-capacity rate, so at best it is heated to the hot inlet
+ temperature T[5]."
+Q_rec = m[5]*(h[5] - h[6])     {kW}
+Q_rec = m[2]*(h[3] - h[2])
+h_max = enthalpy(Air, T=T[5], P=P[3])
+eps = (h[3] - h[2])/(h_max - h[2])
+dT_lm = lmtd(T[5] - T[3], T[6] - T[2])     {dK}
+UA = Q_rec/dT_lm               {kW/K}
+
+"---------------------------------------------------------------- performance"
+W_c = m[1]*(h[2] - h[1])       {kW}
+W_t = m[4]*(h[4] - h[5])       {kW}
+Q_in = m[3]*(h[4] - h[3])      {kW}
+W_net = W_t - W_c              {kW}
+eta_th = W_net/Q_in            "thermal efficiency"
+w_spec = W_net/m_dot           {kJ/kg}  "specific work (names are case-insensitive: w_net would be W_net)"

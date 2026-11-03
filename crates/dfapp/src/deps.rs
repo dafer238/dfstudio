@@ -660,7 +660,7 @@ mod tests {
     use dfcore::{CompileOptions, SolveOptions};
 
     fn analyse(src: &str) -> Arc<Analysis> {
-        Arc::new(run(Request { gen: 1, text: src.into(), opts: CompileOptions::default(), solve: true, solve_opts: SolveOptions::default(), warm: None }))
+        Arc::new(run(Request { gen: 1, text: src.into(), opts: CompileOptions::default(), solve: true, solve_opts: SolveOptions::default(), warm: None, init: Default::default() }))
     }
 
     #[test]
