@@ -73,6 +73,7 @@ fn write_examples(args: &[String]) -> i32 {
         let mut s = app::Settings::default();
         s.text = t.script.to_string();
         s.cycle = (t.diagram)();
+        (t.studies)(&mut s);
         let a = analysis::run(analysis::Request {
             gen: 1,
             text: s.text.clone(),
@@ -84,6 +85,16 @@ fn write_examples(args: &[String]) -> i32 {
         if !a.solution.as_ref().is_some_and(|x| x.converged) {
             eprintln!("{}: not converged", t.name);
             code = 1;
+        }
+        // solve the parametric table so its plots show when the example opens
+        let du = s.display_units.clone();
+        match s.table.solve_now(&a, &du) {
+            Ok(()) if s.table.converged.iter().all(|c| *c) => {}
+            Ok(()) => eprintln!("{}: some parametric rows did not converge", t.name),
+            Err(e) => {
+                eprintln!("{}: parametric table: {e}", t.name);
+                code = 1;
+            }
         }
         let p = dir.join(format!("{}.df", t.name));
         match project::to_df(&s, Some(&a), &[], &Default::default()).save(&p) {

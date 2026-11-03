@@ -6,6 +6,15 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Examples
+- New recuperated Brayton example (air, recuperator by effectiveness, LMTD
+  function).
+- Every example sets the mass flow of each state (`m[i]` with `Duplicate`),
+  so the cycle diagram shows the flow of every stream, and is commented to
+  introduce the language and the cycle.
+- The example projects include a solved parametric table, a goal seek or an
+  optimisation and plots (property diagram, XY or 3D).
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution

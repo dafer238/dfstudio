@@ -1,29 +1,65 @@
-"Simple Rankine cycle — engineering units (C, bar, kJ)"
+"Simple Rankine cycle: water/steam, states 1 to 4
+
+ A first look at the DF Studio language. Equations can be written in any order and on either
+ side of the '=' sign: DF Studio works out which equation gives which variable (see Equations >
+ Dependencies). Text in double quotes or braces is a comment; '//' starts a line comment.
+
+ Also in this project:
+   Cycle diagram   the flowsheet, with each stream's T, P, h and mass flow from the solution
+   Parametric      efficiency over boiler pressure and turbine inlet temperature
+   Plots           T-s diagram of the cycle, and the parametric results
+   Goal seek       boiler pressure for a turbine exhaust quality of 0.90"
+
+"The unit system of the model: C, bar, kJ, kg/s. A literal with a unit, like 10 [bar], is converted to it."
 $UnitSystem Eng
 
-P[1] = 0.1 [bar];  x[1] = 0
-P[2] = 150 [bar]
-T[3] = 550 [C]
+"---------------------------------------------------------------- inputs"
+P[1] = 0.1 [bar];  x[1] = 0    // condenser: saturated liquid at 0.1 bar
+P[2] = 150 [bar]               // boiler pressure (pump outlet)
+T[3] = 550 [C]                 // turbine inlet temperature
+eta_p = 0.85                   "pump isentropic efficiency"
+eta_t = 0.88                   "turbine isentropic efficiency"
+m_dot = 50 [kg/s]              "steam mass flow"
+
+"Pressure losses are neglected: the boiler and the condenser work at constant pressure"
 P[3] = P[2]
 P[4] = P[1]
-eta_p = 0.85
-eta_t = 0.88
-m_dot = 50 [kg/s]
 
+"One mass flow for every state. Duplicate writes the equation once per index: m[1] = m_dot,
+ m[2] = m_dot, ... The cycle diagram reads m[i] to show the flow of stream i."
+Duplicate i = 1, 4
+  m[i] = m_dot
+End
+
+"---------------------------------------------------------------- states
+ Property functions take the fluid and two independent inputs by name (T, P, h, s, x, ...).
+ Water is IAPWS-95 from CoolProp."
 h[1] = enthalpy(Water, P=P[1], x=x[1])
 s[1] = entropy(Water, P=P[1], x=x[1])
+T[1] = temperature(Water, P=P[1], h=h[1])
+
+"Pump 1 -> 2: the isentropic efficiency defines h[2]; DF Studio solves it for h[2] by itself"
 h_s[2] = enthalpy(Water, P=P[2], s=s[1])
 eta_p = (h_s[2] - h[1]) / (h[2] - h[1])
-T[1] = temperature(Water, P=P[1], h=h[1])
 T[2] = temperature(Water, P=P[2], h=h[2])
+s[2] = entropy(Water, P=P[2], h=h[2])
+
+"Turbine 3 -> 4"
 h[3] = enthalpy(Water, P=P[3], T=T[3])
 s[3] = entropy(Water, P=P[3], T=T[3])
 h_s[4] = enthalpy(Water, P=P[4], s=s[3])
 eta_t = (h[3] - h[4]) / (h[3] - h_s[4])
 x[4] = quality(Water, P=P[4], h=h[4])
 T[4] = temperature(Water, P=P[4], h=h[4])
+s[4] = entropy(Water, P=P[4], h=h[4])
 
-W_t = m_dot*(h[3] - h[4])     {kW}
-W_p = m_dot*(h[2] - h[1])     {kW}
-Q_in = m_dot*(h[3] - h[2])    {kW}
-eta_th = (W_t - W_p)/Q_in
+"---------------------------------------------------------------- energy balances
+ A {unit} comment after an equation sets the unit the variable is shown in."
+W_t = m[3]*(h[3] - h[4])       {kW}
+W_p = m[1]*(h[2] - h[1])       {kW}
+Q_in = m[2]*(h[3] - h[2])      {kW}
+Q_out = m[4]*(h[4] - h[1])     {kW}
+W_net = W_t - W_p              {MW}
+eta_th = W_net/Q_in            "thermal efficiency"
+bwr = W_p/W_t                  "back-work ratio"
+check = Q_in - Q_out - W_net   "first-law check: zero to round-off"

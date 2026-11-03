@@ -2421,7 +2421,7 @@ mod tests {
         let du = HashMap::new();
         let inp = CycleInputs { analysis: &a, display_units: &du, script: "" };
         let l3 = inp.state_lines(&d, 3);
-        assert_eq!(l3, vec!["T = 550 C", "P = 150 bar", "h = 3450 kJ/kg"]);
+        assert_eq!(l3, vec!["T = 550 C", "P = 150 bar", "h = 3450 kJ/kg", "m = 50 kg/s"]);
         let pdf = report_pdf(&d, &inp);
         assert!(pdf.starts_with(b"%PDF-1.4"));
         if let Ok(p) = std::env::var("DF_PDF_OUT") {

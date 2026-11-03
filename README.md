@@ -34,8 +34,9 @@ results in sync with tables, plots and a flowsheet of your cycle.
 | **Linux** (x86-64, glibc 2.38+: Ubuntu 24.04, Debian 13, Fedora 39 or newer) | [`.AppImage`](https://github.com/dafer238/dfstudio/releases/latest): `chmod +x` and run. |
 
 Each package includes the desktop app, the `dfs` command-line solver, the
-CoolProp property library and example projects (Rankine, Brayton and
-refrigeration cycles). No account, licence key or internet connection is
+CoolProp property library and example projects (Rankine, simple and
+recuperated Brayton, and refrigeration cycles), each with its flowsheet, a
+parametric study, a goal seek or optimisation and plots. No account, licence key or internet connection is
 needed.
 
 ## Highlights
