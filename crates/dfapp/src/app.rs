@@ -1322,11 +1322,14 @@ impl eframe::App for DfApp {
 
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("Solve").strong()).on_hover_text("F2").clicked() {
-                    self.submit(true);
-                    self.status = "Solving…".into();
+                // with live solve the model is solved while typing: no button (F2 still works)
+                if !self.s.live_solve {
+                    if ui.button(RichText::new("Solve").strong()).on_hover_text("F2").clicked() {
+                        self.submit(true);
+                        self.status = "Solving…".into();
+                    }
+                    ui.separator();
                 }
-                ui.separator();
                 for (t, label) in [
                     (Tab::Equations, "Equations"),
                     (Tab::Solution, "Solution"),

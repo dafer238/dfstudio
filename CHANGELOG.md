@@ -6,6 +6,22 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Cycle diagram
+- Right sidebar with *KPI* and *States* tabs, and below them all the
+  diagram settings (lock, stream labels, title, PDF export, fit view). The
+  left sidebar keeps the palette, the templates and the selected
+  component's or stream's settings.
+- The state table adds mass flow, entropy, vapour quality,
+  superheating/subcooling degree, density, cp and the fluid, and has a
+  *Copy table (TSV)* button.
+- The PDF report keeps the label style, state numbering, label size and
+  positions, stream colours and the cross unit legend of the canvas, and
+  uses the same state table.
+
+### Interface
+- The toolbar's Solve button is hidden while *Solve > Live solve while
+  typing* is on (F2 still solves).
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution

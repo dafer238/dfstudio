@@ -212,7 +212,7 @@ pub fn stream_fluid(l: &Link, default: &Option<String>) -> Option<String> {
     stream_fluid_ex(l, default).map(|x| x.0)
 }
 
-fn stream_fluid_ex(l: &Link, default: &Option<String>) -> Option<(String, bool)> {
+pub(crate) fn stream_fluid_ex(l: &Link, default: &Option<String>) -> Option<(String, bool)> {
     match l.fluid.trim() {
         "-" => None,
         "" => match l.color {
