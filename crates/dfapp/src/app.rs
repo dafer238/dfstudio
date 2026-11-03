@@ -209,6 +209,8 @@ pub struct DfApp {
 
 impl DfApp {
     pub fn new(cc: &eframe::CreationContext<'_>, file: Option<String>) -> Self {
+        // SVG icons (components library, menus)
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         // a little more air between rows and widgets than egui's defaults
         cc.egui_ctx.all_styles_mut(|st| {
             st.spacing.item_spacing = egui::vec2(8.0, 6.0);

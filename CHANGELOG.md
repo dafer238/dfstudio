@@ -6,6 +6,16 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Cycle diagram
+- Component library in collapsible groups with monochrome icons that follow
+  the theme: turbines, compressors and fans, pumps, heat exchangers, HRSG
+  (economizer, evaporator, superheater, duct burner, SCR, duct, stack,
+  fan), condensers and cooling (water-cooled condenser, air-cooled
+  condenser, cooler, cooling tower), valves and piping, sources and sinks,
+  electrical, annotations. The Components tab uses the same groups.
+- Turbine and compressor connection points at five stages on each tilted
+  casing line (diagrams saved by 0.1 keep their points).
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution
