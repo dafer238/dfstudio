@@ -81,8 +81,7 @@ property functions h, s, v, T, P, x, ρ, cp, μ, k, Pr, T_sat, P_sat and the
 latent heat.
 
 **To compare:** open EES, paste the file into the Equations window, solve,
-and fill in the EES column below from the Solution window (or send it as it
-is). The unit system is `SI MASS DEG KPA C KJ`: pressures in kPa,
+and compare with the tables below. The unit system is `SI MASS DEG KPA C KJ`: pressures in kPa,
 temperatures in °C, energies in kJ, so powers and duties are in kW and
 flows in kg/s.
 
@@ -98,7 +97,34 @@ may use other correlations than CoolProp's, so μ, k, Pr, Re and the
 friction factor may differ by up to about 1 %), or an error worth
 investigating.
 
-### DF Studio results
+### Outcome
+
+The EES column was copied from the EES Solution window, which shows four
+significant figures, so differences below about 5e-4 are display rounding.
+The two programs agree to within that rounding on every quantity except:
+
+* **Humid air (part B), 0.5 %.** EES gives humidity ratios about 0.5 %
+  lower: `w_a1` = 0.01331 against 0.013373 at 30 °C, 50 %. A hand
+  calculation for an ideal-gas mixture without the enhancement factor
+  gives 0.621945·p_v/(p − p_v) = 0.013313, the EES value. DF Studio uses
+  CoolProp's real-gas humid-air model (Hyland & Wexler with the
+  enhancement factor), which reproduces the ASHRAE saturation tables (the
+  `humid_air_saturation` test). The cooling load, refrigerant flow,
+  compressor power and condenser duty inherit a 0.2 % difference. The COP
+  does not, because it depends on the refrigerant only.
+* **Water transport properties (part A), 0.1 %.** μ differs by 0.12 % and
+  Pr by 0.1 %, with k equal to four figures, so Re differs by 0.12 % and the
+  Dittus–Boelter coefficient by 0.05 %. These are differences between
+  viscosity correlations and are well within their stated uncertainty. The
+  friction factor agrees to four figures.
+* **R134a saturation pressure at −5 °C, 0.065 %** (243.5 against 243.34
+  kPa). Every derived quantity of the refrigerant cycle (COP, discharge
+  temperature, quality) agrees to four figures.
+* **Absolute CO2 enthalpies** differ by a constant 506.8 kJ/kg
+  (`h_c3max`, `h_c6min`) because of a different reference state. All the
+  differences, and everything computed from them, agree.
+
+### Results
 
 ### A. Reheat-regenerative Rankine (water, IAPWS-95)
 
@@ -119,47 +145,47 @@ investigating.
 | `T[8]` [C] | 329.9744 | | |
 | `T[9]` [C] | 41.508765 | | |
 | `x[9]`  | 0.94125071 | | |
-| `y`  | 0.16807583 | | |
-| `W_hp`  | 41047.397 | | |
-| `W_lp`  | 101877.58 | | |
-| `W_pumps`  | 2035.8205 | | |
-| `W_net`  | 140889.16 | | |
-| `Q_boiler`  | 329006.23 | | |
-| `Q_cond`  | 188117.07 | | |
-| `eta_th`  | 0.42822641 | | |
-| `eta_carnot_mean`  | 0.48924491 | | |
-| `T_sat_cond` [C] | 41.508765 | | |
-| `h_fg_cond` [kJ/kg] | 2402.3659 | | |
-| `T_cw_out`  | 30.500996 | | |
-| `m_cw`  | 4284.3492 | | |
-| `rho_fw` [kg/m^3] | 914.43818 | | |
-| `mu_fw` [Pa-s] | 0.00017241 | | |
-| `Re_fw`  | 3692531.2 | | |
-| `f_fw`  | 0.01432716 | | |
-| `f_loop`  | 0.01432716 | | |
-| `DELTAP_fw`  | 59.530189 | | |
-| `Pr_fw`  | 1.0750499 | | |
-| `htc_fw`  | 14614.652 | | |
+| `y`  | 0.16807583 | 0.1681 | +1.4e-04 |
+| `W_hp`  | 41047.397 | 41047 | -9.7e-06 |
+| `W_lp`  | 101877.58 | 101878 | +4.1e-06 |
+| `W_pumps`  | 2035.8205 | 2036 | +8.8e-05 |
+| `W_net`  | 140889.16 | 140889 | -1.1e-06 |
+| `Q_boiler`  | 329006.23 | 329006 | -7.0e-07 |
+| `Q_cond`  | 188117.07 | 188117 | -3.7e-07 |
+| `eta_th`  | 0.42822641 | 0.4282 | -6.2e-05 |
+| `eta_carnot_mean`  | 0.48924491 | 0.4892 | -9.2e-05 |
+| `T_sat_cond` [C] | 41.508765 | 41.51 | +3.0e-05 |
+| `h_fg_cond` [kJ/kg] | 2402.3659 | 2402 | -1.5e-04 |
+| `T_cw_out`  | 30.500996 | 30.5 | -3.3e-05 |
+| `m_cw`  | 4284.3492 | 4285 | +1.5e-04 |
+| `rho_fw` [kg/m^3] | 914.43818 | 914.4 | -4.2e-05 |
+| `mu_fw` [Pa-s] | 0.00017241 | 0.0001722 | -1.2e-03 |
+| `Re_fw`  | 3692531.2 | 3.697e+06 | +1.2e-03 |
+| `f_fw`  | 0.01432716 | 0.01433 | +2.0e-04 |
+| `f_loop`  | 0.01432716 | 0.01433 | +2.0e-04 |
+| `DELTAP_fw`  | 59.530189 | 59.53 | -3.2e-06 |
+| `Pr_fw`  | 1.0750499 | 1.074 | -9.8e-04 |
+| `htc_fw`  | 14614.652 | 14622 | +5.0e-04 |
 
 ### B. R134a refrigeration and moist-air cooler
 
 | Variable | DF Studio | EES | Rel. diff. |
 |---|---:|---:|---:|
-| `P_ev` [kPa] | 243.34237 | | |
-| `P_cd` [kPa] | 1016.593 | | |
+| `P_ev` [kPa] | 243.34237 | 243.5 | +6.5e-04 |
+| `P_cd` [kPa] | 1016.593 | 1017 | +4.0e-04 |
 | `T_r[2]` [C] | 59.574287 | | |
 | `x_r[4]`  | 0.28973561 | | |
-| `COP`  | 3.632798 | | |
-| `COP_carnot`  | 5.9588889 | | |
-| `w_a1`  | 0.01337259 | | |
-| `w_a2`  | 0.01001332 | | |
-| `T_wb1` [C] | 22.000878 | | |
-| `T_dp1` [C] | 18.450825 | | |
-| `Q_evap`  | 49.5731 | | |
-| `m_r`  | 0.33477583 | | |
-| `W_comp`  | 13.645983 | | |
-| `Q_cd`  | 63.219084 | | |
-| `SHR`  | 0.66599266 | | |
+| `COP`  | 3.632798 | 3.633 | +5.6e-05 |
+| `COP_carnot`  | 5.9588889 | 5.959 | +1.9e-05 |
+| `w_a1`  | 0.01337259 | 0.01331 | -4.7e-03 |
+| `w_a2`  | 0.01001332 | 0.009961 | -5.2e-03 |
+| `T_wb1` [C] | 22.000878 | 22 | -4.0e-05 |
+| `T_dp1` [C] | 18.450825 | 18.45 | -4.5e-05 |
+| `Q_evap`  | 49.5731 | 49.48 | -1.9e-03 |
+| `m_r`  | 0.33477583 | 0.3341 | -2.0e-03 |
+| `W_comp`  | 13.645983 | 13.62 | -1.9e-03 |
+| `Q_cd`  | 63.219084 | 63.09 | -2.0e-03 |
+| `SHR`  | 0.66599266 | 0.666 | +1.1e-05 |
 
 ### C. Recuperated CO2 Brayton (Span & Wagner)
 
@@ -171,13 +197,13 @@ investigating.
 | `T_c[6]` [C] | 120.3454 | | |
 | `rho_c[1]` [kg/m^3] | 331.49902 | | |
 | `rho_c[4]` [kg/m^3] | 133.27614 | | |
-| `cp_c1` [kJ/kg-K] | 12.110963 | | |
-| `Q_max_rc` [kJ/kg] | 345.61147 | | |
-| `W_tc`  | 5745.6405 | | |
-| `W_cc`  | 1639.569 | | |
-| `Q_hc`  | 12577.116 | | |
-| `eta_c`  | 0.32647161 | | |
-| `DT_min_rc` [C] | 26.805648 | | |
+| `cp_c1` [kJ/kg-K] | 12.110963 | 12.12 | +7.5e-04 |
+| `Q_max_rc` [kJ/kg] | 345.61147 | 345.6 | -3.3e-05 |
+| `W_tc`  | 5745.6405 | 5746 | +6.3e-05 |
+| `W_cc`  | 1639.569 | 1639 | -3.5e-04 |
+| `Q_hc`  | 12577.116 | 12577 | -9.2e-06 |
+| `eta_c`  | 0.32647161 | 0.3265 | +8.7e-05 |
+| `DT_min_rc` [C] | 26.805648 | 26.81 | +1.6e-04 |
 
 ### D. Intercooled air compressor (Air_ha, Lemmon)
 
@@ -187,8 +213,8 @@ investigating.
 | `T_out[2]` [C] | 115.13526 | | |
 | `T_out[3]` [C] | 115.35377 | | |
 | `w_st[1]` [kJ/kg] | 100.72525 | | |
-| `w_total` [kJ/kg] | 302.20376 | | |
-| `Z_out`  | 1.0025283 | | |
+| `w_total` [kJ/kg] | 302.20376 | 302.2 | -1.2e-05 |
+| `Z_out`  | 1.0025283 | 1.003 | +4.7e-04 |
 
 ## References
 
