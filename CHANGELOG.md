@@ -6,6 +6,13 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A rare crash ("double free or corruption") when several threads created
+  CoolProp states at the same time, e.g. a parametric table or optimisation
+  starting its workers: creating a state now has exclusive access to
+  CoolProp. The states of a worker thread are released when it ends, so
+  repeated studies no longer accumulate memory.
+
 ## [0.1.1] - 2026-11-03
 
 ### Distribution
