@@ -17,7 +17,7 @@
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational">
 </p>
 
-![DF Studio: a Brayton cycle drawn as a flowsheet, with live stream values and KPIs](docs/img/cycle-brayton.png)
+![DF Studio: a recompression supercritical CO₂ cycle with motor-driven compressors, drawn as a flowsheet with live stream values and KPIs](docs/img/cycle-rc.png)
 
 DF Studio solves systems of nonlinear algebraic equations written in any
 order, the way you would write them on paper. Type an energy balance, an

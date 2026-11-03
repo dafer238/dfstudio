@@ -85,6 +85,27 @@ jobs:
             choco install innosetup -y --no-progress
           }
       - run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+      - name: Smoke test (per-user install, PATH, associations, uninstall)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\*-setup.exe).FullName
+          $app = "$env:LOCALAPPDATA\Programs\DF Studio"
+          Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/LOG=install.log' -Wait
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if (($path -split ';') -notcontains $app) { Get-Content install.log; throw "install folder not on the user PATH: $path" }
+          & "$app\dfs.exe" run examples\rankine.dfs > $null
+          if ($LASTEXITCODE -ne 0) { throw "dfs failed" }
+          foreach ($ext in '.df', '.dfs', '.ees') {
+            if (-not (Test-Path "HKCU:\Software\Classes\$ext")) { throw "$ext not associated" }
+          }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DF Studio.lnk")) { throw "no Start menu entry" }
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          # the uninstaller re-launches itself from %TEMP%, so -Wait returns early
+          for ($i = 0; $i -lt 60 -and (Test-Path "$app\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
+          Start-Sleep -Seconds 2
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if (($path -split ';') -contains $app) { throw "install folder still on the PATH after uninstall: $path" }
+          if (Test-Path "HKCU:\Software\Classes\DFStudio.EES") { throw ".ees association left after uninstall" }
       - uses: actions/upload-artifact@v4
         with:
           name: windows

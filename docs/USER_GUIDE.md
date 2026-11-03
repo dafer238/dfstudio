@@ -44,7 +44,7 @@ Download the installer for your system from the
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10/11 (x64) | `DF_Studio-<version>-windows-x64-setup.exe` | The installer asks whether to install **for all users** (needs administrator rights, installs to `C:\Program Files\DF Studio`) or **for you only** (no administrator rights, installs to `%LOCALAPPDATA%\Programs\DF Studio`). A portable `.zip` is also provided. |
+| Windows 10/11 (x64) | `DF_Studio-<version>-windows-x64-setup.exe` | The installer asks whether to install **for all users** (needs administrator rights, installs to `C:\Program Files\DF Studio`) or **for you only** (no administrator rights, installs to `%LOCALAPPDATA%\Programs\DF Studio`), then offers these options, all checked by default except the desktop icon: a Start menu entry; adding DF Studio to the PATH (your user PATH for a per-user install, the system PATH for an all-users install), so `dfstudio` and `dfs` run from any terminal; and opening `.df`/`.dfs` and `.ees` files with DF Studio on double-click. A portable `.zip` is also provided. |
 | macOS 11+ (Apple silicon and Intel) | `DF_Studio-<version>-macos-universal.dmg` | Drag *DF Studio* to *Applications*. The app is not notarised by Apple: the first time, right-click it and choose *Open*. |
 | Linux (x86-64, glibc 2.38 or newer: Ubuntu 24.04, Debian 13, Fedora 39 or later) | `DF_Studio-<version>-linux-x86_64.AppImage` | `chmod +x` the file and run it. `./DF_Studio-*.AppImage dfs run model.dfs` runs the command-line solver. |
 
@@ -52,6 +52,13 @@ Every package contains the desktop app, the `dfs` command-line runner, the
 CoolProp library and the example projects (in the `examples` folder of the
 installation; open them with *File > Load example…*). Examples installed
 under Program Files are read-only: use *Save as* to keep your changes.
+
+On Windows, if another program was already chosen as the default for
+`.ees` files, Windows keeps that choice and may ask which program to use
+the next time you open one: pick DF Studio and *Always*. DF Studio is
+also listed under *Open with* for every file type it registers. On macOS,
+double-clicking a `.df` or `.dfs` file starts DF Studio but does not load
+the file yet; use *File > Open* or drop the file on the window.
 
 To build from source instead (Rust ≥ 1.85; CoolProp is fetched
 automatically as a prebuilt library; see [BUILDING.md](BUILDING.md)):
