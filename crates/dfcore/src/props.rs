@@ -1085,6 +1085,19 @@ pub mod backend {
         unsafe { cp.get_global_param_string(key.as_ptr(), buf.as_mut_ptr() as *mut c_char, 1 << 16) };
         msg(&buf).split(',').map(|s| s.to_string()).filter(|s| !s.is_empty()).collect()
     }
+
+    /// Names of CoolProp's incompressible fluids: pure (`T66`, `DowQ`, ...)
+    /// and solutions (`MEG`, ... used as `INCOMP::MEG-30%`).
+    pub fn incompressible_list() -> (Vec<String>, Vec<String>) {
+        let cp = COOLPROP.exclusive_access();
+        let get = |k: &str| {
+            let mut buf = vec![0u8; 1 << 16];
+            let key = cs(k);
+            unsafe { cp.get_global_param_string(key.as_ptr(), buf.as_mut_ptr() as *mut c_char, 1 << 16) };
+            msg(&buf).split(',').map(|s| s.to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>()
+        };
+        (get("incompressible_list_pure"), get("incompressible_list_solution"))
+    }
 }
 
 #[cfg(not(feature = "coolprop"))]
@@ -1122,5 +1135,8 @@ pub mod backend {
     }
     pub fn fluid_list() -> Vec<String> {
         vec![]
+    }
+    pub fn incompressible_list() -> (Vec<String>, Vec<String>) {
+        (vec![], vec![])
     }
 }

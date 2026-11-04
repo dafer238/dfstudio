@@ -18,6 +18,13 @@ All notable changes to DF Studio are listed here. The format follows
   arrow keys no longer jumps back to the first suggestion; Page Up/Down
   move a page.
 - Only Tab accepts a suggestion; Enter inserts a new line.
+- *Insert* menu and Library window: a property call builder (fluid
+  model: HEOS, IF97, incompressible, mixture, humid air; property; valid
+  state inputs with the model's variables of the right quantity; preview
+  of the code and *Evaluate*), and searchable lists of property and math
+  functions, fluids (with molar mass and critical point), state inputs,
+  constants, keywords and directives (as templates) and units, all
+  insertable at the cursor. Also under *Help > Library*.
 
 ### Units
 - *Units > Units per quantity*: choose the display unit of each physical

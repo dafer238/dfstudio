@@ -161,7 +161,28 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
   accepts the selected suggestion; `Enter` starts a new line and closes the
   list; arrow keys, Page Up/Down and the mouse wheel move through it.
   *Edit > Suggestions shown* sets the height of the list, in rows.
-* **Errors** are underlined; the Problems panel lists them.
+* **Insert menu / Library.** *Insert* opens the Library window at one of
+  its sections; *Help > Library* opens it too. Every entry can be searched
+  and put at the editor's cursor (double-click or *Insert*):
+  * **Property call builder**: choose the fluid model (pure and pseudo-pure
+    fluids, water IAPWS-IF97, incompressible liquids and solutions,
+    mixtures, humid air), the fluid, the property and its state inputs. The
+    inputs offer only valid names for the chosen function (one input for
+    `t_sat`, three with `P` for humid air, the ideal-gas option) and a list
+    of the model's variables of the right quantity, with their values. The
+    call is shown as it will be written (with `;` in decimal-comma
+    scripts); *Evaluate* computes it, with the numbers given or with the
+    model's current values, before it is inserted.
+  * **Property functions**, **math functions**, **constants**, **keywords
+    and directives** (inserted as a template, e.g. a `Duplicate ... End`
+    block), **state inputs** with their unit in the model, and **units** by
+    quantity.
+  * **Fluids**: every fluid by group (CoolProp, liquids and heat-transfer
+    fluids, humid air) with molar mass, critical temperature and pressure;
+    *Builder* uses it in the property call builder.
+
+  A whole line (a builder call with a result variable, a template) goes on
+  a new line after the cursor's line, or into it when it is empty.
 * **Bracket matching.** Hover over a `(`, `[` or `{` (or its closing
   partner), or put the caret next to one, and both brackets of the pair
   are highlighted in blue; a bracket without a partner is highlighted in

@@ -110,6 +110,10 @@ pub struct Editor {
     scroll_to: Option<usize>,
     /// Visible rows of the completion list.
     pub completion_rows: usize,
+    /// Text to insert at the cursor on the next frame (Library window).
+    pub insert: Option<String>,
+    /// Give the text widget the keyboard focus on the next frame.
+    focus_next: bool,
     /// Open the completion list on the next frame (after accepting `P=`,
     /// `enthalpy(` ... the next argument is completed straight away).
     reopen: bool,
@@ -637,6 +641,20 @@ impl Editor {
             changed = true;
         }
 
+        if let Some(snip) = self.insert.take() {
+            self.checkpoint(ui.ctx(), text);
+            let (at, snip) = insertion_point(text, self.cursor_char, &snip);
+            text.insert_str(char_to_byte(text, at), &snip);
+            let nc = at + snip.trim_end_matches('\n').chars().count();
+            if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), id) {
+                st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(CharIndex(nc)))));
+                st.store(ui.ctx(), id);
+            }
+            self.cursor_char = nc;
+            self.focus_next = true;
+            changed = true;
+        }
+
         changed |= self.find_bar(ui, text);
 
         // ---- highlighted layouter (cached on text hash + analysis generation)
@@ -810,6 +828,9 @@ impl Editor {
         });
         let Some(out) = out_opt else { return changed };
         let response = &out.response;
+        if std::mem::take(&mut self.focus_next) {
+            response.request_focus();
+        }
         changed |= response.changed();
         let cursor = out.cursor_range.map(|r| r.primary.index.0);
         if let Some(c) = cursor {
@@ -1027,6 +1048,25 @@ fn word_before(text: &str, cur: usize) -> (usize, String) {
     (i, chars[i..].iter().collect())
 }
 
+/// Where a snippet goes and how it is written: inline text at the cursor;
+/// a whole line (ending in a new line) on the cursor's line when it is
+/// empty, else on a new line after it.
+fn insertion_point(text: &str, cursor: usize, snip: &str) -> (usize, String) {
+    let chars: Vec<char> = text.chars().collect();
+    let cur = cursor.min(chars.len());
+    if !snip.ends_with('\n') {
+        return (cur, snip.to_string());
+    }
+    let start = chars[..cur].iter().rposition(|c| *c == '\n').map(|p| p + 1).unwrap_or(0);
+    let end = chars[cur..].iter().position(|c| *c == '\n').map(|p| cur + p).unwrap_or(chars.len());
+    let line: String = chars[start..end].iter().collect();
+    if line.trim().is_empty() {
+        // write into the empty line
+        return (start + line.chars().count(), snip.trim_end_matches('\n').to_string());
+    }
+    (end, format!("\n{}", snip.trim_end_matches('\n')))
+}
+
 /// Accepting this candidate leads straight to another completion: a
 /// property function to its fluid, an input name to its value.
 fn reopens(c: &Candidate) -> bool {
@@ -1100,6 +1140,16 @@ pub fn fmt_num(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snippet_insertion() {
+        // inline at the cursor
+        assert_eq!(insertion_point("a = b", 4, "c"), (4, "c".to_string()));
+        // a line on a non-empty line goes after it
+        assert_eq!(insertion_point("a = 1\nb = 2", 2, "x = 3\n"), (5, "\nx = 3".to_string()));
+        // into an empty line
+        assert_eq!(insertion_point("a = 1\n\nb = 2", 6, "x = 3\n"), (6, "x = 3".to_string()));
+    }
 
     #[test]
     fn brackets_pair_in_code_and_comments() {

@@ -5,7 +5,7 @@ use eframe::egui::{self, ImageSource, Vec2};
 
 /// Names of all icons.
 #[cfg(test)]
-pub const NAMES: [&str; 32] = [
+pub const NAMES: [&str; 35] = [
     "turbine",
     "compressor",
     "pump",
@@ -38,6 +38,9 @@ pub const NAMES: [&str; 32] = [
     "moon",
     "monitor",
     "text",
+    "function",
+    "fluid",
+    "braces",
 ];
 
 /// Icon by name; unknown names give the text icon.
@@ -74,6 +77,9 @@ pub fn source(name: &str) -> ImageSource<'static> {
         "sun" => egui::include_image!("../assets/icons/sun.svg"),
         "moon" => egui::include_image!("../assets/icons/moon.svg"),
         "monitor" => egui::include_image!("../assets/icons/monitor.svg"),
+        "function" => egui::include_image!("../assets/icons/function.svg"),
+        "fluid" => egui::include_image!("../assets/icons/fluid.svg"),
+        "braces" => egui::include_image!("../assets/icons/braces.svg"),
         _ => egui::include_image!("../assets/icons/text.svg"),
     }
 }

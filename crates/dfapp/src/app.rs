@@ -202,6 +202,7 @@ pub struct DfApp {
     sol_filter: String,
     show_diag: bool,
     show_help: bool,
+    library: crate::library::Library,
     status: String,
     studies: StudiesUi,
     plots: PlotsUi,
@@ -278,6 +279,7 @@ impl DfApp {
             sol_filter: String::new(),
             show_diag: true,
             show_help: false,
+            library: Default::default(),
             status,
             studies: StudiesUi::default(),
             plots: PlotsUi::default(),
@@ -1673,6 +1675,24 @@ impl eframe::App for DfApp {
                         }
                     }
                 });
+                ui.menu_button("Insert", |ui| {
+                    use crate::library::Section as S;
+                    ui.label(RichText::new("Opens the library; Insert puts the entry at the cursor").small().weak());
+                    for (icon, label, sec) in [
+                        ("function", "Property call…", S::Builder),
+                        ("function", "Property functions", S::Properties),
+                        ("fluid", "Fluids", S::Fluids),
+                        ("text", "State inputs", S::Inputs),
+                        ("function", "Math functions", S::Math),
+                        ("text", "Constants", S::Constants),
+                        ("braces", "Keywords and directives", S::Keywords),
+                        ("units", "Units", S::Units),
+                    ] {
+                        if crate::icons::menu_item(ui, icon, label, "").clicked() {
+                            self.library.open_at(sec);
+                        }
+                    }
+                });
                 ui.menu_button("Solve", |ui| {
                     if crate::icons::menu_item(ui, "solve", "Solve", "F2").clicked() {
                         self.submit(true);
@@ -1725,6 +1745,9 @@ impl eframe::App for DfApp {
                 ui.menu_button("Help", |ui| {
                     if crate::icons::menu_item(ui, "book", "Language reference", "").clicked() {
                         self.show_help = true;
+                    }
+                    if crate::icons::menu_item(ui, "function", "Library (functions, fluids, units)", "").clicked() {
+                        self.library.open_at(crate::library::Section::Properties);
                     }
                     ui.label("Ctrl+Space: completion · F2: solve");
                     ui.separator();
@@ -1911,6 +1934,12 @@ impl eframe::App for DfApp {
             self.load_path(p);
         }
 
+        let us = self.analysis.as_ref().map(|a| a.model.unit_system.clone()).unwrap_or_else(|| self.s.unit_system.clone());
+        if let Some(crate::library::Action::Insert(snip)) = self.library.show(&ctx, self.analysis.as_deref(), &self.s.text, &us, &self.editor.fluids) {
+            self.tab = Tab::Equations;
+            self.eq_view = EqView::Editor;
+            self.editor.insert = Some(snip);
+        }
         if self.show_help {
             egui::Window::new("Language reference").open(&mut self.show_help).default_size([640.0, 560.0]).show(&ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {

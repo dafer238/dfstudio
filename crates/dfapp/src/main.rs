@@ -11,6 +11,7 @@ mod editor;
 mod find;
 mod format;
 mod icons;
+mod library;
 mod markdown;
 mod pdf;
 mod plots;
