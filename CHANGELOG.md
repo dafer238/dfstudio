@@ -6,6 +6,8 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
 ### Editor
 - Completion follows the context: fluids after `enthalpy(` (the model's
   first, then common ones), the missing state inputs after a comma, and
@@ -66,6 +68,8 @@ All notable changes to DF Studio are listed here. The format follows
   substance in kmol, consistent with the molar mass in kg/kmol: `R#` is
   8.314 kJ/kmol-K in Engineering (was 0.008314, so `R#/molarmass(...)`
   was 1000 times too small) and `h*molarmass(...)` is in kJ/kmol.
+
+## [0.2.1] - 2026-11-03
 
 ### Cycle diagram
 - Pump drawn with the triangle along the flow, inlet and outlet opposite
@@ -216,6 +220,9 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dafer238/dfstudio/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/dafer238/dfstudio/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/dafer238/dfstudio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dafer238/dfstudio/releases/tag/v0.1.0
