@@ -12,7 +12,7 @@
 use crate::funcs::{fd_grad, ExtFn};
 use crate::units::{Dim, Unit, UnitSystem};
 
-/// Thermodynamic property keys understood by DF Studio.
+/// Thermodynamic property keys understood by DeltaF Studio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     T,
@@ -193,7 +193,7 @@ pub fn coolprop_fluid(name: &str) -> String {
         "sulfurdioxide" | "so2" => "SulfurDioxide".into(),
         "ammonia" | "nh3" | "r717" => "Ammonia".into(),
         // liquid metals and heat-transfer fluids (EES names): CoolProp's
-        // incompressible fluids, or DF Studio's own liquids (`liquids.rs`)
+        // incompressible fluids, or DeltaF Studio's own liquids (`liquids.rs`)
         "sodium" | "na" | "liqna" => "INCOMP::LiqNa".into(),
         "nak" | "sodium-potassium" => "INCOMP::NaK".into(),
         "lead" | "pb" => "LIQ::Lead".into(),

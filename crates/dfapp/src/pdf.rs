@@ -224,7 +224,7 @@ impl Pdf {
         obj(&mut out, format!("<< /Type /Pages /Kids [{}] /Count {n_pages} >>", kids.join(" ")).as_bytes());
         obj(&mut out, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
         obj(&mut out, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
-        obj(&mut out, format!("<< /Title {} /Producer (DF Studio) >>", pdf_string(&self.title)).as_bytes());
+        obj(&mut out, format!("<< /Title {} /Producer (DeltaF Studio) >>", pdf_string(&self.title)).as_bytes());
         for (i, p) in self.pages.iter().enumerate() {
             obj(
                 &mut out,

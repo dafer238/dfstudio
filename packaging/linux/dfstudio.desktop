@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=DF Studio
+Name=DeltaF Studio
 Comment=Equation-oriented thermodynamic modelling
 Exec=dfstudio %f
 Icon=dfstudio

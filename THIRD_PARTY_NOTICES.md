@@ -1,10 +1,10 @@
 # Third-party notices
 
-DF Studio is distributed under the GNU Affero General Public License v3.0
+DeltaF Studio is distributed under the GNU Affero General Public License v3.0
 (see [LICENSE](LICENSE)). It includes or links to the third-party software
 listed below, each under its own licence. All of these licences are
 compatible with the AGPL-3.0; where a component offers a choice of licences,
-DF Studio uses it under the MIT or Apache-2.0 option.
+DeltaF Studio uses it under the MIT or Apache-2.0 option.
 
 ## CoolProp
 

@@ -1,10 +1,28 @@
 # Changelog
 
-All notable changes to DF Studio are listed here. The format follows
+All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.1] - 2026-11-04
+
+### Changed
+- Renamed the product from DF Studio to DeltaF Studio, to avoid confusion
+  with an unrelated product of the same name. The name changes in the window
+  title, menus, dialogs, installer, Start menu and desktop shortcuts, macOS app
+  bundle, Linux desktop entry, release file names (`DeltaF_Studio-<version>-*`)
+  and documentation. Everything else keeps `dfstudio`: the executables
+  (`dfstudio`, `dfs`), the crates, the Python package `dfpy`, the `.df` and
+  `.dfs` file formats and the repository. Projects saved by DF Studio open
+  unchanged.
+- The website moved to https://deltafstudio.com. The support links in
+  *Help > Support DeltaF Studio* point there; the old dfstudio.neodafer.com
+  addresses, including the payment links in 1.0.0, redirect to it.
+- Windows: upgrading from 1.0.0 or earlier keeps the existing install folder
+  and file associations and replaces the old "DF Studio" shortcuts with
+  "DeltaF Studio" ones.
 
 ## [1.0.0] - 2026-11-04
 
@@ -234,7 +252,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/dafer238/dfstudio/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/dafer238/dfstudio/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dafer238/dfstudio/compare/v0.2.0...v0.2.1

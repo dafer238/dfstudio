@@ -504,14 +504,14 @@ impl DfApp {
 
     fn title(&self) -> String {
         let name = self.s.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into());
-        format!("DF Studio — {}{}", name, if self.dirty { " *" } else { "" })
+        format!("DeltaF Studio — {}{}", name, if self.dirty { " *" } else { "" })
     }
 
     // ------------------------------------------------------------ files
     fn open(&mut self) {
         if let Some(p) = rfd::FileDialog::new()
-            .add_filter("DF Studio project or script", &["df", "dfs", "ees", "txt"])
-            .add_filter("DF Studio project", &["df"])
+            .add_filter("DeltaF Studio project or script", &["df", "dfs", "ees", "txt"])
+            .add_filter("DeltaF Studio project", &["df"])
             .add_filter("Equation scripts", &["dfs", "ees", "txt"])
             .add_filter("All files", &["*"])
             .pick_file()
@@ -548,7 +548,7 @@ impl DfApp {
                 if let Some(p) = rfd::FileDialog::new()
                     .set_title("Load example")
                     .set_directory(&dir)
-                    .add_filter("DF Studio project or script", &["df", "dfs", "ees", "txt"])
+                    .add_filter("DeltaF Studio project or script", &["df", "dfs", "ees", "txt"])
                     .add_filter("All files", &["*"])
                     .pick_file()
                 {
@@ -644,7 +644,7 @@ impl DfApp {
             _ => {
                 let stem = self.s.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into());
                 rfd::FileDialog::new()
-                    .add_filter("DF Studio project (equations, settings, results, attached files)", &["df"])
+                    .add_filter("DeltaF Studio project (equations, settings, results, attached files)", &["df"])
                     .add_filter("Equation script only (text)", &["dfs"])
                     .set_file_name(format!("{stem}.df"))
                     .save_file()
@@ -1811,11 +1811,11 @@ impl eframe::App for DfApp {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                         }
                     }
-                    if crate::icons::menu_item(ui, "heart", "Support DF Studio", "").clicked() {
+                    if crate::icons::menu_item(ui, "heart", "Support DeltaF Studio", "").clicked() {
                         self.show_support = true;
                     }
                     ui.separator();
-                    ui.label(format!("DF Studio {}", env!("CARGO_PKG_VERSION")));
+                    ui.label(format!("DeltaF Studio {}", env!("CARGO_PKG_VERSION")));
                     ui.label("Free software, GNU AGPL-3.0. Properties: CoolProp.");
                 });
             });

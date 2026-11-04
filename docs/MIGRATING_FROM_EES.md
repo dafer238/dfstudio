@@ -1,6 +1,6 @@
 # Migrating from EES
 
-DF Studio reads the EES equation language (Klein & Nellis, 2012) and solves
+DeltaF Studio reads the EES equation language (Klein & Nellis, 2012) and solves
 models the same way: an unordered set of equations, decomposed into blocks
 and solved with Newton's method. Most EES models therefore run after a few
 mechanical edits. This chapter lists those edits, the places where the two
@@ -10,9 +10,9 @@ no equivalent yet.
 The [user guide](USER_GUIDE.md) explains the program itself, and
 [LANGUAGE.md](LANGUAGE.md) the full language.
 
-EES is a product of F-Chart Software; DF Studio is independent and not
+EES is a product of F-Chart Software; DeltaF Studio is independent and not
 affiliated with it. This guide only describes how to run existing EES
-models in DF Studio.
+models in DeltaF Studio.
 
 Contents
 
@@ -21,7 +21,7 @@ Contents
 3. [Units: the most important difference](#3-units-the-most-important-difference)
 4. [Fluids and property functions](#4-fluids-and-property-functions)
 5. [Functions, procedures and directives](#5-functions-procedures-and-directives)
-6. [EES windows and their DF Studio equivalents](#6-ees-windows-and-their-df-studio-equivalents)
+6. [EES windows and their DeltaF Studio equivalents](#6-ees-windows-and-their-df-studio-equivalents)
 7. [Features without an equivalent](#7-features-without-an-equivalent)
 8. [Step-by-step checklist](#8-step-by-step-checklist)
 9. [Worked example](#9-worked-example)
@@ -35,11 +35,11 @@ Open the `.ees` / `.EES` file directly (*File > Open*, or
 * **Text files** (older versions, or saved as text) open as they are.
 * **Binary files** written by EES for Windows hold a short header, the
   equations (plain or RTF, when the Equations window used bold, colours or
-  highlighting) and then binary sections. DF Studio extracts:
+  highlighting) and then binary sections. DeltaF Studio extracts:
   * the **equations**, with the formatting removed and EES's hidden
     `{$ID$...}`, `{$PX$...}` comments dropped;
   * the **Variable Information** of the variables that appear in the
-    equations, appended at the end of the script as `$Units` (units that DF
+    equations, appended at the end of the script as `$Units` (units that DeltaF
     Studio recognises), `$Bounds` (finite limits) and `$Guess` lines. The
     guesses are the values of the last EES solution, so a large model
     starts from a converged point.
@@ -50,19 +50,19 @@ Open the `.ees` / `.EES` file directly (*File > Open*, or
   from another version has a different layout, its equations still open,
   without the Variable Information.
 
-DF Studio never overwrites an `.ees` file: *Save* asks for a `.df` or `.dfs`
+DeltaF Studio never overwrites an `.ees` file: *Save* asks for a `.df` or `.dfs`
 name.
 
 **Decimal comma.** EES on a Spanish (or other European) Windows locale
 writes `1,5` and separates arguments and lists with `;`:
-`enthalpy(Water; T=T[1]; P=1,5)`. DF Studio recognises this form (a `;`
+`enthalpy(Water; T=T[1]; P=1,5)`. DeltaF Studio recognises this form (a `;`
 inside parentheses, or a comma between digits in an equation) and solves it
 as it is. *Edit > Decimal and list separators* converts the whole script to
 `1.5` and `f(a, b)` or back; comments are left untouched, and the
 conversion is undoable (`Ctrl+Z`). Imported EES files keep the form they
 were written in.
 
-The EES header lines are directives. DF Studio understands `$UnitSystem`
+The EES header lines are directives. DeltaF Studio understands `$UnitSystem`
 (see Section 3) and ignores the purely EES-specific ones (`$Keyboard`,
 `$TabStops`, `$CheckUnits`, `$Warnings`, `$Arrays`, `$Complex`, ...) with an
 *Info* message in the Problems panel.
@@ -96,9 +96,9 @@ EES evaluates every equation in the numbers you write. A bracketed unit
 the number, and conversions are explicit (`convert(bar, kPa)`,
 `converttemp(C, K, T)`).
 
-DF Studio *converts* every bracketed literal into the model unit system.
+DeltaF Studio *converts* every bracketed literal into the model unit system.
 
-| Line | EES, unit system kPa / °C | DF Studio, unit system kPa / °C |
+| Line | EES, unit system kPa / °C | DeltaF Studio, unit system kPa / °C |
 |---|---|---|
 | `P = 10 [bar]` | P = 10 (unit warning) | P = 1000 |
 | `T = 300 [K]` | T = 300 (unit warning) | T = 26.85 |
@@ -113,7 +113,7 @@ What this means in practice:
    `$UnitSystem` line, for example `$UnitSystem SI MASS DEG BAR KJ C`, or
    pick it in the *Units* menu. Accepted words: `SI`, `Eng`, `Imperial`,
    `MASS`, `K C F R`, `Pa kPa bar MPa atm psia`, `J kJ Btu`, `DEG RAD`.
-   `MOLAR` is not supported: DF Studio is mass based (see Section 7).
+   `MOLAR` is not supported: DeltaF Studio is mass based (see Section 7).
 2. **Literals already in the model units** give the same numbers in both
    programs. A model whose units were consistent in EES (no unit warnings)
    needs no change.
@@ -121,10 +121,10 @@ What this means in practice:
    `convert` returns the factor between two units of the same dimension
    (`convert(bar, kPa)` = 100) and `converttemp` converts a temperature
    value between scales. Do not combine them with a bracketed unit on the
-   same number, which DF Studio already converts (`10 [bar]*convert(bar,
+   same number, which DeltaF Studio already converts (`10 [bar]*convert(bar,
    kPa)` would convert twice).
 4. **Temperature differences.** In EES a difference written in `[K]` or
-   `[C]` is fine because nothing is converted. In DF Studio write it without
+   `[C]` is fine because nothing is converted. In DeltaF Studio write it without
    a unit or with `[dK]` / `[deltaC]`. Display hints follow the same rule:
    use `{dK}`, not `{C}`, on a pinch or an approach temperature.
 5. **Trailing unit comments** such as `h[1] = ... {kJ/kg}` set the *display*
@@ -139,7 +139,7 @@ entries). This is the counterpart of the EES unit checker.
 
 ### 4.1 Property library
 
-EES uses its own fluid property implementations, while DF Studio uses
+EES uses its own fluid property implementations, while DeltaF Studio uses
 CoolProp (Bell et al., 2014). For most pure fluids both implement the same
 reference equations of state (for example IAPWS-95 for water, Span & Wagner,
 1996, for CO2), so properties agree to the accuracy of the equations of
@@ -148,7 +148,7 @@ or reference state, not to the solver.
 
 ### 4.2 Fluid names
 
-| EES name | DF Studio / CoolProp fluid | Remark |
+| EES name | DeltaF Studio / CoolProp fluid | Remark |
 |---|---|---|
 | `Water`, `Steam`, `Steam_IAPWS`, `R718`, `H2O` | `Water` (IAPWS-95) | EES uses IAPWS-95 for all four names ([EES help: Steam_IAPWS](https://fchartsoftware.com/ees/eeshelp/steam_iapws.htm)) |
 | `Steam_NBS` | `Water` (IAPWS-95) | EES uses the older Haar, Gallagher & Kell (1984) formulation; differences are small but not zero |
@@ -166,15 +166,15 @@ or reference state, not to the solver.
 **Ideal-gas versus real-fluid names.** In EES, chemical formulas such as
 `CO2`, `H2O`, `N2`, `O2` and the name `Air` select *ideal-gas* models
 (JANAF data), while `CarbonDioxide`, `Water`, `Nitrogen`, `Oxygen` and
-`Air_ha` select real-fluid equations of state. DF Studio always uses the
+`Air_ha` select real-fluid equations of state. DeltaF Studio always uses the
 real fluid. Consequences:
 
 * EES ideal-gas calls with one state input (`enthalpy(CO2, T=T1)`,
-  `temperature(N2, h=h1)`) also use the ideal gas in DF Studio, with the
+  `temperature(N2, h=h1)`) also use the ideal gas in DeltaF Studio, with the
   EES reference: h(298.15 K) = enthalpy of formation, s = absolute entropy
   at 1 atm (NIST-JANAF; Chase, 1998). They give the same values as EES
   within the accuracy of the two data sets.
-* With **two** inputs (`entropy(H2O, T=T0, P=p_partial)`), DF Studio uses
+* With **two** inputs (`entropy(H2O, T=T0, P=p_partial)`), DeltaF Studio uses
   the real fluid, while EES still uses the ideal gas. Results differ where
   the real fluid is not an ideal gas (for H2O at 25 °C and a low partial
   pressure CoolProp may even give liquid water), and the absolute values
@@ -199,7 +199,7 @@ model, not absolute enthalpies.
 
 `quality(...)` returns the vapour fraction in the two-phase region in both
 programs. Outside it, EES returns −100 (subcooled) or 100 (superheated),
-while DF Studio returns −1, the CoolProp convention. Rewrite tests such as
+while DeltaF Studio returns −1, the CoolProp convention. Rewrite tests such as
 `IF(x, 99, ...)` or `x > 1` accordingly, or test the phase with temperatures.
 
 ### 4.5 Humid air
@@ -229,7 +229,7 @@ s = ∫cp/T dT, the convention of CoolProp's incompressible fluids. Inputs:
 exists (sodium, lead, LBE), `p_sat(Lead, T=...)` and `t_sat(...)`.
 `density`, `cp`, `viscosity`, `conductivity` and `prandtl` are available;
 there is no vapour phase or critical point, so `quality` returns −1.
-Absolute h and s use each source's reference state (DF Studio's own
+Absolute h and s use each source's reference state (DeltaF Studio's own
 liquids: h = s = 0 at the melting point), so compare differences.
 `enthalpy_vaporization(Fluid, T=...)` (or `P=`) gives h_g − h_f for fluids
 with a two-phase region.
@@ -263,16 +263,16 @@ supported; inline their equations, or use `Duplicate` for repeated units.
 
 Directives:
 
-| EES | DF Studio |
+| EES | DeltaF Studio |
 |---|---|
 | `$UnitSystem ...` | same (Section 3) |
 | Variable Information: guess, bounds, display unit | `$Guess h[2] = 300`, `$Bounds x = 0 .. 1`, `$Units T[*] = C`, or the Variables panel |
 | `$Include`, `$Common`, `$IF`/`$IFNOT`, `$Reference`, `$Private` | ignored (Info message) |
 | Min/Max with a varied variable | Optimize tab, or `$Control vary P[7] to make T[2] = 333` for a target |
 
-## 6. EES windows and their DF Studio equivalents
+## 6. EES windows and their DeltaF Studio equivalents
 
-| EES | DF Studio |
+| EES | DeltaF Studio |
 |---|---|
 | Equations window | Equations > Editor |
 | Formatted Equations | not needed: *Format script* lays out the text |
@@ -347,7 +347,7 @@ T[3] = temperature(Steam, P=P[2], x=0) - DT_sub
 h_air = enthalpy(Air, T=T[3])
 ```
 
-DF Studio:
+DeltaF Studio:
 
 ```
 $UnitSystem SI MASS DEG KPA C KJ

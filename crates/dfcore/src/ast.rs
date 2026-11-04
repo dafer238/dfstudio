@@ -1,4 +1,4 @@
-//! Abstract syntax tree of a DF Studio script.
+//! Abstract syntax tree of a DeltaF Studio script.
 
 use crate::lexer::Span;
 

@@ -1,6 +1,6 @@
 [package]
 name = "dfcli"
-description = "Command-line runner for DF Studio scripts"
+description = "Command-line runner for DeltaF Studio scripts"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

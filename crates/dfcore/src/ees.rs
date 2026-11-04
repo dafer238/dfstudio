@@ -272,9 +272,9 @@ pub fn read(bytes: &[u8]) -> Result<EesFile, String> {
 }
 
 impl EesFile {
-    /// DF Studio script: the equations, then the Variable Information as
+    /// DeltaF Studio script: the equations, then the Variable Information as
     /// `$Guess` (values of the last EES solve), `$Bounds` (finite limits) and
-    /// `$Units` (units DF Studio recognises) lines.
+    /// `$Units` (units DeltaF Studio recognises) lines.
     pub fn to_script(&self) -> String {
         let mut s = self.equations.clone();
         // only variables of the model (the file also keeps old and table entries)

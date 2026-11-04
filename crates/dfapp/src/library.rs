@@ -42,7 +42,7 @@ impl Section {
 /// How the fluid name is written.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Backend {
-    /// CoolProp's default (Helmholtz equations of state) or DF Studio's
+    /// CoolProp's default (Helmholtz equations of state) or DeltaF Studio's
     /// own liquids.
     #[default]
     Default,

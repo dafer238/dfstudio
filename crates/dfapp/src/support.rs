@@ -1,4 +1,4 @@
-//! *Help > Support DF Studio*: how the project is funded and where to pay.
+//! *Help > Support DeltaF Studio*: how the project is funded and where to pay.
 //!
 //! The links go through short links on the project site, so the payment
 //! pages can change without a new release of the app.
@@ -6,29 +6,29 @@
 use eframe::egui::{self, RichText};
 
 /// Overview of the ways to support the project.
-pub const SUPPORT_PAGE: &str = "https://dfstudio.neodafer.com/#support";
+pub const SUPPORT_PAGE: &str = "https://deltafstudio.com/#support";
 
 /// (label, hover text, URL) of each payment option.
 pub const OPTIONS: [(&str, &str, &str); 4] = [
     ("GitHub Sponsors", "Monthly or one-time, through your GitHub account", "https://github.com/sponsors/dafer238"),
-    ("One-time payment", "Card or other methods through Stripe; you choose the amount", "https://dfstudio.neodafer.com/pay/once"),
-    ("Monthly subscription", "Through Stripe; cancel at any time", "https://dfstudio.neodafer.com/pay/monthly"),
-    ("Yearly subscription", "Through Stripe; invoices in the customer portal; cancel at any time", "https://dfstudio.neodafer.com/pay/yearly"),
+    ("One-time payment", "Card or other methods through Stripe; you choose the amount", "https://deltafstudio.com/pay/once"),
+    ("Monthly subscription", "Through Stripe; cancel at any time", "https://deltafstudio.com/pay/monthly"),
+    ("Yearly subscription", "Through Stripe; invoices in the customer portal; cancel at any time", "https://deltafstudio.com/pay/yearly"),
 ];
 
 /// Stripe customer portal: invoices, payment method, cancelling.
-pub const MANAGE: &str = "https://dfstudio.neodafer.com/pay/manage";
+pub const MANAGE: &str = "https://deltafstudio.com/pay/manage";
 
 /// Draw the window while `open` is true.
 pub fn window(ctx: &egui::Context, open: &mut bool) {
-    egui::Window::new("Support DF Studio").open(open).resizable(false).default_width(460.0).show(ctx, |ui| {
+    egui::Window::new("Support DeltaF Studio").open(open).resizable(false).default_width(460.0).show(ctx, |ui| {
         ui.label(
-            "DF Studio is free software under the GNU AGPL-3.0, and it will stay free software. \
+            "DeltaF Studio is free software under the GNU AGPL-3.0, and it will stay free software. \
              Personal, academic and educational use is and will remain free of charge.",
         );
         ui.add_space(6.0);
         ui.label(
-            "Commercial use is not restricted in any way. If you or your organisation use DF Studio \
+            "Commercial use is not restricted in any way. If you or your organisation use DeltaF Studio \
              for paid work, please consider paying for it, once or by subscription: it funds \
              maintenance, verification and new features.",
         );
@@ -56,7 +56,7 @@ mod tests {
     fn links_are_https() {
         let urls = super::OPTIONS.iter().map(|o| o.2).chain([super::MANAGE, super::SUPPORT_PAGE]);
         for u in urls {
-            assert!(u.starts_with("https://dfstudio.neodafer.com/") || u.starts_with("https://github.com/"), "{u}");
+            assert!(u.starts_with("https://deltafstudio.com/") || u.starts_with("https://github.com/"), "{u}");
         }
     }
 }

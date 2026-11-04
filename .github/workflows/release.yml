@@ -43,12 +43,12 @@ jobs:
       - run: packaging/linux/build_appimage.sh dist
       - name: Smoke test
         run: |
-          chmod +x dist/DF_Studio-*.AppImage
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/DF_Studio-*.AppImage dfs run examples/rankine.dfs > /dev/null
+          chmod +x dist/DeltaF_Studio-*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/DeltaF_Studio-*.AppImage dfs run examples/rankine.dfs > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: dist/DF_Studio-*.AppImage
+          path: dist/DeltaF_Studio-*.AppImage
           if-no-files-found: error
 
   macos:
@@ -63,7 +63,7 @@ jobs:
       - run: cargo test --workspace --locked --release
       - run: packaging/macos/build_app.sh dist
       - name: Smoke test
-        run: '"dist/DF Studio.app/Contents/MacOS/dfs" run examples/rankine.dfs > /dev/null'
+        run: '"dist/DeltaF Studio.app/Contents/MacOS/dfs" run examples/rankine.dfs > /dev/null'
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           $setup = (Get-ChildItem dist\*-setup.exe).FullName
-          $app = "$env:LOCALAPPDATA\Programs\DF Studio"
+          $app = "$env:LOCALAPPDATA\Programs\DeltaF Studio"
           Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/LOG=install.log' -Wait
           $path = (Get-ItemProperty HKCU:\Environment).Path
           if (($path -split ';') -notcontains $app) { Get-Content install.log; throw "install folder not on the user PATH: $path" }
@@ -98,7 +98,7 @@ jobs:
           foreach ($ext in '.df', '.dfs', '.ees') {
             if (-not (Test-Path "HKCU:\Software\Classes\$ext")) { throw "$ext not associated" }
           }
-          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DF Studio.lnk")) { throw "no Start menu entry" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DeltaF Studio.lnk")) { throw "no Start menu entry" }
           Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
           # the uninstaller re-launches itself from %TEMP%, so -Wait returns early
           for ($i = 0; $i -lt 60 -and (Test-Path "$app\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
@@ -151,7 +151,7 @@ jobs:
           cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
-          name: DF Studio ${{ github.ref_name }}
+          name: DeltaF Studio ${{ github.ref_name }}
           body_path: notes.md
           files: dist/*
           fail_on_unmatched_files: true

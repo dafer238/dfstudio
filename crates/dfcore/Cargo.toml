@@ -1,6 +1,6 @@
 [package]
 name = "dfcore"
-description = "Equation-oriented thermodynamic solver core for DF Studio"
+description = "Equation-oriented thermodynamic solver core for DeltaF Studio"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

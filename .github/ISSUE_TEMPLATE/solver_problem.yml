@@ -23,6 +23,6 @@ body:
   - type: input
     id: version
     attributes:
-      label: DF Studio version
+      label: DeltaF Studio version
     validations:
       required: true

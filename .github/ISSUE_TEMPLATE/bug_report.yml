@@ -18,7 +18,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: DF Studio version
+      label: DeltaF Studio version
       description: Shown at the bottom of the Help menu.
     validations:
       required: true

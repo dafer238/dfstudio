@@ -1,4 +1,4 @@
-//! Tokenizer for the DF Studio equation language.
+//! Tokenizer for the DeltaF Studio equation language.
 //!
 //! Lexical rules: `{...}` and
 //! `"..."` are comments, `//` starts a line comment, a bracket that follows a

@@ -1,4 +1,4 @@
-# Building and releasing DF Studio
+# Building and releasing DeltaF Studio
 
 ## Building from source
 
@@ -24,9 +24,9 @@ All scripts write to `dist/` and must be run from a clone of the repository.
 
 | Platform | Command | Output |
 |---|---|---|
-| Linux | `packaging/linux/build_appimage.sh` | `DF_Studio-<v>-linux-<arch>.AppImage` |
-| macOS | `packaging/macos/build_app.sh` | `DF Studio.app`, `DF_Studio-<v>-macos-universal.dmg` |
-| Windows | `powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1` | `DF_Studio-<v>-windows-x64-setup.exe`, `...-portable.zip` |
+| Linux | `packaging/linux/build_appimage.sh` | `DeltaF_Studio-<v>-linux-<arch>.AppImage` |
+| macOS | `packaging/macos/build_app.sh` | `DeltaF Studio.app`, `DeltaF_Studio-<v>-macos-universal.dmg` |
+| Windows | `powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1` | `DeltaF_Studio-<v>-windows-x64-setup.exe`, `...-portable.zip` |
 
 Each package contains `dfstudio`, `dfs`, the CoolProp library and the
 example projects, which the app writes itself during packaging
@@ -44,14 +44,14 @@ as a `.df` project with its cycle diagram).
   `xcrun notarytool`).
 * **Windows**: needs [Inno Setup 6](https://jrsoftware.org/isinfo.php). The
   installer (`packaging/windows/dfstudio.iss`) asks whether to install for
-  all users (administrator rights, `C:\Program Files\DF Studio`) or for the
+  all users (administrator rights, `C:\Program Files\DeltaF Studio`) or for the
   current user only (no administrator rights,
-  `%LOCALAPPDATA%\Programs\DF Studio`). Optional tasks, checked by default
+  `%LOCALAPPDATA%\Programs\DeltaF Studio`). Optional tasks, checked by default
   unless noted: `startmenu` (Start menu entry), `desktopicon` (unchecked),
   `addtopath` (install folder appended to the user or system PATH by the
   `[Code]` section and removed on uninstall, plus an App Paths entry),
   `assocdf` (`.df`, `.dfs`) and `assocees` (`.ees`). Unattended:
-  `DF_Studio-<v>-windows-x64-setup.exe /VERYSILENT /CURRENTUSER` (or
+  `DeltaF_Studio-<v>-windows-x64-setup.exe /VERYSILENT /CURRENTUSER` (or
   `/ALLUSERS`); deselect tasks with e.g. `/MERGETASKS="!addtopath,!assocees"`. The executable and the installer are not code-signed, so
   SmartScreen may ask for confirmation on first run.
 

@@ -1,4 +1,4 @@
-//! DF Studio desktop application.
+//! DeltaF Studio desktop application.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod analysis;
@@ -129,7 +129,7 @@ fn main() -> eframe::Result {
     }
     let opts = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("DF Studio")
+            .with_title("DeltaF Studio")
             .with_app_id("dfstudio")
             .with_icon(eframe::egui::IconData { rgba: include_bytes!("../../../packaging/icons/icon_64.rgba").to_vec(), width: 64, height: 64 })
             .with_inner_size([1400.0, 860.0])
@@ -137,5 +137,5 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     let file = std::env::args().nth(1);
-    eframe::run_native("DF Studio", opts, Box::new(move |cc| Ok(Box::new(app::DfApp::new(cc, file)))))
+    eframe::run_native("DeltaF Studio", opts, Box::new(move |cc| Ok(Box::new(app::DfApp::new(cc, file)))))
 }

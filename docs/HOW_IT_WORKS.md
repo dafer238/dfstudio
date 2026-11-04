@@ -1,4 +1,4 @@
-# How DF Studio solves a model
+# How DeltaF Studio solves a model
 
 This document describes what happens between pressing **Solve** and seeing
 the results: how the equations are read, how the program decides which
@@ -25,7 +25,7 @@ Contents
 ## 1. Overview
 
 A model is a set of equations written in any order, with the unknown on
-either side. DF Studio does not execute the script from top to bottom.
+either side. DeltaF Studio does not execute the script from top to bottom.
 Instead it treats it as a system of nonlinear algebraic equations
 F(x) = 0, with one unknown per variable, and solves it in four stages:
 
@@ -171,7 +171,7 @@ temperatures; use `[dK]` or `[deltaC]` for a difference (see the user guide,
 
 ## 4. Structural analysis
 
-Before any number is computed, DF Studio analyses the *structure* of the
+Before any number is computed, DeltaF Studio analyses the *structure* of the
 system: which variable appears in which equation (the incidence pattern).
 This is done in `structure.rs`, and is fast enough (linear or close to
 linear in the model size) to run on every keystroke.
@@ -327,12 +327,12 @@ The message then says, in this order:
 
 Pure fluids, pseudo-pure fluids, mixtures and incompressible fluids come
 from **CoolProp** (Bell et al., 2014), loaded as a shared library shipped
-with DF Studio (`props.rs`). Pure-fluid properties are computed from the
+with DeltaF Studio (`props.rs`). Pure-fluid properties are computed from the
 reference Helmholtz-energy equations of state that CoolProp implements (for
 example IAPWS-95 for water, Span–Wagner for CO₂); the reference for each
 fluid is listed in the CoolProp documentation.
 
-DF Studio uses CoolProp's low-level `AbstractState` interface rather than
+DeltaF Studio uses CoolProp's low-level `AbstractState` interface rather than
 `PropsSI`: one state object per thread and fluid is created once and
 reused, which avoids parsing the fluid string and rebuilding the equation of
 state on every call. A property call with inputs (in₁, in₂) maps onto a
@@ -341,7 +341,7 @@ names or aliases (`Water`, `CO2`, `R134a`, `IF97::Water`,
 `'CO2[0.9]&Argon[0.1]'`).
 
 **Temperature with enthalpy or internal energy.** CoolProp cannot flash
-from (T, h) or (T, u). DF Studio solves these by a one-dimensional search in
+from (T, h) or (T, u). DeltaF Studio solves these by a one-dimensional search in
 pressure along the isotherm, on three branches: vapour (from 1 Pa to the
 saturation pressure), two-phase (the quality follows from the saturated
 values) and compressed liquid (from the saturation pressure to the upper
