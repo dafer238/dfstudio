@@ -54,8 +54,15 @@ if ($manifest -match '@\w+@') { throw "unfilled value in AppxManifest.xml: $($Ma
 $priconfig = Join-Path $work "priconfig.xml"
 & (Join-Path $bin "makepri.exe") createconfig /cf $priconfig /dq en-US /pv 10.0.0 /o
 if ($LASTEXITCODE -ne 0) { throw "makepri createconfig failed" }
+# One package, not a bundle: keep every scale in resources.pri instead of
+# splitting resources.scale-200.pri out for a resource package.
+[xml]$cfg = Get-Content $priconfig
+$cfg.SelectNodes("//packaging/autoResourcePackage") | ForEach-Object { [void]$_.ParentNode.RemoveChild($_) }
+$cfg.Save($priconfig)
 & (Join-Path $bin "makepri.exe") new /pr $layout /cf $priconfig /mn (Join-Path $layout "AppxManifest.xml") /of (Join-Path $layout "resources.pri") /o
 if ($LASTEXITCODE -ne 0) { throw "makepri new failed" }
+$split = Get-ChildItem $layout -Filter "resources.*.pri"
+if ($split) { throw "makepri split the resources: $($split.Name -join ', ')" }
 
 $name = "DeltaF_Studio-$version-windows-x64.msix"
 $msix = Join-Path $root "dist\$name"
