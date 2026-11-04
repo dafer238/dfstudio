@@ -48,7 +48,7 @@ orange when more equations are needed, red when it is over-specified. The
 header tells you how many degrees of freedom are still open, and which
 variables they are.
 
-[![Editing the supercritical CO₂ model: the variables panel follows each keystroke, the 172 equations solve once the model is complete, and the dependency view traces how a variable is computed](docs/img/editor-sco2.png)](https://dfstudio.neodafer.com/assets/video/editor-sco2.mp4)
+[![Editing the supercritical CO₂ model: the variables panel follows each keystroke, the 172 equations solve once the model is complete, and the dependency view traces how a variable is computed](docs/img/editor-sco2.png)](https://deltafstudio.com/assets/video/editor-sco2.mp4)
 
 *Click the image to watch the 46-second recording.*
 
@@ -197,14 +197,14 @@ new features. This is a request, not a condition of the licence (see
 - [GitHub Sponsors](https://github.com/sponsors/dafer238): monthly or
   one-time, through a GitHub account.
 - Stripe, by card and other methods, without a GitHub account:
-  [one-time payment](https://dfstudio.neodafer.com/pay/once) (you choose the
-  amount), [monthly](https://dfstudio.neodafer.com/pay/monthly) or
-  [yearly](https://dfstudio.neodafer.com/pay/yearly) subscription.
+  [one-time payment](https://deltafstudio.com/pay/once) (you choose the
+  amount), [monthly](https://deltafstudio.com/pay/monthly) or
+  [yearly](https://deltafstudio.com/pay/yearly) subscription.
   Invoices, payment method and cancelling:
-  [manage a subscription](https://dfstudio.neodafer.com/pay/manage).
+  [manage a subscription](https://deltafstudio.com/pay/manage).
 
 The same options are in the app under *Help > Support DeltaF Studio* and on
-[the website](https://dfstudio.neodafer.com/#support).
+[the website](https://deltafstudio.com/#support).
 
 ## License
 

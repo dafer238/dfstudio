@@ -15,8 +15,11 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   bundle, Linux desktop entry, release file names (`DeltaF_Studio-<version>-*`)
   and documentation. Everything else keeps `dfstudio`: the executables
   (`dfstudio`, `dfs`), the crates, the Python package `dfpy`, the `.df` and
-  `.dfs` file formats, the repository and the website
-  (dfstudio.neodafer.com). Projects saved by DF Studio open unchanged.
+  `.dfs` file formats and the repository. Projects saved by DF Studio open
+  unchanged.
+- The website moved to https://deltafstudio.com. The support links in
+  *Help > Support DeltaF Studio* point there; the old dfstudio.neodafer.com
+  addresses, including the payment links in 1.0.0, redirect to it.
 - Windows: upgrading from 1.0.0 or earlier keeps the existing install folder
   and file associations and replaces the old "DF Studio" shortcuts with
   "DeltaF Studio" ones.
