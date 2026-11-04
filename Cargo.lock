@@ -682,6 +682,7 @@ version = "1.0.1"
 dependencies = [
  "dfcore",
  "serde_json",
+ "winresource",
 ]
 
 [[package]]

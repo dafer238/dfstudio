@@ -12,6 +12,12 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   Store signs it, so it installs without the SmartScreen warning.
 - Windows: winget manifest (`dafer238.DeltaFStudio`); each release is
   submitted to winget automatically.
+- Windows code signing through the SignPath Foundation open-source program
+  (pending approval): the release workflow can have SignPath sign
+  `dfstudio.exe`, `dfs.exe` and the installer. The policy is in
+  `CODE_SIGNING.md` and at https://deltafstudio.com/code-signing.
+- `dfs.exe` carries the icon and version information (product name and
+  version) on Windows, like `dfstudio.exe`; the installer too.
 
 ## [1.0.1] - 2026-11-04
 

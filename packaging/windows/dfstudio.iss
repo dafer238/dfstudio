@@ -19,6 +19,10 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; numeric form for the version resource (build.ps1 strips -rc.1 and the like)
+#ifndef AppNumVersion
+  #define AppNumVersion AppVersion
+#endif
 #define Stage "..\..\dist\windows\stage"
 
 [Setup]
@@ -41,6 +45,13 @@ LicenseFile=..\..\LICENSE
 SetupIconFile=..\icons\dfstudio.ico
 UninstallDisplayIcon={app}\dfstudio.exe
 UninstallDisplayName=DeltaF Studio {#AppVersion}
+; Version resource of the setup .exe. Code signing checks the product name
+; and version, so keep them equal to those of dfstudio.exe and dfs.exe.
+VersionInfoVersion={#AppNumVersion}
+VersionInfoProductName=DeltaF Studio
+VersionInfoProductVersion={#AppNumVersion}
+VersionInfoProductTextVersion={#AppVersion}
+VersionInfoDescription=DeltaF Studio Setup
 OutputDir=..\..\dist
 OutputBaseFilename=DeltaF_Studio-{#AppVersion}-windows-x64-setup
 Compression=lzma2
