@@ -6,6 +6,20 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-04
+
+First stable release.
+
+### Support
+- *Help > Support DF Studio*: how the project is funded and the payment
+  options (GitHub Sponsors; one-time, monthly or yearly payments through
+  Stripe; managing a subscription). The same information is in the README,
+  on the website and behind the repository's *Sponsor* button.
+- DF Studio stays free software under the AGPL-3.0, unchanged. Personal,
+  academic and educational use is free of charge. Commercial users are asked,
+  not required, to consider paying; the licence places no limit on
+  commercial use.
+
 ## [0.3.0] - 2026-11-04
 
 ### Editor
@@ -220,7 +234,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/dafer238/dfstudio/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dafer238/dfstudio/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dafer238/dfstudio/compare/v0.1.1...v0.2.0

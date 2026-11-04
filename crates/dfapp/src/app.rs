@@ -245,6 +245,7 @@ pub struct DfApp {
     sol_filter: String,
     show_diag: bool,
     show_help: bool,
+    show_support: bool,
     library: crate::library::Library,
     status: String,
     studies: StudiesUi,
@@ -325,6 +326,7 @@ impl DfApp {
             sol_filter: String::new(),
             show_diag: true,
             show_help: false,
+            show_support: false,
             library: Default::default(),
             status,
             studies: StudiesUi::default(),
@@ -1809,6 +1811,9 @@ impl eframe::App for DfApp {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                         }
                     }
+                    if crate::icons::menu_item(ui, "heart", "Support DF Studio", "").clicked() {
+                        self.show_support = true;
+                    }
                     ui.separator();
                     ui.label(format!("DF Studio {}", env!("CARGO_PKG_VERSION")));
                     ui.label("Free software, GNU AGPL-3.0. Properties: CoolProp.");
@@ -2008,6 +2013,9 @@ impl eframe::App for DfApp {
             self.tab = Tab::Equations;
             self.eq_view = EqView::Editor;
             self.editor.insert = Some(snip);
+        }
+        if self.show_support {
+            crate::support::window(&ctx, &mut self.show_support);
         }
         if self.show_help {
             egui::Window::new("Language reference").open(&mut self.show_help).default_size([640.0, 560.0]).show(&ctx, |ui| {

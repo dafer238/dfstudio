@@ -17,6 +17,7 @@ mod pdf;
 mod plots;
 mod project;
 mod studies_ui;
+mod support;
 mod templates;
 mod units_ui;
 
