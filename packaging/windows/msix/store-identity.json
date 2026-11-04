@@ -1,0 +1,6 @@
+{
+  "_comment": "Package identity from Partner Center (Product management > Product identity). Until it is filled in, build_msix.ps1 builds a test package with the placeholder identity below, which installs only with a test certificate and cannot be submitted to the Store.",
+  "IdentityName": "DeltaFStudio.Dev",
+  "Publisher": "CN=DeltaF Studio Dev",
+  "PublisherDisplayName": "DeltaF Studio contributors"
+}

@@ -106,6 +106,32 @@ jobs:
           $path = (Get-ItemProperty HKCU:\Environment).Path
           if (($path -split ';') -contains $app) { throw "install folder still on the PATH after uninstall: $path" }
           if (Test-Path "HKCU:\Software\Classes\DFStudio.EES") { throw ".ees association left after uninstall" }
+      - name: MSIX package (Microsoft Store)
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\msix\build_msix.ps1 -TestSign
+      - name: Smoke test MSIX (install, dfs alias, uninstall)
+        shell: pwsh
+        run: |
+          # the test copy is signed with a throwaway certificate; trust it for this machine only
+          Import-Certificate -FilePath dist\windows\msix-test\test-cert.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          $msix = (Get-ChildItem dist\windows\msix-test\*.msix).FullName
+          Add-AppxPackage -Path $msix
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -eq (Get-Content packaging\windows\msix\store-identity.json -Raw | ConvertFrom-Json).IdentityName }
+          if (-not $pkg) { throw "MSIX package not installed" }
+          Write-Host "installed $($pkg.PackageFullName) in $($pkg.InstallLocation)"
+          foreach ($f in 'dfstudio.exe', 'dfs.exe', 'CoolProp.dll', 'resources.pri', 'examples') {
+            if (-not (Test-Path (Join-Path $pkg.InstallLocation $f))) { throw "$f missing from the package" }
+          }
+          $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\dfs.exe"
+          if (-not (Test-Path $alias)) { throw "dfs alias not registered" }
+          & $alias run examples\rankine.dfs > $null
+          if ($LASTEXITCODE -ne 0) { throw "dfs (MSIX) failed" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\dfstudio.exe")) { throw "dfstudio alias not registered" }
+          Remove-AppxPackage -Package $pkg.PackageFullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msix-store
+          path: dist/*.msix
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -126,6 +152,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # The Store package (msix-store) is not a release download: it is
+      # uploaded to Partner Center, which signs it (docs/STORE_AND_WINGET.md).
+      - run: rm -f dist/*.msix
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Release notes
@@ -155,3 +184,30 @@ jobs:
           body_path: notes.md
           files: dist/*
           fail_on_unmatched_files: true
+
+  # Submit the new version to winget (a pull request to microsoft/winget-pkgs
+  # from a fork of it). Runs only when the WINGET_TOKEN secret exists: a classic
+  # personal access token with the public_repo scope, of an account that has
+  # forked microsoft/winget-pkgs. The first version has to be in winget-pkgs
+  # already (packaging/winget/README.md).
+  winget:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: publish
+    runs-on: ubuntu-22.04
+    env:
+      KOMAC_VERSION: 2.17.2
+      GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: Update the winget manifest
+        run: |
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "::notice::WINGET_TOKEN is not set: winget not updated"
+            exit 0
+          fi
+          version=${GITHUB_REF_NAME#v}
+          curl -sSLf -o komac.tar.gz "https://github.com/russellbanks/Komac/releases/download/v$KOMAC_VERSION/komac-$KOMAC_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          tar -xzf komac.tar.gz komac
+          ./komac update DeltaFStudio.DeltaFStudio --version "$version" \
+            --urls "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/DeltaF_Studio-$version-windows-x64-setup.exe" \
+            --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+            --submit
