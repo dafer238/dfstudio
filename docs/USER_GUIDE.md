@@ -25,10 +25,10 @@ Contents
 4. [Writing equations](#4-writing-equations)
 5. [Units](#5-units)
 6. [Solving, and understanding why a model does not solve](#6-solving-and-understanding-why-a-model-does-not-solve)
-7. [Results: Solution and Arrays](#7-results-solution-and-arrays)
-8. [Studies: parametric tables, goal seek, optimisation, control loops](#8-studies)
+7. [Results: the Solution tab](#7-results-the-solution-tab)
+8. [Studies: the Analysis tab and control loops](#8-studies)
 9. [Plots](#9-plots)
-10. [Cycle diagram](#10-cycle-diagram)
+10. [Cycle diagram (Define cycle tab)](#10-cycle-diagram)
 11. [Component results](#11-component-results)
 12. [Files: `.dfs`, `.df`, auto save, attachments](#12-files)
 13. [Command line and Python](#13-command-line-and-python)
@@ -117,7 +117,7 @@ folder of the source tree (`dfstudio --write-examples DIR`).
 | Area | Content |
 |---|---|
 | Menu bar | File, **Edit**, Solve, Units, View, Help |
-| Toolbar | Solve button and the tabs: Equations, Solution, Arrays, Parametric, Goal seek / Optimise, Plots, Cycle diagram, Components |
+| Toolbar | Solve button and the tabs: Equations, Solution (sub-tabs Variables, Arrays), Analysis (Parametric table, Optimization), Plots, Define cycle (Diagram, Components) |
 | Variables panel (Equations tab) | status, role, value and display unit of every variable |
 | Problems panel (bottom) | errors, warnings, over-specified equations, failed blocks; click to jump to the line |
 | Status bar | last action, auto-save indicator, compile / analysis / solve times |
@@ -142,10 +142,47 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
 * **Live structure.** Each edit is re-analysed about 120 ms after you stop
   typing; with *Solve > Live solve while typing* the determined part is also
   solved, and the toolbar's Solve button is hidden (F2 still solves).
-* **Completion** (`Ctrl+Space`): functions, property names, fluids,
-  variables, directives and, inside `[...]`, units. Signature help appears
-  inside calls.
-* **Errors** are underlined; the Problems panel lists them.
+* **Completion** (`Ctrl+Space`, or while typing): functions, property
+  names, fluids, variables, directives and, inside `[...]`, units.
+  Signature help appears inside calls. The list follows what is being
+  written:
+  * after `enthalpy(` it opens by itself with the fluids, those the model
+    already uses first, then common working fluids, then every other one;
+  * after `enthalpy(Water, ` it offers the state inputs not given yet
+    (`P=`, `T=`, `h=` ...), and after `P=` the variables that are
+    pressures first (by their inferred dimension, else by their name, e.g.
+    `P_cond`), then the rest;
+  * after `12 [` the units, those of the left-hand variable's quantity first;
+  * at the start of a line variables, keywords and directives; inside an
+    expression variables, functions and constants.
+
+  A name that starts with the typed text comes first, then one where it
+  starts a word (`cond` finds `P_cond`), then a fuzzy match. **Tab**
+  accepts the selected suggestion; `Enter` starts a new line and closes the
+  list; arrow keys, Page Up/Down and the mouse wheel move through it.
+  *Edit > Suggestions shown* sets the height of the list, in rows.
+* **Insert menu / Library.** *Insert* opens the Library window at one of
+  its sections; *Help > Library* opens it too. Every entry can be searched
+  and put at the editor's cursor (double-click or *Insert*):
+  * **Property call builder**: choose the fluid model (pure and pseudo-pure
+    fluids, water IAPWS-IF97, incompressible liquids and solutions,
+    mixtures, humid air), the fluid, the property and its state inputs. The
+    inputs offer only valid names for the chosen function (one input for
+    `t_sat`, three with `P` for humid air, the ideal-gas option) and a list
+    of the model's variables of the right quantity, with their values. The
+    call is shown as it will be written (with `;` in decimal-comma
+    scripts); *Evaluate* computes it, with the numbers given or with the
+    model's current values, before it is inserted.
+  * **Property functions**, **math functions**, **constants**, **keywords
+    and directives** (inserted as a template, e.g. a `Duplicate ... End`
+    block), **state inputs** with their unit in the model, and **units** by
+    quantity.
+  * **Fluids**: every fluid by group (CoolProp, liquids and heat-transfer
+    fluids, humid air) with molar mass, critical temperature and pressure;
+    *Builder* uses it in the property call builder.
+
+  A whole line (a builder call with a result variable, a template) goes on
+  a new line after the cursor's line, or into it when it is empty.
 * **Bracket matching.** Hover over a `(`, `[` or `{` (or its closing
   partner), or put the caret next to one, and both brackets of the pair
   are highlighted in blue; a bracket without a partner is highlighted in
@@ -339,26 +376,35 @@ in grey). *All variables* lists every variable, *Use last solution as
 guesses* copies the current solution into the Guess column, and the table is
 saved in the `.df` project.
 
-## 7. Results: Solution and Arrays
+## 7. Results: the Solution tab
 
-* **Solution** tab: every variable with value and unit (filter, sort,
+* **Variables** sub-tab: every variable with value and unit (filter, sort,
   *Copy table (TSV)* for Excel), block statistics and control-loop logs.
-* **Arrays** tab: one column per array, one row per index (the state table
+* **Arrays** sub-tab: one column per array, one row per index (the state table
   of a cycle). *Copy table (TSV)* and *Export CSV…* write it in display
   units with full precision.
 
 ## 8. Studies
 
-* **Parametric**: choose input columns (each row fixes them; their
+The **Analysis** tab has two sub-tabs.
+
+* **Parametric table**: choose input columns (each row fixes them; their
   `x = constant` equations are disabled automatically) and output columns,
   fill rows (linear spacing), run. Rows are solved in parallel with warm
-  starts. *Copy (TSV)* exports the table.
-* **Goal seek / parameter matching**: conditions `Y = value` or `Y1 = Y2`
-  with as many varied variables as conditions.
-* **Optimise**: maximise or minimise a variable over bounded decision
-  variables (Brent for one variable, Nelder–Mead, differential evolution),
-  with a convergence plot. *Apply to script* writes the optimum into the
-  `X = value` equations (keeping literal units) and re-solves.
+  starts. *Copy (TSV)* exports the table. A project holds any number of
+  tables, each with its own inputs, outputs and rows: the bar above the
+  table selects one, and *+ New table*, *Name*, *Duplicate* and *Delete*
+  manage them. Plots choose their table in *Table* (shown when there is
+  more than one).
+* **Optimization** holds goal seek and optimisation; the result of each
+  is shown next to its own *Run* / *Optimise* button.
+  * **Goal seek / parameter matching**: conditions `Y = value` or
+    `Y1 = Y2` with as many varied variables as conditions.
+  * **Optimisation**: maximise or minimise a variable over bounded decision
+    variables (Brent for one variable, Nelder–Mead, differential evolution),
+    with a convergence plot (best objective per evaluation, in display
+    units; hover for the values). *Apply to script* writes the optimum into
+    the `X = value` equations (keeping literal units) and re-solves.
 * **Control loops** in the script: `$Control vary P[7] to make T[2] = 333`
   are applied on every solve.
 
@@ -369,14 +415,21 @@ To free a variable for a study it must be an input: if it is *calculated*
 
 The Plots tab holds any number of plots, saved with the project.
 
-* **XY**: columns of the parametric table, arrays by index, or the
-  optimisation history. Per series: colour, line style, width, marker,
-  legend text and **Right y axis** (secondary axis, e.g. efficiencies next to
+* **XY**: columns of a parametric table, arrays by index, or the
+  optimisation history. Per series: line colour, line style and width;
+  marker colour, shape and size (the marker colour follows the line colour
+  until you change it; right-click its button to make it follow again, so
+  e.g. a black dashed line with red square markers is possible); legend
+  text and **Right y axis** (secondary axis, e.g. efficiencies next to
   powers; its grid is aligned with round numbers of the left axis).
+  An empty *y label* / *y2 label* is filled automatically from the series
+  on that axis: one series gives `name [unit]`, several give their names
+  separated by spaces, with one unit when they share it
+  (`W_net Q_in [kW]`) or each its own (`eta_th [-] W_net [kW]`).
 * **Property diagram**: T-s, P-h, P-v, h-s and T-h with saturation dome,
   isobars through the states and the cycle path; map the arrays holding
   T, P, h, s, v and give the state order (`1,2,3,4,1; 5,6`).
-* **3D**: x, y, z from the parametric table (surface for a full grid,
+* **3D**: x, y, z from a parametric table (surface for a full grid,
   scatter otherwise).
 
 **Logarithmic axes** (*log x*, *log y*; on by default for the pressure
@@ -406,7 +459,8 @@ linearly. On a property diagram the tooltip names the state it snapped to.
 
 ## 10. Cycle diagram
 
-A flowsheet whose streams are bound to state numbers, so labels read
+The **Define cycle** tab has two sub-tabs: **Diagram** (this section) and
+**Components** (section 11). A flowsheet whose streams are bound to state numbers, so labels read
 `T[k]`, `P[k]`, `h[k]`, ... of the solution.
 
 Layout: the **left sidebar** holds the component palette, the templates
@@ -518,7 +572,7 @@ title, *Export PDF report…*, *Fit view*).
 
 ## 11. Component results
 
-Double-click a component on the diagram, or open the **Components** tab
+Double-click a component on the diagram, or open the **Components** sub-tab of *Define cycle*
 (list by type; choose a component and the view: Summary, Streams, a table,
 a chart, Parameters). Each report lists the streams in and out (fluid, m, T,
 P, h, s, vapour quality x, degree of subcooling or superheating, ρ, cp),
@@ -627,7 +681,7 @@ p.results["eta_th"]; p.results.array("T"); p.tables["Parametric"].to_pandas()
 | Ctrl+S / Ctrl+O / Ctrl+N | save / open / new |
 | Ctrl+Z, Ctrl+Y (Ctrl+Shift+Z) | undo, redo |
 | Shift+Alt+F | format script |
-| Ctrl+Space | completion |
+| Ctrl+Space | completion (Tab accepts) |
 | Ctrl+F, Ctrl+H | find, find and replace |
 | Enter / Shift+Enter, F3 / Shift+F3 | next / previous match |
 | Esc | close completion, clear the focus |

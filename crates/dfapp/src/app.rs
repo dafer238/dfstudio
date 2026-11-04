@@ -24,12 +24,33 @@ const LANGUAGE_DOC: &str = include_str!("../../../docs/LANGUAGE.md");
 #[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Tab {
     Equations,
+    /// Variables and arrays of the solution.
     Solution,
-    Arrays,
-    Parametric,
-    Optimize,
+    /// Parametric tables, goal seek and optimisation.
+    Analysis,
     Plots,
+    /// Cycle diagram and component library ("Define cycle").
     Cycle,
+}
+
+/// Sub-tabs of the Solution tab.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SolView {
+    Variables,
+    Arrays,
+}
+
+/// Sub-tabs of the Analysis tab.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnaView {
+    Parametric,
+    Optimization,
+}
+
+/// Sub-tabs of the Define cycle tab.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CycleView {
+    Diagram,
     Components,
 }
 
@@ -105,8 +126,15 @@ pub struct Settings {
     pub unit_prefs: UnitPrefs,
     pub live_solve: bool,
     pub font_size: f32,
+    /// Parametric tables (at least one).
+    #[serde(default = "one_table")]
+    pub tables: Vec<ParamTable>,
+    /// Selected parametric table.
     #[serde(default)]
-    pub table: ParamTable,
+    pub table_sel: usize,
+    /// Single table of settings written before multiple tables existed.
+    #[serde(default, rename = "table", skip_serializing)]
+    pub legacy_table: Option<ParamTable>,
     #[serde(default)]
     pub goal: GoalForm,
     #[serde(default)]
@@ -123,6 +151,9 @@ pub struct Settings {
     /// Format the script before every save.
     #[serde(default = "yes")]
     pub format_on_save: bool,
+    /// Visible rows of the completion list in the editor.
+    #[serde(default = "completion_rows")]
+    pub completion_rows: usize,
     /// Format the script when the editor loses focus.
     #[serde(default = "yes")]
     pub format_on_blur: bool,
@@ -136,6 +167,14 @@ fn yes() -> bool {
     true
 }
 
+fn one_table() -> Vec<ParamTable> {
+    vec![ParamTable::default()]
+}
+
+fn completion_rows() -> usize {
+    crate::editor::COMPLETION_ROWS
+}
+
 /// Current revision of the defaults (1: format on save and on focus change,
 /// indent 4, comment column 60).
 const DEFAULTS_REV: u32 = 1;
@@ -147,13 +186,22 @@ impl Settings {
         effective_units(model, &self.display_units, &self.unit_prefs)
     }
 
-    fn upgrade(&mut self) {
+    pub fn upgrade(&mut self) {
         if self.defaults_rev < 1 {
             self.format_on_save = true;
             self.format_on_blur = true;
             self.format = Default::default();
         }
         self.defaults_rev = DEFAULTS_REV;
+        if let Some(t) = self.legacy_table.take() {
+            if self.tables.iter().all(|t| t.is_empty()) {
+                self.tables = vec![t];
+            }
+        }
+        if self.tables.is_empty() {
+            self.tables = one_table();
+        }
+        self.table_sel = self.table_sel.min(self.tables.len() - 1);
     }
 }
 
@@ -167,7 +215,9 @@ impl Default for Settings {
             unit_prefs: UnitPrefs::default(),
             live_solve: true,
             font_size: 14.0,
-            table: ParamTable::default(),
+            tables: one_table(),
+            table_sel: 0,
+            legacy_table: None,
             goal: GoalForm::default(),
             opt: OptForm::default(),
             plots: PlotsState::default(),
@@ -176,6 +226,7 @@ impl Default for Settings {
             format: Default::default(),
             format_on_save: true,
             format_on_blur: true,
+            completion_rows: completion_rows(),
             defaults_rev: DEFAULTS_REV,
         }
     }
@@ -194,6 +245,7 @@ pub struct DfApp {
     sol_filter: String,
     show_diag: bool,
     show_help: bool,
+    library: crate::library::Library,
     status: String,
     studies: StudiesUi,
     plots: PlotsUi,
@@ -206,6 +258,9 @@ pub struct DfApp {
     /// analysed in the Dependencies view.
     focus: Option<String>,
     eq_view: EqView,
+    sol_view: SolView,
+    ana_view: AnaView,
+    cycle_view: CycleView,
     deps: Option<Deps>,
     graph: GraphState,
     role_filter: RoleFilter,
@@ -270,6 +325,7 @@ impl DfApp {
             sol_filter: String::new(),
             show_diag: true,
             show_help: false,
+            library: Default::default(),
             status,
             studies: StudiesUi::default(),
             plots: PlotsUi::default(),
@@ -279,6 +335,9 @@ impl DfApp {
             show_files: false,
             focus: None,
             eq_view: EqView::Editor,
+            sol_view: SolView::Variables,
+            ana_view: AnaView::Parametric,
+            cycle_view: CycleView::Diagram,
             deps: None,
             graph: GraphState::default(),
             role_filter: RoleFilter::All,
@@ -389,7 +448,7 @@ impl DfApp {
     }
 
     fn undo_redo(&mut self, redo: bool) {
-        if matches!(self.tab, Tab::Cycle | Tab::Components) {
+        if self.tab == Tab::Cycle {
             if self.cycle.undo_redo(&mut self.s.cycle, redo) {
                 self.dirty = true;
             }
@@ -1537,6 +1596,7 @@ impl eframe::App for DfApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.editor.completion_rows = self.s.completion_rows;
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1549,7 +1609,7 @@ impl eframe::App for DfApp {
             }
         }
         self.refresh_units();
-        self.studies.poll(&mut self.s.table);
+        self.studies.poll(&mut self.s.tables);
         // debounce live analysis
         if let Some(t) = self.last_edit {
             let wait = Duration::from_millis(120);
@@ -1649,6 +1709,11 @@ impl eframe::App for DfApp {
                         ui.label("Indent");
                         ui.add(egui::DragValue::new(&mut self.s.format.indent).range(1..=8).suffix(" spaces"));
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Suggestions shown");
+                        ui.add(egui::DragValue::new(&mut self.s.completion_rows).range(3..=40).suffix(" rows"))
+                            .on_hover_text("Height of the completion list (Ctrl+Space), in suggestions; scroll or use the arrow keys for more. Tab accepts.");
+                    });
                     ui.separator();
                     ui.label(RichText::new("Decimal and list separators").strong())
                         .on_hover_text("Detected from the script. Choosing the other one converts every number and argument list (comments are kept).");
@@ -1656,6 +1721,24 @@ impl eframe::App for DfApp {
                     for (sep, name) in [(Separators::Point, "1.5 and f(a, b)  (US / UK)"), (Separators::Comma, "1,5 and f(a; b)  (Spanish / European)")] {
                         if ui.radio(cur == sep, name).clicked() && cur != sep {
                             self.set_separators(sep);
+                        }
+                    }
+                });
+                ui.menu_button("Insert", |ui| {
+                    use crate::library::Section as S;
+                    ui.label(RichText::new("Opens the library; Insert puts the entry at the cursor").small().weak());
+                    for (icon, label, sec) in [
+                        ("function", "Property call…", S::Builder),
+                        ("function", "Property functions", S::Properties),
+                        ("fluid", "Fluids", S::Fluids),
+                        ("text", "State inputs", S::Inputs),
+                        ("function", "Math functions", S::Math),
+                        ("text", "Constants", S::Constants),
+                        ("braces", "Keywords and directives", S::Keywords),
+                        ("units", "Units", S::Units),
+                    ] {
+                        if crate::icons::menu_item(ui, icon, label, "").clicked() {
+                            self.library.open_at(sec);
                         }
                     }
                 });
@@ -1712,6 +1795,9 @@ impl eframe::App for DfApp {
                     if crate::icons::menu_item(ui, "book", "Language reference", "").clicked() {
                         self.show_help = true;
                     }
+                    if crate::icons::menu_item(ui, "function", "Library (functions, fluids, units)", "").clicked() {
+                        self.library.open_at(crate::library::Section::Properties);
+                    }
                     ui.label("Ctrl+Space: completion · F2: solve");
                     ui.separator();
                     for (icon, text, url) in [
@@ -1740,16 +1826,7 @@ impl eframe::App for DfApp {
                     }
                     ui.separator();
                 }
-                for (t, label) in [
-                    (Tab::Equations, "Equations"),
-                    (Tab::Solution, "Solution"),
-                    (Tab::Arrays, "Arrays"),
-                    (Tab::Parametric, "Parametric"),
-                    (Tab::Optimize, "Goal seek / Optimise"),
-                    (Tab::Plots, "Plots"),
-                    (Tab::Cycle, "Cycle diagram"),
-                    (Tab::Components, "Components"),
-                ] {
+                for (t, label) in [(Tab::Equations, "Equations"), (Tab::Solution, "Solution"), (Tab::Analysis, "Analysis"), (Tab::Plots, "Plots"), (Tab::Cycle, "Define cycle")] {
                     ui.selectable_value(&mut self.tab, t, label);
                 }
                 ui.separator();
@@ -1831,30 +1908,64 @@ impl eframe::App for DfApp {
                     EqView::InitialValues => self.initial_values_view(ui),
                 }
             }
-            Tab::Solution => self.solution_tab(ui),
-            Tab::Arrays => self.arrays_tab(ui),
-            Tab::Parametric => {
-                if let Some(a) = self.analysis.clone() {
-                    self.studies.parametric_tab(ui, &a, &mut self.s.table, &self.units);
+            Tab::Solution => {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.sol_view, SolView::Variables, "Variables");
+                    ui.selectable_value(&mut self.sol_view, SolView::Arrays, "Arrays").on_hover_text("One-dimensional arrays side by side, one row per index");
+                });
+                ui.separator();
+                match self.sol_view {
+                    SolView::Variables => self.solution_tab(ui),
+                    SolView::Arrays => self.arrays_tab(ui),
                 }
             }
-            Tab::Optimize => {
+            Tab::Analysis => {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.ana_view, AnaView::Parametric, "Parametric table");
+                    ui.selectable_value(&mut self.ana_view, AnaView::Optimization, "Optimization").on_hover_text("Goal seek and optimisation");
+                });
+                ui.separator();
                 if let Some(a) = self.analysis.clone() {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.studies.optimise_tab(ui, &a, &mut self.s.goal, &mut self.s.opt, &self.units, &self.s.text);
-                    });
+                    match self.ana_view {
+                        AnaView::Parametric => {
+                            if let Some(k) = self.studies.parametric_tab(ui, &a, &mut self.s.tables, &mut self.s.table_sel, &self.units) {
+                                // plots of a deleted table fall back to the first one
+                                for p in &mut self.s.plots.plots {
+                                    p.table = match p.table {
+                                        t if t == k => 0,
+                                        t if t > k => t - 1,
+                                        t => t,
+                                    };
+                                }
+                                self.dirty = true;
+                            }
+                        }
+                        AnaView::Optimization => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                self.studies.optimise_tab(ui, &a, &mut self.s.goal, &mut self.s.opt, &self.units, &self.s.text);
+                            });
+                        }
+                    }
                 }
             }
             Tab::Plots => {
                 if let Some(a) = self.analysis.clone() {
-                    let inp = PlotInputs { analysis: &a, table: &self.s.table, studies: &self.studies, display_units: &self.units, script: &self.s.text };
+                    let inp = PlotInputs { analysis: &a, tables: &self.s.tables, studies: &self.studies, display_units: &self.units, script: &self.s.text };
                     self.plots.show(ui, &mut self.s.plots, &inp);
                 }
             }
             Tab::Cycle => {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.cycle_view, CycleView::Diagram, "Diagram");
+                    ui.selectable_value(&mut self.cycle_view, CycleView::Components, "Components").on_hover_text("Components of the cycle and their equations");
+                });
+                ui.separator();
                 if let Some(a) = self.analysis.clone() {
                     let inp = CycleInputs { analysis: &a, display_units: &self.units, script: &self.s.text };
-                    self.cycle.show(ui, &mut self.s.cycle, &inp);
+                    match self.cycle_view {
+                        CycleView::Diagram => self.cycle.show(ui, &mut self.s.cycle, &inp),
+                        CycleView::Components => self.cycle.components_tab(ui, &mut self.s.cycle, &inp),
+                    }
                 }
                 if let Some(t) = self.cycle.script_request.take() {
                     let ctx = self.ctx.clone();
@@ -1864,12 +1975,6 @@ impl eframe::App for DfApp {
                     self.last_edit = Some(Instant::now());
                 }
             }
-            Tab::Components => {
-                if let Some(a) = self.analysis.clone() {
-                    let inp = CycleInputs { analysis: &a, display_units: &self.units, script: &self.s.text };
-                    self.cycle.components_tab(ui, &mut self.s.cycle, &inp);
-                }
-            }
         });
         if let Some(req) = self.studies.apply_request.take() {
             if let Some(a) = self.analysis.clone() {
@@ -1877,11 +1982,12 @@ impl eframe::App for DfApp {
                 match crate::studies_ui::apply_values(&mut self.s.text, &a.model, &vals) {
                     Ok(lines) => {
                         self.status = format!("Script updated: {}", lines.join("; "));
-                        self.studies.message = self.status.clone();
+                        let msg = self.status.clone();
+                        self.studies.set_apply_msg(msg);
                         self.dirty = true;
                         self.submit(true);
                     }
-                    Err(e) => self.studies.message = format!("Apply: {e}"),
+                    Err(e) => self.studies.set_apply_msg(format!("Apply: {e}")),
                 }
             }
         }
@@ -1897,6 +2003,12 @@ impl eframe::App for DfApp {
             self.load_path(p);
         }
 
+        let us = self.analysis.as_ref().map(|a| a.model.unit_system.clone()).unwrap_or_else(|| self.s.unit_system.clone());
+        if let Some(crate::library::Action::Insert(snip)) = self.library.show(&ctx, self.analysis.as_deref(), &self.s.text, &us, &self.editor.fluids) {
+            self.tab = Tab::Equations;
+            self.eq_view = EqView::Editor;
+            self.editor.insert = Some(snip);
+        }
         if self.show_help {
             egui::Window::new("Language reference").open(&mut self.show_help).default_size([640.0, 560.0]).show(&ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {

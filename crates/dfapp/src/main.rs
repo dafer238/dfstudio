@@ -3,6 +3,7 @@
 
 mod analysis;
 mod app;
+mod completion;
 mod components;
 mod cycle;
 mod deps;
@@ -10,6 +11,7 @@ mod editor;
 mod find;
 mod format;
 mod icons;
+mod library;
 mod markdown;
 mod pdf;
 mod plots;
@@ -89,14 +91,16 @@ fn write_examples(args: &[String]) -> i32 {
             eprintln!("{}: not converged", t.name);
             code = 1;
         }
-        // solve the parametric table so its plots show when the example opens
+        // solve the parametric tables so their plots show when the example opens
         let du = s.units_for(&a.model);
-        match s.table.solve_now(&a, &du) {
-            Ok(()) if s.table.converged.iter().all(|c| *c) => {}
-            Ok(()) => eprintln!("{}: some parametric rows did not converge", t.name),
-            Err(e) => {
-                eprintln!("{}: parametric table: {e}", t.name);
-                code = 1;
+        for table in &mut s.tables {
+            match table.solve_now(&a, &du) {
+                Ok(()) if table.converged.iter().all(|c| *c) => {}
+                Ok(()) => eprintln!("{}: some parametric rows did not converge", t.name),
+                Err(e) => {
+                    eprintln!("{}: parametric table: {e}", t.name);
+                    code = 1;
+                }
             }
         }
         let p = dir.join(format!("{}.df", t.name));

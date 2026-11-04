@@ -6,6 +6,49 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
+### Editor
+- Completion follows the context: fluids after `enthalpy(` (the model's
+  first, then common ones), the missing state inputs after a comma, and
+  variables of the right quantity after `P=`, `T=` ... (pressures first
+  after `P=`); units of the left-hand variable's quantity after `12 [`.
+  Matches inside names (`cond` finds `P_cond`) and fuzzy matches are
+  offered after the prefix matches.
+- The completion list is taller and its height is set in *Edit >
+  Suggestions shown* (rows). Scrolling it with the mouse wheel or the
+  arrow keys no longer jumps back to the first suggestion; Page Up/Down
+  move a page.
+- Only Tab accepts a suggestion; Enter inserts a new line.
+- *Insert* menu and Library window: a property call builder (fluid
+  model: HEOS, IF97, incompressible, mixture, humid air; property; valid
+  state inputs with the model's variables of the right quantity; preview
+  of the code and *Evaluate*), and searchable lists of property and math
+  functions, fluids (with molar mass and critical point), state inputs,
+  constants, keywords and directives (as templates) and units, all
+  insertable at the cursor. Also under *Help > Library*.
+
+### Tabs and studies
+- Fewer top-level tabs, with sub-tabs: **Solution** (Variables, Arrays),
+  **Analysis** (Parametric table, Optimization: goal seek and
+  optimisation) and **Define cycle** (Diagram, Components).
+- Several parametric tables per project, each with its own inputs,
+  outputs and rows (*+ New table*, name, duplicate, delete); XY and 3D
+  plots choose their table. Projects store every table and keep the first
+  one where older versions read it, so their files still open.
+- The results of goal seek and optimisation are shown below their own
+  *Run* / *Optimise* button instead of at the top of the tab.
+- The optimisation convergence plot shows the objective in display units
+  and has the hover tooltip of the other plots.
+
+### Plots
+- Separate colours for the line and the markers of a series (e.g. a black
+  dashed line with red square markers); also in the Python export
+  (`mfc`, `mec`). Older plots keep one colour for both.
+- With several series on the same y axis, the automatic axis label lists
+  their names separated by spaces instead of disappearing (one unit when
+  they share it).
+
 ### Units
 - *Units > Units per quantity*: choose the display unit of each physical
   quantity (temperature, pressure, specific and molar enthalpy, mass and
@@ -25,6 +68,8 @@ All notable changes to DF Studio are listed here. The format follows
   substance in kmol, consistent with the molar mass in kg/kmol: `R#` is
   8.314 kJ/kmol-K in Engineering (was 0.008314, so `R#/molarmass(...)`
   was 1000 times too small) and `h*molarmass(...)` is in kJ/kmol.
+
+## [0.2.1] - 2026-11-03
 
 ### Cycle diagram
 - Pump drawn with the triangle along the flow, inlet and outlet opposite
@@ -175,6 +220,9 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dafer238/dfstudio/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/dafer238/dfstudio/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/dafer238/dfstudio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dafer238/dfstudio/releases/tag/v0.1.0

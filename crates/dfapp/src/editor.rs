@@ -71,7 +71,21 @@ pub struct Completion {
     /// char range of the prefix being completed
     pub start: usize,
     pub end: usize,
+    /// Scroll offset of the list (px), kept across frames so that the
+    /// mouse wheel and the arrow keys move it, not the redraw.
+    scroll: f32,
+    /// The selection moved with the keyboard: bring it into view.
+    follow: bool,
 }
+
+impl Completion {
+    fn new(items: Vec<Candidate>, start: usize, end: usize) -> Self {
+        Completion { items, selected: 0, start, end, scroll: 0.0, follow: false }
+    }
+}
+
+/// Default height of the completion list, in rows.
+pub const COMPLETION_ROWS: usize = 12;
 
 #[derive(Default)]
 pub struct Editor {
@@ -94,6 +108,15 @@ pub struct Editor {
     sel: (usize, usize),
     /// Scroll this char position into view next frame.
     scroll_to: Option<usize>,
+    /// Visible rows of the completion list.
+    pub completion_rows: usize,
+    /// Text to insert at the cursor on the next frame (Library window).
+    pub insert: Option<String>,
+    /// Give the text widget the keyboard focus on the next frame.
+    focus_next: bool,
+    /// Open the completion list on the next frame (after accepting `P=`,
+    /// `enthalpy(` ... the next argument is completed straight away).
+    reopen: bool,
 }
 
 /// What the find bar asked for this frame.
@@ -560,7 +583,7 @@ impl Editor {
     }
 
     pub fn new() -> Self {
-        Editor { font_size: 14.0, ..Default::default() }
+        Editor { font_size: 14.0, completion_rows: COMPLETION_ROWS, ..Default::default() }
     }
 
     /// Show the editor; returns true when the text changed.
@@ -574,18 +597,31 @@ impl Editor {
         let mut accept: Option<Candidate> = None;
         if let Some(c) = &mut self.completion {
             let n = c.items.len();
+            let page = self.completion_rows.max(1);
             ui.input_mut(|i| {
                 if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
                     c.selected = (c.selected + 1) % n;
+                    c.follow = true;
                 }
                 if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
                     c.selected = (c.selected + n - 1) % n;
+                    c.follow = true;
                 }
-                if i.consume_key(Modifiers::NONE, Key::Enter) || i.consume_key(Modifiers::NONE, Key::Tab) {
+                if i.consume_key(Modifiers::NONE, Key::PageDown) {
+                    c.selected = (c.selected + page).min(n - 1);
+                    c.follow = true;
+                }
+                if i.consume_key(Modifiers::NONE, Key::PageUp) {
+                    c.selected = c.selected.saturating_sub(page);
+                    c.follow = true;
+                }
+                // only Tab accepts; Enter is a new line
+                if i.consume_key(Modifiers::NONE, Key::Tab) {
                     accept = Some(c.items[c.selected].clone());
                 }
             });
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            let close = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) || ui.input(|i| i.key_pressed(Key::Enter));
+            if close {
                 self.completion = None;
             }
         }
@@ -597,10 +633,25 @@ impl Editor {
             let (bs, be) = (char_to_byte(text, c.start), char_to_byte(text, c.end));
             text.replace_range(bs..be, &cand.insert);
             let new_cursor = c.start + cand.insert.chars().count();
+            self.reopen = reopens(&cand);
             if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), id) {
                 st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(CharIndex(new_cursor)))));
                 st.store(ui.ctx(), id);
             }
+            changed = true;
+        }
+
+        if let Some(snip) = self.insert.take() {
+            self.checkpoint(ui.ctx(), text);
+            let (at, snip) = insertion_point(text, self.cursor_char, &snip);
+            text.insert_str(char_to_byte(text, at), &snip);
+            let nc = at + snip.trim_end_matches('\n').chars().count();
+            if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), id) {
+                st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(CharIndex(nc)))));
+                st.store(ui.ctx(), id);
+            }
+            self.cursor_char = nc;
+            self.focus_next = true;
             changed = true;
         }
 
@@ -777,6 +828,9 @@ impl Editor {
         });
         let Some(out) = out_opt else { return changed };
         let response = &out.response;
+        if std::mem::take(&mut self.focus_next) {
+            response.request_focus();
+        }
         changed |= response.changed();
         let cursor = out.cursor_range.map(|r| r.primary.index.0);
         if let Some(c) = cursor {
@@ -787,13 +841,15 @@ impl Editor {
         if let Some(cur) = cursor {
             let typed = response.changed();
             let (start, prefix) = word_before(text, cur);
-            let wants = force_complete || (typed && !prefix.is_empty() && !prefix.chars().next().unwrap().is_ascii_digit());
+            let reopen = std::mem::take(&mut self.reopen);
+            let trigger = (typed || reopen) && prefix.is_empty() && crate::completion::auto_trigger(text, cur);
+            let wants = force_complete || trigger || (typed && !prefix.is_empty() && !prefix.chars().next().unwrap().is_ascii_digit());
             if wants || (self.completion.is_some() && typed) {
-                let items = candidates(text, start, &prefix, ectx, &self.fluids);
+                let items = crate::completion::candidates(text, start, &prefix, ectx.analysis, &self.fluids);
                 if items.is_empty() || (items.len() == 1 && items[0].insert.eq_ignore_ascii_case(&prefix) && !force_complete) {
                     self.completion = None;
                 } else {
-                    self.completion = Some(Completion { items, selected: 0, start, end: cur });
+                    self.completion = Some(Completion::new(items, start, cur));
                 }
             } else if let Some(c) = &self.completion {
                 if cur != c.end {
@@ -807,13 +863,38 @@ impl Editor {
         // ---- draw popup
         if let (Some(c), Some(cur)) = (&mut self.completion, cursor) {
             let r = out.galley.pos_from_cursor(CCursor::new(CharIndex(cur)));
-            let pos = out.galley_pos + r.left_bottom().to_vec2() + egui::vec2(0.0, 2.0);
+            let mut pos = out.galley_pos + r.left_bottom().to_vec2() + egui::vec2(0.0, 2.0);
             let mut clicked: Option<usize> = None;
+            let rows = self.completion_rows.max(3);
+            // open above the line when the list would run off the window
+            let est = rows.min(c.items.len()) as f32
+                * (ui.text_style_height(&egui::TextStyle::Monospace).max(ui.text_style_height(&egui::TextStyle::Body)) + 6.0 + ui.spacing().item_spacing.y)
+                + 16.0;
+            if pos.y + est > ui.ctx().content_rect().bottom() {
+                pos.y = (out.galley_pos.y + r.top() - est - 2.0).max(0.0);
+            }
             egui::Area::new(id.with("completion")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_max_width(460.0);
-                    egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                        for (i, it) in c.items.iter().enumerate().take(200) {
+                    let row_h = ui.text_style_height(&egui::TextStyle::Monospace).max(ui.text_style_height(&egui::TextStyle::Body)) + 6.0;
+                    let width = 500.0;
+                    let step = row_h + ui.spacing().item_spacing.y;
+                    let view = rows as f32 * step;
+                    // keep the keyboard selection in view; otherwise leave the
+                    // offset where the user scrolled it
+                    if std::mem::take(&mut c.follow) {
+                        let top = c.selected as f32 * step;
+                        if top < c.scroll {
+                            c.scroll = top;
+                        } else if top + step > c.scroll + view {
+                            c.scroll = top + step - view;
+                        }
+                    }
+                    let n = c.items.len();
+                    let sa =
+                        egui::ScrollArea::vertical().id_salt("completion_list").max_height(view).min_scrolled_height(view.min(n as f32 * step)).vertical_scroll_offset(c.scroll);
+                    let so = sa.show_rows(ui, row_h, n, |ui, range| {
+                        for i in range {
+                            let it = &c.items[i];
                             let sel = i == c.selected;
                             let kind = match it.kind {
                                 Kind::Keyword => "kw",
@@ -826,20 +907,30 @@ impl Editor {
                                 Kind::Directive => "dir",
                                 Kind::Unit => "unit",
                             };
-                            let resp = ui.horizontal(|ui| {
-                                ui.add_sized([38.0, 16.0], egui::Label::new(egui::RichText::new(kind).small().weak()));
-                                let r = ui.selectable_label(sel, egui::RichText::new(&it.label).monospace());
-                                if sel {
-                                    r.scroll_to_me(None);
-                                }
-                                ui.label(egui::RichText::new(&it.detail).small().weak());
-                                r
-                            });
-                            if resp.inner.clicked() {
+                            // one row of fixed height, so that show_rows and the
+                            // scroll offset agree with what is drawn
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, row_h), egui::Sense::click());
+                            let v = ui.visuals();
+                            if sel {
+                                ui.painter().rect_filled(rect, 3.0, v.selection.bg_fill);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(rect, 3.0, v.widgets.hovered.weak_bg_fill);
+                            }
+                            let weak = v.weak_text_color();
+                            let strong = if sel { v.selection.stroke.color } else { v.text_color() };
+                            let small = egui::TextStyle::Small.resolve(ui.style());
+                            let mono = egui::TextStyle::Monospace.resolve(ui.style());
+                            let y = rect.center().y;
+                            let p = ui.painter_at(rect);
+                            p.text(egui::pos2(rect.left() + 6.0, y), egui::Align2::LEFT_CENTER, kind, small.clone(), weak);
+                            let lr = p.text(egui::pos2(rect.left() + 46.0, y), egui::Align2::LEFT_CENTER, &it.label, mono, strong);
+                            p.text(egui::pos2(lr.right() + 12.0, y), egui::Align2::LEFT_CENTER, &it.detail, small, if sel { strong } else { weak });
+                            if resp.clicked() {
                                 clicked = Some(i);
                             }
                         }
                     });
+                    c.scroll = so.state.unclamped_offset().y;
                 });
             });
             if let Some(i) = clicked {
@@ -847,6 +938,7 @@ impl Editor {
                 let (bs, be) = (char_to_byte(text, c.start), char_to_byte(text, c.end));
                 text.replace_range(bs..be, &cand.insert);
                 let nc = c.start + cand.insert.chars().count();
+                self.reopen = reopens(&cand);
                 let mut st = out.state.clone();
                 st.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(CharIndex(nc)))));
                 st.store(ui.ctx(), id);
@@ -956,140 +1048,29 @@ fn word_before(text: &str, cur: usize) -> (usize, String) {
     (i, chars[i..].iter().collect())
 }
 
-fn context_before(text: &str, start: usize) -> String {
-    let chars: Vec<char> = text.chars().take(start).collect();
-    let from = chars.iter().rposition(|c| *c == '\n').map(|p| p + 1).unwrap_or(0);
-    chars[from..].iter().collect()
+/// Where a snippet goes and how it is written: inline text at the cursor;
+/// a whole line (ending in a new line) on the cursor's line when it is
+/// empty, else on a new line after it.
+fn insertion_point(text: &str, cursor: usize, snip: &str) -> (usize, String) {
+    let chars: Vec<char> = text.chars().collect();
+    let cur = cursor.min(chars.len());
+    if !snip.ends_with('\n') {
+        return (cur, snip.to_string());
+    }
+    let start = chars[..cur].iter().rposition(|c| *c == '\n').map(|p| p + 1).unwrap_or(0);
+    let end = chars[cur..].iter().position(|c| *c == '\n').map(|p| cur + p).unwrap_or(chars.len());
+    let line: String = chars[start..end].iter().collect();
+    if line.trim().is_empty() {
+        // write into the empty line
+        return (start + line.chars().count(), snip.trim_end_matches('\n').to_string());
+    }
+    (end, format!("\n{}", snip.trim_end_matches('\n')))
 }
 
-fn candidates(text: &str, start: usize, prefix: &str, ectx: &EditorContext, fluids: &[String]) -> Vec<Candidate> {
-    let pl = prefix.to_lowercase();
-    let mut out: Vec<Candidate> = Vec::new();
-    let before = context_before(text, start);
-    let trimmed = before.trim_end();
-    let matches = |s: &str| pl.is_empty() || s.to_lowercase().starts_with(&pl);
-    // unit context: "12 [" ...
-    if let Some(open) = before.rfind('[') {
-        if !before[open..].contains(']') && before[..open].trim_end().chars().last().map(|c| c.is_ascii_digit() || c == '.').unwrap_or(false) {
-            for u in [
-                "C", "K", "F", "bar", "kPa", "MPa", "Pa", "atm", "psia", "kJ/kg", "J/kg", "kJ/kg-K", "kW", "MW", "W", "kg/s", "kg/h", "t/h", "m^3/kg", "kg/m^3", "m/s", "m", "mm",
-                "s", "h", "-", "%",
-            ] {
-                if matches(u) {
-                    out.push(Candidate { label: u.into(), insert: u.into(), kind: Kind::Unit, detail: String::new() });
-                }
-            }
-            return out;
-        }
-    }
-    // fluid context: first argument of a property function
-    let fluid_ctx = {
-        let t = trimmed.to_lowercase();
-        t.ends_with('(') && {
-            let name: String = t[..t.len() - 1].chars().rev().take_while(|c| is_ident_char(*c)).collect::<String>().chars().rev().collect();
-            dfcore::props::property_function(&name).is_some() || name == "t_sat" || name == "p_sat"
-        }
-    };
-    if fluid_ctx {
-        for f in fluids {
-            if matches(f) {
-                out.push(Candidate { label: f.clone(), insert: f.clone(), kind: Kind::Fluid, detail: "CoolProp fluid".into() });
-            }
-        }
-        if !out.is_empty() {
-            return out;
-        }
-    }
-    if prefix.starts_with('$') {
-        for (d, doc) in DIRECTIVES {
-            if d.to_lowercase().starts_with(&pl) {
-                out.push(Candidate { label: d.to_string(), insert: format!("{d} "), kind: Kind::Directive, detail: doc.to_string() });
-            }
-        }
-        return out;
-    }
-    // named property inputs after a fluid argument
-    let in_prop_call = signature_at(text, start, ectx).map(|s| s.contains("Fluid")).unwrap_or(false);
-    if in_prop_call && (trimmed.ends_with(',') || trimmed.ends_with(';')) {
-        for (k, d) in [
-            ("P", "pressure"),
-            ("T", "temperature"),
-            ("h", "specific enthalpy"),
-            ("s", "specific entropy"),
-            ("x", "quality"),
-            ("v", "specific volume"),
-            ("d", "density"),
-            ("u", "internal energy"),
-        ] {
-            if matches(k) {
-                out.push(Candidate { label: format!("{k}="), insert: format!("{k}="), kind: Kind::Keyword, detail: d.into() });
-            }
-        }
-    }
-    for k in KEYWORDS {
-        if matches(k) && pl.len() >= 2 {
-            out.push(Candidate { label: k.to_string(), insert: k.to_string(), kind: Kind::Keyword, detail: String::new() });
-        }
-    }
-    for (f, doc) in dfcore::compile::MATH_FUNCTIONS {
-        if matches(f) {
-            out.push(Candidate { label: f.to_string(), insert: format!("{f}("), kind: Kind::Function, detail: doc.to_string() });
-        }
-    }
-    for (f, doc) in dfcore::props::PROPERTY_FUNCTIONS {
-        if matches(f) {
-            let ins = match *f {
-                "propssi" => "PropsSI(".to_string(),
-                "props1si" => "Props1SI(".to_string(),
-                "hapropssi" => "HAPropsSI(".to_string(),
-                _ => format!("{f}("),
-            };
-            out.push(Candidate { label: ins.trim_end_matches('(').to_string(), insert: ins, kind: Kind::Property, detail: doc.to_string() });
-        }
-    }
-    for (c, doc) in dfcore::compile::BUILTIN_CONSTS {
-        if matches(c) {
-            out.push(Candidate { label: c.to_string(), insert: c.to_string(), kind: Kind::Constant, detail: doc.to_string() });
-        }
-    }
-    if let Some(a) = ectx.analysis {
-        for cell in &a.model.funcs {
-            if let Some(src) = &cell.source {
-                if matches(&src.display) {
-                    let sig = if src.is_procedure {
-                        format!("Call {}({} : {})", src.display, src.params.join(", "), src.outputs.join(", "))
-                    } else {
-                        format!("{}({})", src.display, src.params.join(", "))
-                    };
-                    out.push(Candidate { label: src.display.clone(), insert: format!("{}(", src.display), kind: Kind::UserFunction, detail: sig });
-                }
-            }
-        }
-        let mut seen = std::collections::HashSet::new();
-        for (i, v) in a.model.vars.iter().enumerate() {
-            let (label, insert) = if v.index.is_empty() {
-                (v.display.clone(), v.display.clone())
-            } else {
-                let base = v.display.split('[').next().unwrap_or("").to_string();
-                (format!("{base}[]"), format!("{base}["))
-            };
-            if !matches(&label) || !seen.insert(label.to_lowercase()) || label.eq_ignore_ascii_case(prefix) {
-                continue;
-            }
-            let st = a.plan.structure.var_status[i];
-            let mut detail = format!("{st:?}");
-            if v.index.is_empty() {
-                if let Some(sol) = &a.solution {
-                    if sol.known[i] {
-                        detail = format!("= {}", fmt_num(sol.x[i]));
-                    }
-                }
-            }
-            out.push(Candidate { label, insert, kind: Kind::Variable, detail });
-        }
-    }
-    out.sort_by_key(|c| (!c.label.to_lowercase().starts_with(&pl), c.kind == Kind::Keyword, c.label.len()));
-    out
+/// Accepting this candidate leads straight to another completion: a
+/// property function to its fluid, an input name to its value.
+fn reopens(c: &Candidate) -> bool {
+    c.insert.ends_with('=') || (c.kind == Kind::Property && c.insert.ends_with('('))
 }
 
 /// Signature of the innermost call enclosing the cursor.
@@ -1159,6 +1140,16 @@ pub fn fmt_num(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snippet_insertion() {
+        // inline at the cursor
+        assert_eq!(insertion_point("a = b", 4, "c"), (4, "c".to_string()));
+        // a line on a non-empty line goes after it
+        assert_eq!(insertion_point("a = 1\nb = 2", 2, "x = 3\n"), (5, "\nx = 3".to_string()));
+        // into an empty line
+        assert_eq!(insertion_point("a = 1\n\nb = 2", 6, "x = 3\n"), (6, "x = 3".to_string()));
+    }
 
     #[test]
     fn brackets_pair_in_code_and_comments() {

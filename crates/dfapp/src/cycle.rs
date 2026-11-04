@@ -1446,7 +1446,7 @@ impl CycleUi {
         let gidx = |k: Kind| GROUPS.iter().position(|g| g.kinds.contains(&k)).unwrap_or(GROUPS.len());
         items.sort_by(|a, b| gidx(a.0).cmp(&gidx(b.0)).then(a.0.name().cmp(b.0.name())).then(crate::app::natord(&a.1, &b.1)));
         if items.is_empty() {
-            ui.label(RichText::new("No components yet: draw the flowsheet in the Cycle diagram tab and bind its streams to state numbers.").weak());
+            ui.label(RichText::new("No components yet: draw the flowsheet in the Diagram sub-tab and bind its streams to state numbers.").weak());
             return;
         }
         if self.tab_sel.is_none_or(|s| !items.iter().any(|i| i.2 == s)) {
@@ -1737,7 +1737,7 @@ impl CycleUi {
             }
             None => {
                 ui.label(RichText::new("Select a component or stream to edit it.").weak());
-                ui.label(RichText::new("Double-click a component for its results (also in the Components tab). The diagram settings are in the right sidebar.").small().weak());
+                ui.label(RichText::new("Double-click a component for its results (also in the Components sub-tab). The diagram settings are in the right sidebar.").small().weak());
             }
         }
         if let Some(Sel::Comp(id)) = self.sel {

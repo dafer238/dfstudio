@@ -164,7 +164,12 @@ fn key_name(k: Key) -> &'static str {
 pub struct Series {
     pub y: String,
     pub label: String,
+    /// Line colour (also the markers' when `marker_color` is unset).
     pub color: [u8; 3],
+    /// Marker colour, when different from the line's (absent in files
+    /// before 0.3.0).
+    #[serde(default)]
+    pub marker_color: Option<[u8; 3]>,
     pub width: f32,
     pub line: LineKind,
     pub marker: Marker,
@@ -179,10 +184,59 @@ const PALETTE: [[u8; 3]; 8] = [[0, 114, 178], [213, 94, 0], [0, 158, 115], [204,
 
 impl Series {
     pub(crate) fn new(y: &str, k: usize) -> Self {
-        Series { y: y.into(), label: String::new(), color: PALETTE[k % PALETTE.len()], width: 1.8, line: LineKind::Solid, marker: Marker::Circle, size: 3.0, y2: false }
+        Series {
+            y: y.into(),
+            label: String::new(),
+            color: PALETTE[k % PALETTE.len()],
+            marker_color: None,
+            width: 1.8,
+            line: LineKind::Solid,
+            marker: Marker::Circle,
+            size: 3.0,
+            y2: false,
+        }
     }
     fn color32(&self) -> Color32 {
         Color32::from_rgb(self.color[0], self.color[1], self.color[2])
+    }
+    /// Colour of the markers.
+    fn marker_rgb(&self) -> [u8; 3] {
+        self.marker_color.unwrap_or(self.color)
+    }
+    fn marker32(&self) -> Color32 {
+        let [r, g, b] = self.marker_rgb();
+        Color32::from_rgb(r, g, b)
+    }
+    /// Colour that stands for the series (legend, hover): the line's, or the
+    /// markers' when there is no line.
+    fn key32(&self) -> Color32 {
+        if self.line == LineKind::None {
+            self.marker32()
+        } else {
+            self.color32()
+        }
+    }
+}
+
+/// Automatic label of a y axis from its columns: the single column's header,
+/// or the names separated by spaces followed by the unit when they share it
+/// (`W_net W_c [kW]`), else each name with its unit (`eta_th [-] W_net [MW]`).
+fn axis_label(cols: &[&Column]) -> String {
+    match cols {
+        [] => String::new(),
+        [one] => one.header(),
+        _ => {
+            let unit = |c: &Column| if c.unit == "-" { String::new() } else { c.unit.clone() };
+            let shared = cols.iter().all(|c| unit(c) == unit(cols[0]));
+            if shared {
+                let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
+                let u = Column { name: names.join(" "), unit: unit(cols[0]), values: Vec::new() };
+                u.header()
+            } else {
+                // dimensionless columns get "[-]" so no unit reads as another's
+                cols.iter().map(|c| if c.unit.is_empty() || c.unit == "-" { format!("{} [-]", c.name) } else { c.header() }).collect::<Vec<_>>().join(" ")
+            }
+        }
     }
 }
 
@@ -201,6 +255,9 @@ pub struct PlotDef {
     pub name: String,
     pub kind: PlotKind,
     pub source: Source,
+    /// Parametric table read when `source` is Parametric (index).
+    #[serde(default)]
+    pub table: usize,
     pub x: String,
     pub series: Vec<Series>,
     pub title: String,
@@ -235,6 +292,7 @@ impl PlotDef {
             name,
             kind,
             source: Source::Parametric,
+            table: 0,
             x: String::new(),
             series: Vec::new(),
             title: String::new(),
@@ -289,19 +347,22 @@ impl Column {
 /// Everything a plot may read.
 pub struct PlotInputs<'a> {
     pub analysis: &'a Analysis,
-    pub table: &'a ParamTable,
+    /// Parametric tables of the project.
+    pub tables: &'a [ParamTable],
     pub studies: &'a StudiesUi,
     pub display_units: &'a HashMap<String, String>,
     pub script: &'a str,
 }
 
-fn columns(src: Source, inp: &PlotInputs) -> Vec<Column> {
+fn columns(src: Source, table: usize, inp: &PlotInputs) -> Vec<Column> {
     let m = &inp.analysis.model;
     let du = inp.display_units;
     let unit_of = |name: &str| m.var(name).map(|v| conv(m, du, v).1.symbol).unwrap_or_default();
     match src {
         Source::Parametric => {
-            let t = inp.table;
+            let Some(t) = inp.tables.get(table).or(inp.tables.first()) else {
+                return Vec::new();
+            };
             let mut cols = Vec::new();
             for (k, n) in t.inputs.iter().enumerate() {
                 let values = t.cells.iter().map(|r| r.get(k).and_then(|c| c.trim().parse::<f64>().ok()).unwrap_or(f64::NAN)).collect();
@@ -587,6 +648,19 @@ fn pts(c: &[[f64; 2]], lx: bool, ly: bool) -> Vec<[f64; 2]> {
     c.iter().map(|p| [tx(p[0], lx), tx(p[1], ly)]).filter(|p| p[0].is_finite() && p[1].is_finite()).collect()
 }
 
+/// Which parametric table a plot reads, when there are several.
+fn table_combo(ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
+    if def.source != Source::Parametric || inp.tables.len() < 2 {
+        return;
+    }
+    let name = |k: usize| inp.tables.get(k).map(|t| t.title(k)).unwrap_or_default();
+    egui::ComboBox::from_label("Table").selected_text(name(def.table)).show_ui(ui, |ui| {
+        for k in 0..inp.tables.len() {
+            ui.selectable_value(&mut def.table, k, name(k));
+        }
+    });
+}
+
 /// Hover position, prefixed with the item name when near a data point.
 fn hover(h: &HoverPosition) -> (String, PlotPoint) {
     match h {
@@ -712,7 +786,7 @@ impl PlotsUi {
             let n = st.plots.len() + 1;
             if ui.button("+ XY plot").clicked() {
                 let mut d = PlotDef::new(format!("Plot {n}"), PlotKind::XY);
-                if inp.table.rows() == 0 {
+                if inp.tables.iter().all(|t| t.rows() == 0) {
                     d.source = Source::Arrays;
                 }
                 st.plots.push(d);
@@ -826,7 +900,8 @@ impl PlotsUi {
                 ui.selectable_value(&mut def.source, s, s.label());
             }
         });
-        let cols = columns(def.source, inp);
+        table_combo(ui, def, inp);
+        let cols = columns(def.source, def.table, inp);
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
         if names.is_empty() {
             ui.label(RichText::new("No data yet: run a parametric table, solve a model with arrays, or run an optimisation.").weak());
@@ -850,7 +925,7 @@ impl PlotsUi {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.color_edit_button_srgb(&mut s.color);
+                    ui.color_edit_button_srgb(&mut s.color).on_hover_text("Line colour");
                     egui::ComboBox::from_id_salt("line").width(70.0).selected_text(format!("{:?}", s.line)).show_ui(ui, |ui| {
                         for l in LineKind::ALL {
                             ui.selectable_value(&mut s.line, l, format!("{l:?}"));
@@ -859,6 +934,18 @@ impl PlotsUi {
                     ui.add(egui::DragValue::new(&mut s.width).range(0.5..=6.0).speed(0.1).prefix("w "));
                 });
                 ui.horizontal(|ui| {
+                    let mut mc = s.marker_rgb();
+                    let r = ui.color_edit_button_srgb(&mut mc).on_hover_text(if s.marker_color.is_some() {
+                        "Marker colour (right-click: same as the line)"
+                    } else {
+                        "Marker colour (now the line's)"
+                    });
+                    if r.changed() {
+                        s.marker_color = Some(mc);
+                    }
+                    if r.secondary_clicked() {
+                        s.marker_color = None;
+                    }
                     egui::ComboBox::from_id_salt("marker").width(70.0).selected_text(format!("{:?}", s.marker)).show_ui(ui, |ui| {
                         for mk in Marker::ALL {
                             ui.selectable_value(&mut s.marker, mk, format!("{mk:?}"));
@@ -881,20 +968,11 @@ impl PlotsUi {
     }
 
     fn xy(&mut self, ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
-        let cols = columns(def.source, inp);
+        let cols = columns(def.source, def.table, inp);
         let xc = find(&cols, &def.x);
         let (lx, ly) = (def.log_x, def.log_y);
         let x_label = if def.x_label.is_empty() { xc.map(|c| c.header()).unwrap_or_default() } else { def.x_label.clone() };
-        let y_label = if def.y_label.is_empty() {
-            let ys: Vec<String> = def.series.iter().filter(|s| !s.y2).filter_map(|s| find(&cols, &s.y)).map(|c| c.header()).collect();
-            if ys.len() == 1 {
-                ys[0].clone()
-            } else {
-                String::new()
-            }
-        } else {
-            def.y_label.clone()
-        };
+        let y_label = if def.y_label.is_empty() { axis_label(&axis_cols(def, &cols, false)) } else { def.y_label.clone() };
         if !def.title.is_empty() {
             ui.vertical_centered(|ui| ui.heading(&def.title));
         }
@@ -922,16 +1000,7 @@ impl PlotsUi {
         };
         let has_y2 = def.series.iter().any(|s| s.y2);
         let y2_names: Vec<String> = def.series.iter().filter(|s| s.y2).filter_map(|s| find(&cols, &s.y).map(|c| series_name(s, c, true))).collect();
-        let y2_label = if def.y2_label.is_empty() {
-            let ys: Vec<String> = def.series.iter().filter(|s| s.y2).filter_map(|s| find(&cols, &s.y)).map(|c| c.header()).collect();
-            if ys.len() == 1 {
-                ys[0].clone()
-            } else {
-                String::new()
-            }
-        } else {
-            def.y2_label.clone()
-        };
+        let y2_label = if def.y2_label.is_empty() { axis_label(&axis_cols(def, &cols, true)) } else { def.y2_label.clone() };
         let x_name = x_label.split(" [").next().unwrap_or("x").to_string();
         // the hover read-out replaces egui_plot's coordinate label
         let mut plot = Plot::new(("xy", def.name.as_str())).x_axis_label(x_label).show_grid(def.grid).x_axis_formatter(axis_fmt(lx)).show_x(false).show_y(false);
@@ -977,9 +1046,9 @@ impl PlotsUi {
                     pu.line(Line::new(name.clone(), p.clone()).color(s.color32()).width(s.width).style(s.line.egui()));
                 }
                 if let Some(shape) = s.marker.egui() {
-                    pu.points(Points::new(name.clone(), p.clone()).shape(shape).radius(s.size).color(s.color32()).filled(true));
+                    pu.points(Points::new(name.clone(), p.clone()).shape(shape).radius(s.size).color(s.marker32()).filled(true));
                 }
-                hov.push((name, s.color32(), p, s.y2));
+                hov.push((name, s.key32(), p, s.y2));
             }
             let series: Vec<HoverSeries> = hov.iter().map(|h| (h.0.clone(), h.1, h.2.as_slice())).collect();
             let (x, _, rows) = hover_readout(pu, &series, &[])?;
@@ -1154,7 +1223,8 @@ impl PlotsUi {
                 ui.selectable_value(&mut def.source, s, s.label());
             }
         });
-        let cols = columns(def.source, inp);
+        table_combo(ui, def, inp);
+        let cols = columns(def.source, def.table, inp);
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
         if names.is_empty() {
             ui.label(RichText::new("No data yet.").weak());
@@ -1178,7 +1248,7 @@ impl PlotsUi {
     }
 
     fn surface(&mut self, ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
-        let cols = columns(def.source, inp);
+        let cols = columns(def.source, def.table, inp);
         let (Some(xc), Some(yc), Some(zc)) = (find(&cols, &def.x), find(&cols, &def.y3), find(&cols, &def.z3)) else {
             ui.label("Choose x, y and z.");
             return;
@@ -1215,7 +1285,7 @@ impl PlotsUi {
         let q = |t: &str| format!("tex({:?})", t);
         match def.kind {
             PlotKind::XY => {
-                let cols = columns(def.source, inp);
+                let cols = columns(def.source, def.table, inp);
                 s += "fig, ax = plt.subplots(figsize=FIGSIZE)\n";
                 let xc = find(&cols, &def.x);
                 let has_y2 = def.series.iter().any(|s| s.y2);
@@ -1232,35 +1302,28 @@ impl PlotsUi {
                         let _ = writeln!(s, "y{k} = np.array({})", py_list(&yc.values));
                         let _ = writeln!(
                             s,
-                            "{}.plot(x, y{k}, color='#{:02x}{:02x}{:02x}', lw={}, ls='{}', marker={}, ms={}, label={})",
+                            "{}.plot(x, y{k}, color='{}', mfc='{m}', mec='{m}', lw={}, ls='{}', marker={}, ms={}, label={})",
                             if se.y2 { "ax2" } else { "ax" },
-                            se.color[0],
-                            se.color[1],
-                            se.color[2],
+                            hex(se.color),
                             se.width,
                             se.line.py(),
                             se.marker.py(),
                             2.0 * se.size,
-                            q(&label)
+                            q(&label),
+                            m = hex(se.marker_rgb()),
                         );
                     }
                     let xl = if def.x_label.is_empty() { xc.header() } else { def.x_label.clone() };
                     let _ = writeln!(s, "ax.set_xlabel({})", q(&xl));
                 }
-                if !def.y_label.is_empty() {
-                    let _ = writeln!(s, "ax.set_ylabel({})", q(&def.y_label));
-                } else if let [one] = def.series.iter().filter(|s| !s.y2).collect::<Vec<_>>().as_slice() {
-                    if let Some(c) = find(&cols, &one.y) {
-                        let _ = writeln!(s, "ax.set_ylabel({})", q(&c.header()));
-                    }
+                let yl = if def.y_label.is_empty() { axis_label(&axis_cols(def, &cols, false)) } else { def.y_label.clone() };
+                if !yl.is_empty() {
+                    let _ = writeln!(s, "ax.set_ylabel({})", q(&yl));
                 }
                 if has_y2 {
-                    if !def.y2_label.is_empty() {
-                        let _ = writeln!(s, "ax2.set_ylabel({})", q(&def.y2_label));
-                    } else if let [one] = def.series.iter().filter(|s| s.y2).collect::<Vec<_>>().as_slice() {
-                        if let Some(c) = find(&cols, &one.y) {
-                            let _ = writeln!(s, "ax2.set_ylabel({})", q(&c.header()));
-                        }
+                    let yl = if def.y2_label.is_empty() { axis_label(&axis_cols(def, &cols, true)) } else { def.y2_label.clone() };
+                    if !yl.is_empty() {
+                        let _ = writeln!(s, "ax2.set_ylabel({})", q(&yl));
                     }
                     // one legend for both axes
                     let mut d2 = def.clone();
@@ -1312,7 +1375,7 @@ impl PlotsUi {
                 axes_common(&mut s, &d2, q);
             }
             PlotKind::Surface => {
-                let cols = columns(def.source, inp);
+                let cols = columns(def.source, def.table, inp);
                 let (Some(xc), Some(yc), Some(zc)) = (find(&cols, &def.x), find(&cols, &def.y3), find(&cols, &def.z3)) else {
                     return s + "# x, y or z column missing\n";
                 };
@@ -1341,6 +1404,22 @@ impl PlotsUi {
 }
 
 /// Legend name of an XY series; secondary-axis series are marked.
+/// Columns of the series on the left (`y2` false) or right axis, each once.
+fn axis_cols<'c>(def: &PlotDef, cols: &'c [Column], y2: bool) -> Vec<&'c Column> {
+    let mut out: Vec<&Column> = Vec::new();
+    for c in def.series.iter().filter(|s| s.y2 == y2).filter_map(|s| find(cols, &s.y)) {
+        if !out.iter().any(|o| o.name == c.name) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `#rrggbb` of a colour, for matplotlib.
+fn hex(c: [u8; 3]) -> String {
+    format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
+}
+
 fn series_name(s: &Series, c: &Column, mark: bool) -> String {
     let n = if s.label.is_empty() { c.header() } else { s.label.clone() };
     if mark && s.y2 {
@@ -1660,7 +1739,7 @@ mod tests {
         let studies = StudiesUi::default();
         let du = HashMap::new();
         let script = include_str!("../../../examples/rankine.dfs");
-        let inp = PlotInputs { analysis: &a, table: &table, studies: &studies, display_units: &du, script };
+        let inp = PlotInputs { analysis: &a, tables: std::slice::from_ref(&table), studies: &studies, display_units: &du, script };
         assert_eq!(detect_fluid(script).as_deref(), Some("Water"));
         let mut ui = PlotsUi::default();
 
@@ -1668,7 +1747,14 @@ mod tests {
         xy.source = Source::Arrays;
         xy.x = "i".into();
         xy.series.push(Series::new("h", 0));
-        let cols = columns(Source::Arrays, &inp);
+        // black dashed line with red square markers
+        let mut hs = Series::new("h_s", 1);
+        (hs.color, hs.marker_color, hs.line, hs.marker) = ([0, 0, 0], Some([255, 0, 0]), LineKind::Dashed, Marker::Square);
+        xy.series.push(hs);
+        let py = ui.python(&xy, &inp);
+        assert!(py.contains("color='#000000', mfc='#ff0000', mec='#ff0000'"), "{py}");
+        assert!(py.contains("ax.set_ylabel(tex(\"h h_s [kJ/kg]\"))"), "{py}");
+        let cols = columns(Source::Arrays, 0, &inp);
         let h = find(&cols, "h").unwrap();
         assert_eq!(h.unit, "kJ/kg");
         assert!((h.values[2] - 3450.4).abs() < 0.5, "h[3] = {}", h.values[2]);
@@ -1719,6 +1805,25 @@ mod tests {
 #[cfg(test)]
 mod y2_tests {
     use super::*;
+
+    #[test]
+    fn axis_labels() {
+        let c = |n: &str, u: &str| Column { name: n.into(), unit: u.into(), values: Vec::new() };
+        let (w, q, eta) = (c("W_net", "kW"), c("Q_in", "kW"), c("eta_th", "-"));
+        assert_eq!(axis_label(&[]), "");
+        assert_eq!(axis_label(&[&w]), "W_net [kW]");
+        assert_eq!(axis_label(&[&w, &q]), "W_net Q_in [kW]");
+        assert_eq!(axis_label(&[&eta, &w]), "eta_th [-] W_net [kW]");
+        assert_eq!(axis_label(&[&eta, &c("x", "")]), "eta_th x");
+    }
+
+    /// Series written before separate marker colours use the line colour.
+    #[test]
+    fn old_series_marker_colour() {
+        let s: Series = serde_json::from_str(r#"{"y":"h","label":"","color":[1,2,3],"width":1.0,"line":"Solid","marker":"Circle","size":3.0}"#).unwrap();
+        assert_eq!(s.marker_color, None);
+        assert_eq!(s.marker_rgb(), [1, 2, 3]);
+    }
 
     #[test]
     fn secondary_axis_map() {

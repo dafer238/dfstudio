@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/dfcore", "crates/dfcli", "crates/dfapp"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 authors = ["Daniel Pérez"]
 license = "AGPL-3.0-or-later"
