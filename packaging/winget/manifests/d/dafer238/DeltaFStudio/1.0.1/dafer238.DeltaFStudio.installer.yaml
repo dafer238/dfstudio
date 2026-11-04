@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
 
-PackageIdentifier: DeltaFStudio.DeltaFStudio
+PackageIdentifier: dafer238.DeltaFStudio
 PackageVersion: 1.0.1
 InstallerType: inno
 InstallModes:

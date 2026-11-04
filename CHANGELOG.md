@@ -10,7 +10,7 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 - Windows: an MSIX package for the Microsoft Store, with the `dfstudio` and
   `dfs` commands and the `.df`, `.dfs` and `.ees` file associations. The
   Store signs it, so it installs without the SmartScreen warning.
-- Windows: winget manifest (`DeltaFStudio.DeltaFStudio`); each release is
+- Windows: winget manifest (`dafer238.DeltaFStudio`); each release is
   submitted to winget automatically.
 
 ## [1.0.1] - 2026-11-04

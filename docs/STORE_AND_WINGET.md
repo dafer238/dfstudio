@@ -5,7 +5,7 @@ DeltaF Studio for Windows is distributed in three ways:
 | Channel | What users get | Signed by |
 |---|---|---|
 | GitHub releases | `DeltaF_Studio-<v>-windows-x64-setup.exe` (Inno Setup) and the portable `.zip` | not signed yet (SmartScreen warns on download) |
-| winget | the same `setup.exe`, downloaded and installed by `winget install DeltaFStudio.DeltaFStudio` | as above |
+| winget | the same `setup.exe`, downloaded and installed by `winget install dafer238.DeltaFStudio` | as above |
 | Microsoft Store | an MSIX package, `DeltaF_Studio-<v>-windows-x64.msix` | Microsoft, when the Store publishes it |
 
 The Store re-signs every package it publishes with a Microsoft certificate,
@@ -94,8 +94,8 @@ available through winget's `msstore` source.
 
 The manifest of each version lives in
 [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) under
-`manifests/d/DeltaFStudio/DeltaFStudio/<version>/`. The package identifier
-is `DeltaFStudio.DeltaFStudio`; it cannot be changed after the first
+`manifests/d/dafer238/DeltaFStudio/<version>/`. The package identifier
+is `dafer238.DeltaFStudio`; it cannot be changed after the first
 version is accepted.
 
 ### First version (by hand, once)
@@ -106,15 +106,18 @@ manifest of 1.0.1, validated against the winget 1.10 schemas. To submit it:
 1. Optional local test on Windows (administrator terminal):
    ```powershell
    winget settings --enable LocalManifestFiles
-   winget validate --manifest packaging\winget\manifests\d\DeltaFStudio\DeltaFStudio\1.0.1
-   winget install --manifest packaging\winget\manifests\d\DeltaFStudio\DeltaFStudio\1.0.1
+   winget validate --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
+   winget install --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
    ```
 2. Submit it with [wingetcreate](https://github.com/microsoft/winget-create)
    (`winget install wingetcreate`), which forks winget-pkgs and opens the
    pull request:
    ```powershell
-   wingetcreate submit --token <personal access token> packaging\winget\manifests\d\DeltaFStudio\DeltaFStudio\1.0.1
+   wingetcreate submit packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
    ```
+   Without `--token`, wingetcreate signs in to GitHub in the browser and
+   keeps the session; a token on the command line can end up in logs and
+   the shell history.
    or copy the folder into a fork of winget-pkgs at the same path and open
    the pull request on GitHub.
 3. The winget-pkgs bots validate and test-install the package; a moderator
