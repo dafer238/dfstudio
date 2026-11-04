@@ -25,10 +25,10 @@ Contents
 4. [Writing equations](#4-writing-equations)
 5. [Units](#5-units)
 6. [Solving, and understanding why a model does not solve](#6-solving-and-understanding-why-a-model-does-not-solve)
-7. [Results: Solution and Arrays](#7-results-solution-and-arrays)
-8. [Studies: parametric tables, goal seek, optimisation, control loops](#8-studies)
+7. [Results: the Solution tab](#7-results-the-solution-tab)
+8. [Studies: the Analysis tab and control loops](#8-studies)
 9. [Plots](#9-plots)
-10. [Cycle diagram](#10-cycle-diagram)
+10. [Cycle diagram (Define cycle tab)](#10-cycle-diagram)
 11. [Component results](#11-component-results)
 12. [Files: `.dfs`, `.df`, auto save, attachments](#12-files)
 13. [Command line and Python](#13-command-line-and-python)
@@ -117,7 +117,7 @@ folder of the source tree (`dfstudio --write-examples DIR`).
 | Area | Content |
 |---|---|
 | Menu bar | File, **Edit**, Solve, Units, View, Help |
-| Toolbar | Solve button and the tabs: Equations, Solution, Arrays, Parametric, Goal seek / Optimise, Plots, Cycle diagram, Components |
+| Toolbar | Solve button and the tabs: Equations, Solution (sub-tabs Variables, Arrays), Analysis (Parametric table, Optimization), Plots, Define cycle (Diagram, Components) |
 | Variables panel (Equations tab) | status, role, value and display unit of every variable |
 | Problems panel (bottom) | errors, warnings, over-specified equations, failed blocks; click to jump to the line |
 | Status bar | last action, auto-save indicator, compile / analysis / solve times |
@@ -376,26 +376,35 @@ in grey). *All variables* lists every variable, *Use last solution as
 guesses* copies the current solution into the Guess column, and the table is
 saved in the `.df` project.
 
-## 7. Results: Solution and Arrays
+## 7. Results: the Solution tab
 
-* **Solution** tab: every variable with value and unit (filter, sort,
+* **Variables** sub-tab: every variable with value and unit (filter, sort,
   *Copy table (TSV)* for Excel), block statistics and control-loop logs.
-* **Arrays** tab: one column per array, one row per index (the state table
+* **Arrays** sub-tab: one column per array, one row per index (the state table
   of a cycle). *Copy table (TSV)* and *Export CSV…* write it in display
   units with full precision.
 
 ## 8. Studies
 
-* **Parametric**: choose input columns (each row fixes them; their
+The **Analysis** tab has two sub-tabs.
+
+* **Parametric table**: choose input columns (each row fixes them; their
   `x = constant` equations are disabled automatically) and output columns,
   fill rows (linear spacing), run. Rows are solved in parallel with warm
-  starts. *Copy (TSV)* exports the table.
-* **Goal seek / parameter matching**: conditions `Y = value` or `Y1 = Y2`
-  with as many varied variables as conditions.
-* **Optimise**: maximise or minimise a variable over bounded decision
-  variables (Brent for one variable, Nelder–Mead, differential evolution),
-  with a convergence plot. *Apply to script* writes the optimum into the
-  `X = value` equations (keeping literal units) and re-solves.
+  starts. *Copy (TSV)* exports the table. A project holds any number of
+  tables, each with its own inputs, outputs and rows: the bar above the
+  table selects one, and *+ New table*, *Name*, *Duplicate* and *Delete*
+  manage them. Plots choose their table in *Table* (shown when there is
+  more than one).
+* **Optimization** holds goal seek and optimisation; the result of each
+  is shown next to its own *Run* / *Optimise* button.
+  * **Goal seek / parameter matching**: conditions `Y = value` or
+    `Y1 = Y2` with as many varied variables as conditions.
+  * **Optimisation**: maximise or minimise a variable over bounded decision
+    variables (Brent for one variable, Nelder–Mead, differential evolution),
+    with a convergence plot (best objective per evaluation, in display
+    units; hover for the values). *Apply to script* writes the optimum into
+    the `X = value` equations (keeping literal units) and re-solves.
 * **Control loops** in the script: `$Control vary P[7] to make T[2] = 333`
   are applied on every solve.
 
@@ -406,14 +415,14 @@ To free a variable for a study it must be an input: if it is *calculated*
 
 The Plots tab holds any number of plots, saved with the project.
 
-* **XY**: columns of the parametric table, arrays by index, or the
+* **XY**: columns of a parametric table, arrays by index, or the
   optimisation history. Per series: colour, line style, width, marker,
   legend text and **Right y axis** (secondary axis, e.g. efficiencies next to
   powers; its grid is aligned with round numbers of the left axis).
 * **Property diagram**: T-s, P-h, P-v, h-s and T-h with saturation dome,
   isobars through the states and the cycle path; map the arrays holding
   T, P, h, s, v and give the state order (`1,2,3,4,1; 5,6`).
-* **3D**: x, y, z from the parametric table (surface for a full grid,
+* **3D**: x, y, z from a parametric table (surface for a full grid,
   scatter otherwise).
 
 **Logarithmic axes** (*log x*, *log y*; on by default for the pressure
@@ -443,7 +452,8 @@ linearly. On a property diagram the tooltip names the state it snapped to.
 
 ## 10. Cycle diagram
 
-A flowsheet whose streams are bound to state numbers, so labels read
+The **Define cycle** tab has two sub-tabs: **Diagram** (this section) and
+**Components** (section 11). A flowsheet whose streams are bound to state numbers, so labels read
 `T[k]`, `P[k]`, `h[k]`, ... of the solution.
 
 Layout: the **left sidebar** holds the component palette, the templates
@@ -555,7 +565,7 @@ title, *Export PDF report…*, *Fit view*).
 
 ## 11. Component results
 
-Double-click a component on the diagram, or open the **Components** tab
+Double-click a component on the diagram, or open the **Components** sub-tab of *Define cycle*
 (list by type; choose a component and the view: Summary, Streams, a table,
 a chart, Parameters). Each report lists the streams in and out (fluid, m, T,
 P, h, s, vapour quality x, degree of subcooling or superheating, ρ, cp),

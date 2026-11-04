@@ -244,7 +244,7 @@ fn goal(target: &str, value: &str, vary: &str) -> crate::studies_ui::GoalForm {
 }
 
 fn rankine_studies(s: &mut Settings) {
-    s.table = table(&[("P[2]", &steps(50.0, 200.0, 25.0)), ("T[3]", &steps(450.0, 600.0, 25.0))], &["eta_th", "W_net", "x[4]"]);
+    s.tables = vec![table(&[("P[2]", &steps(50.0, 200.0, 25.0)), ("T[3]", &steps(450.0, 600.0, 25.0))], &["eta_th", "W_net", "x[4]"])];
     s.goal = goal("x[4]", "0.9", "P[2]");
     let mut surf = PlotDef::new("Efficiency surface".into(), PlotKind::Surface);
     surf.source = Source::Parametric;
@@ -256,14 +256,14 @@ fn rankine_studies(s: &mut Settings) {
 }
 
 fn brayton_studies(s: &mut Settings) {
-    s.table = table(&[("r_p", &steps(4.0, 30.0, 2.0))], &["eta_th", "w_spec", "T[4]"]);
+    s.tables = vec![table(&[("r_p", &steps(4.0, 30.0, 2.0))], &["eta_th", "w_spec", "T[4]"])];
     s.opt =
         crate::studies_ui::OptForm { objective: "w_spec".into(), maximize: true, method: OptMethod::Brent, vars: vec![("r_p".into(), "4".into(), "30".into())], max_evals: 300 };
     s.plots.plots = vec![property_plot("T-s diagram", "Air", Diagram::Ts, "1,2,3,4"), xy_plot("Efficiency and specific work", "r_p", &["eta_th", "w_spec>"])];
 }
 
 fn recuperated_studies(s: &mut Settings) {
-    s.table = table(&[("r_p", &steps(2.0, 10.0, 0.5))], &["eta_th", "w_spec", "T[5]", "Q_rec"]);
+    s.tables = vec![table(&[("r_p", &steps(2.0, 10.0, 0.5))], &["eta_th", "w_spec", "T[5]", "Q_rec"])];
     s.goal = goal("eta_th", "0.38", "eps");
     s.opt =
         crate::studies_ui::OptForm { objective: "eta_th".into(), maximize: true, method: OptMethod::Brent, vars: vec![("r_p".into(), "2".into(), "10".into())], max_evals: 300 };
@@ -271,7 +271,7 @@ fn recuperated_studies(s: &mut Settings) {
 }
 
 fn refrigeration_studies(s: &mut Settings) {
-    s.table = table(&[("T_evap", &steps(-30.0, 5.0, 5.0))], &["COP", "W_c", "m_dot"]);
+    s.tables = vec![table(&[("T_evap", &steps(-30.0, 5.0, 5.0))], &["COP", "W_c", "m_dot"])];
     s.goal = goal("COP", "4", "T_cond");
     s.plots.plots = vec![property_plot("P-h diagram", "R134a", Diagram::Ph, ""), xy_plot("COP and compressor power", "T_evap", &["COP", "W_c>"])];
 }
@@ -361,11 +361,13 @@ mod tests {
             let a = run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None, init: Default::default() });
             let m = &a.model;
             let du = HashMap::new();
-            s.table.solve_now(&a, &du).unwrap();
-            assert!(s.table.rows() >= 8 && s.table.converged.iter().all(|c| *c), "{}: parametric", t.name);
+            let table = &mut s.tables[0];
+            table.solve_now(&a, &du).unwrap();
+            assert!(table.rows() >= 8 && table.converged.iter().all(|c| *c), "{}: parametric", t.name);
+            let table = &s.tables[0];
             for p in &s.plots.plots {
                 for n in std::iter::once(&p.x).chain(p.series.iter().map(|x| &x.y)).chain([&p.y3, &p.z3]).filter(|n| !n.is_empty()) {
-                    assert!(s.table.inputs.contains(n) || s.table.outputs.contains(n), "{}: plot {} uses {n}", t.name, p.name);
+                    assert!(table.inputs.contains(n) || table.outputs.contains(n), "{}: plot {} uses {n}", t.name, p.name);
                 }
             }
             let warm = a.solution.as_ref().map(|x| x.x.clone());

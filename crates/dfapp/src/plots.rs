@@ -201,6 +201,9 @@ pub struct PlotDef {
     pub name: String,
     pub kind: PlotKind,
     pub source: Source,
+    /// Parametric table read when `source` is Parametric (index).
+    #[serde(default)]
+    pub table: usize,
     pub x: String,
     pub series: Vec<Series>,
     pub title: String,
@@ -235,6 +238,7 @@ impl PlotDef {
             name,
             kind,
             source: Source::Parametric,
+            table: 0,
             x: String::new(),
             series: Vec::new(),
             title: String::new(),
@@ -289,19 +293,22 @@ impl Column {
 /// Everything a plot may read.
 pub struct PlotInputs<'a> {
     pub analysis: &'a Analysis,
-    pub table: &'a ParamTable,
+    /// Parametric tables of the project.
+    pub tables: &'a [ParamTable],
     pub studies: &'a StudiesUi,
     pub display_units: &'a HashMap<String, String>,
     pub script: &'a str,
 }
 
-fn columns(src: Source, inp: &PlotInputs) -> Vec<Column> {
+fn columns(src: Source, table: usize, inp: &PlotInputs) -> Vec<Column> {
     let m = &inp.analysis.model;
     let du = inp.display_units;
     let unit_of = |name: &str| m.var(name).map(|v| conv(m, du, v).1.symbol).unwrap_or_default();
     match src {
         Source::Parametric => {
-            let t = inp.table;
+            let Some(t) = inp.tables.get(table).or(inp.tables.first()) else {
+                return Vec::new();
+            };
             let mut cols = Vec::new();
             for (k, n) in t.inputs.iter().enumerate() {
                 let values = t.cells.iter().map(|r| r.get(k).and_then(|c| c.trim().parse::<f64>().ok()).unwrap_or(f64::NAN)).collect();
@@ -587,6 +594,19 @@ fn pts(c: &[[f64; 2]], lx: bool, ly: bool) -> Vec<[f64; 2]> {
     c.iter().map(|p| [tx(p[0], lx), tx(p[1], ly)]).filter(|p| p[0].is_finite() && p[1].is_finite()).collect()
 }
 
+/// Which parametric table a plot reads, when there are several.
+fn table_combo(ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
+    if def.source != Source::Parametric || inp.tables.len() < 2 {
+        return;
+    }
+    let name = |k: usize| inp.tables.get(k).map(|t| t.title(k)).unwrap_or_default();
+    egui::ComboBox::from_label("Table").selected_text(name(def.table)).show_ui(ui, |ui| {
+        for k in 0..inp.tables.len() {
+            ui.selectable_value(&mut def.table, k, name(k));
+        }
+    });
+}
+
 /// Hover position, prefixed with the item name when near a data point.
 fn hover(h: &HoverPosition) -> (String, PlotPoint) {
     match h {
@@ -712,7 +732,7 @@ impl PlotsUi {
             let n = st.plots.len() + 1;
             if ui.button("+ XY plot").clicked() {
                 let mut d = PlotDef::new(format!("Plot {n}"), PlotKind::XY);
-                if inp.table.rows() == 0 {
+                if inp.tables.iter().all(|t| t.rows() == 0) {
                     d.source = Source::Arrays;
                 }
                 st.plots.push(d);
@@ -826,7 +846,8 @@ impl PlotsUi {
                 ui.selectable_value(&mut def.source, s, s.label());
             }
         });
-        let cols = columns(def.source, inp);
+        table_combo(ui, def, inp);
+        let cols = columns(def.source, def.table, inp);
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
         if names.is_empty() {
             ui.label(RichText::new("No data yet: run a parametric table, solve a model with arrays, or run an optimisation.").weak());
@@ -881,7 +902,7 @@ impl PlotsUi {
     }
 
     fn xy(&mut self, ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
-        let cols = columns(def.source, inp);
+        let cols = columns(def.source, def.table, inp);
         let xc = find(&cols, &def.x);
         let (lx, ly) = (def.log_x, def.log_y);
         let x_label = if def.x_label.is_empty() { xc.map(|c| c.header()).unwrap_or_default() } else { def.x_label.clone() };
@@ -1154,7 +1175,8 @@ impl PlotsUi {
                 ui.selectable_value(&mut def.source, s, s.label());
             }
         });
-        let cols = columns(def.source, inp);
+        table_combo(ui, def, inp);
+        let cols = columns(def.source, def.table, inp);
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
         if names.is_empty() {
             ui.label(RichText::new("No data yet.").weak());
@@ -1178,7 +1200,7 @@ impl PlotsUi {
     }
 
     fn surface(&mut self, ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
-        let cols = columns(def.source, inp);
+        let cols = columns(def.source, def.table, inp);
         let (Some(xc), Some(yc), Some(zc)) = (find(&cols, &def.x), find(&cols, &def.y3), find(&cols, &def.z3)) else {
             ui.label("Choose x, y and z.");
             return;
@@ -1215,7 +1237,7 @@ impl PlotsUi {
         let q = |t: &str| format!("tex({:?})", t);
         match def.kind {
             PlotKind::XY => {
-                let cols = columns(def.source, inp);
+                let cols = columns(def.source, def.table, inp);
                 s += "fig, ax = plt.subplots(figsize=FIGSIZE)\n";
                 let xc = find(&cols, &def.x);
                 let has_y2 = def.series.iter().any(|s| s.y2);
@@ -1312,7 +1334,7 @@ impl PlotsUi {
                 axes_common(&mut s, &d2, q);
             }
             PlotKind::Surface => {
-                let cols = columns(def.source, inp);
+                let cols = columns(def.source, def.table, inp);
                 let (Some(xc), Some(yc), Some(zc)) = (find(&cols, &def.x), find(&cols, &def.y3), find(&cols, &def.z3)) else {
                     return s + "# x, y or z column missing\n";
                 };
@@ -1660,7 +1682,7 @@ mod tests {
         let studies = StudiesUi::default();
         let du = HashMap::new();
         let script = include_str!("../../../examples/rankine.dfs");
-        let inp = PlotInputs { analysis: &a, table: &table, studies: &studies, display_units: &du, script };
+        let inp = PlotInputs { analysis: &a, tables: std::slice::from_ref(&table), studies: &studies, display_units: &du, script };
         assert_eq!(detect_fluid(script).as_deref(), Some("Water"));
         let mut ui = PlotsUi::default();
 
@@ -1668,7 +1690,7 @@ mod tests {
         xy.source = Source::Arrays;
         xy.x = "i".into();
         xy.series.push(Series::new("h", 0));
-        let cols = columns(Source::Arrays, &inp);
+        let cols = columns(Source::Arrays, 0, &inp);
         let h = find(&cols, "h").unwrap();
         assert_eq!(h.unit, "kJ/kg");
         assert!((h.values[2] - 3450.4).abs() < 0.5, "h[3] = {}", h.values[2]);

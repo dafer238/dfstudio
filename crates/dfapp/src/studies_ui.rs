@@ -26,6 +26,9 @@ pub fn conv(model: &Model, display_units: &HashMap<String, String>, v: u32) -> (
 
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParamTable {
+    /// Name shown on the table's tab (empty: "Table k").
+    #[serde(default)]
+    pub name: String,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     /// input cells as typed (display units)
@@ -44,6 +47,20 @@ pub struct ParamTable {
 impl ParamTable {
     pub fn rows(&self) -> usize {
         self.cells.len()
+    }
+
+    /// Name of the table at position `k` (0-based).
+    pub fn title(&self, k: usize) -> String {
+        if self.name.trim().is_empty() {
+            format!("Table {}", k + 1)
+        } else {
+            self.name.clone()
+        }
+    }
+
+    /// No inputs, outputs or rows.
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty() && self.outputs.is_empty() && self.cells.is_empty()
     }
 
     /// Solve the table now, on this thread (example projects). Fills
@@ -137,7 +154,14 @@ enum JobResult {
 pub struct StudiesUi {
     rx: Option<Receiver<JobResult>>,
     pub running: Option<&'static str>,
-    pub message: String,
+    /// Result line of each study, shown below its own Run button.
+    pub param_msg: String,
+    pub goal_msg: String,
+    pub opt_msg: String,
+    /// Parametric table being solved (index).
+    param_table: usize,
+    /// Which study asked for `apply_request` ("goal" or "opt").
+    pub apply_from: &'static str,
     /// varied variables and their values (model units)
     pub goal_result: Option<Vec<(String, f64)>>,
     /// values the user asked to write into the script: (variable, model value)
@@ -174,7 +198,16 @@ fn var_combo(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, mode
 }
 
 impl StudiesUi {
-    pub fn poll(&mut self, table: &mut ParamTable) {
+    /// Shows the result of writing values into the script below the study
+    /// that asked for it.
+    pub fn set_apply_msg(&mut self, msg: String) {
+        match self.apply_from {
+            "goal" => self.goal_msg = msg,
+            _ => self.opt_msg = msg,
+        }
+    }
+
+    pub fn poll(&mut self, tables: &mut [ParamTable]) {
         let Some(rx) = &self.rx else { return };
         if let Ok(r) = rx.try_recv() {
             self.running = None;
@@ -182,27 +215,78 @@ impl StudiesUi {
             match r {
                 JobResult::Param(Ok((vals, conv)), ms) => {
                     let n_ok = conv.iter().filter(|c| **c).count();
-                    self.message = format!("{} rows solved ({} converged) in {:.0} ms", conv.len(), n_ok, ms);
-                    table.results = vals.into_iter().map(Some).collect();
-                    table.converged = conv;
+                    self.param_msg = format!("{} rows solved ({} converged) in {:.0} ms", conv.len(), n_ok, ms);
+                    if let Some(table) = tables.get_mut(self.param_table) {
+                        table.results = vals.into_iter().map(Some).collect();
+                        table.converged = conv;
+                    }
                 }
-                JobResult::Param(Err(e), _) => self.message = format!("Parametric table: {e}"),
+                JobResult::Param(Err(e), _) => self.param_msg = format!("Parametric table: {e}"),
                 JobResult::Goal(Ok(g), names, ms) => {
-                    self.message = format!("Goal seek converged ({}, {:.0} ms)", g.method, ms);
+                    self.goal_msg = format!("Goal seek converged ({}, {:.0} ms)", g.method, ms);
                     self.goal_result = Some(names.into_iter().zip(g.values).collect());
                 }
-                JobResult::Goal(Err(e), _, _) => self.message = format!("Goal seek: {e}"),
+                JobResult::Goal(Err(e), _, _) => self.goal_msg = format!("Goal seek: {e}"),
                 JobResult::Opt(Ok(o), ms) => {
-                    self.message = format!("{} ({:.0} ms)", o.message, ms);
+                    self.opt_msg = format!("Best point after {} evaluations ({:.0} ms)", o.evaluations, ms);
                     self.opt_result = Some(o);
                 }
-                JobResult::Opt(Err(e), _) => self.message = format!("Optimisation: {e}"),
+                JobResult::Opt(Err(e), _) => self.opt_msg = format!("Optimisation: {e}"),
             }
         }
     }
 
     // ------------------------------------------------------------ parametric
-    pub fn parametric_tab(&mut self, ui: &mut egui::Ui, a: &Arc<Analysis>, t: &mut ParamTable, du: &HashMap<String, String>) {
+    /// The Parametric sub-tab: a bar to choose, add, rename, duplicate and
+    /// delete tables, then the selected table. Returns the index of a table
+    /// deleted this frame, so that references to later tables can be shifted
+    /// (new and duplicated tables are appended and shift nothing).
+    pub fn parametric_tab(&mut self, ui: &mut egui::Ui, a: &Arc<Analysis>, tables: &mut Vec<ParamTable>, sel: &mut usize, du: &HashMap<String, String>) -> Option<usize> {
+        if tables.is_empty() {
+            tables.push(ParamTable::default());
+        }
+        *sel = (*sel).min(tables.len() - 1);
+        let busy = self.running == Some("param");
+        let mut remove: Option<usize> = None;
+        ui.horizontal_wrapped(|ui| {
+            for k in 0..tables.len() {
+                let label = tables[k].title(k);
+                let running = busy && self.param_table == k;
+                let r = ui.selectable_label(*sel == k, if running { format!("{label} …") } else { label });
+                if r.clicked() {
+                    *sel = k;
+                }
+            }
+            if ui.button("+ New table").on_hover_text("Another table, with its own inputs, outputs and rows").clicked() {
+                tables.push(ParamTable::default());
+                *sel = tables.len() - 1;
+            }
+            ui.separator();
+            let k = *sel;
+            ui.label("Name");
+            let hint = format!("Table {}", k + 1);
+            ui.add(egui::TextEdit::singleline(&mut tables[k].name).desired_width(140.0).hint_text(hint));
+            if ui.button("Duplicate").clicked() {
+                let mut c = tables[k].clone();
+                c.name = format!("{} (copy)", tables[k].title(k));
+                tables.push(c);
+                *sel = tables.len() - 1;
+            }
+            if tables.len() > 1 && ui.add_enabled(!busy, egui::Button::new("Delete")).clicked() {
+                remove = Some(k);
+            }
+        });
+        if let Some(k) = remove {
+            tables.remove(k);
+            *sel = (*sel).min(tables.len() - 1);
+        }
+        ui.separator();
+        let k = *sel;
+        self.parametric_table(ui, a, &mut tables[k], k, du);
+        remove
+    }
+
+    fn parametric_table(&mut self, ui: &mut egui::Ui, a: &Arc<Analysis>, t: &mut ParamTable, index: usize, du: &HashMap<String, String>) {
         let m = &a.model;
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Parametric table").heading());
@@ -238,7 +322,7 @@ impl StudiesUi {
                 t.results.clear();
             }
             if ui.button("Clear").clicked() {
-                *t = ParamTable::default();
+                *t = ParamTable { name: std::mem::take(&mut t.name), ..Default::default() };
             }
         });
         if !t.inputs.is_empty() {
@@ -301,7 +385,7 @@ impl StudiesUi {
         ui.horizontal(|ui| {
             let can = !t.inputs.is_empty() && t.rows() > 0 && self.running.is_none();
             if ui.add_enabled(can, egui::Button::new(RichText::new("Run table").strong())).clicked() {
-                self.run_param(a, t, du);
+                self.run_param(a, t, index, du);
             }
             if self.running == Some("param") {
                 ui.spinner();
@@ -317,7 +401,9 @@ impl StudiesUi {
                 }
                 ui.ctx().copy_text(s);
             }
-            ui.label(&self.message);
+            if self.param_table == index {
+                ui.label(&self.param_msg);
+            }
         });
         ui.separator();
         // header units
@@ -403,14 +489,15 @@ impl StudiesUi {
         }
     }
 
-    fn run_param(&mut self, a: &Arc<Analysis>, t: &ParamTable, du: &HashMap<String, String>) {
+    fn run_param(&mut self, a: &Arc<Analysis>, t: &ParamTable, index: usize, du: &HashMap<String, String>) {
+        self.param_table = index;
         let m = a.model.clone();
         let mut inputs = Vec::new();
         for n in &t.inputs {
             match m.var(n) {
                 Some(v) => inputs.push(v),
                 None => {
-                    self.message = format!("unknown variable {n}");
+                    self.param_msg = format!("unknown variable {n}");
                     return;
                 }
             }
@@ -421,7 +508,7 @@ impl StudiesUi {
             let mut vals = Vec::new();
             for (k, c) in r.iter().enumerate() {
                 let Ok(v) = c.trim().parse::<f64>() else {
-                    self.message = format!("row {}: '{}' is not a number", i + 1, c);
+                    self.param_msg = format!("row {}: '{}' is not a number", i + 1, c);
                     return;
                 };
                 let (mu, d) = conv(&m, du, inputs[k]);
@@ -459,8 +546,6 @@ impl StudiesUi {
     // ------------------------------------------------------------ goal seek + optimisation
     pub fn optimise_tab(&mut self, ui: &mut egui::Ui, a: &Arc<Analysis>, g: &mut GoalForm, o: &mut OptForm, du: &HashMap<String, String>, script: &str) {
         let m = a.model.clone();
-        ui.label(&self.message);
-        ui.separator();
         ui.heading("Goal seek and parameter matching");
         ui.label(
             RichText::new("Change variables (normally set by `x = constant`) until each condition holds: a variable reaches a value (Excel-like goal seek) or equals another variable (parameter matching). Use as many conditions as variables to change.")
@@ -538,6 +623,7 @@ impl StudiesUi {
             if self.running == Some("goal") {
                 ui.spinner();
             }
+            ui.label(&self.goal_msg);
         });
         if let Some(res) = &self.goal_result {
             ui.horizontal_wrapped(|ui| {
@@ -550,6 +636,7 @@ impl StudiesUi {
                 }
                 if ui.button("Apply to script").on_hover_text("Overwrite the `x = value` equations of the changed variables with these results").clicked() {
                     self.apply_request = Some(res.clone());
+                    self.apply_from = "goal";
                 }
             });
         }
@@ -602,7 +689,7 @@ impl StudiesUi {
                 let mut vars = Vec::new();
                 for (n, lo, hi) in &o.vars {
                     let (Some(v), Ok(l), Ok(h)) = (m.var(n), lo.trim().parse::<f64>(), hi.trim().parse::<f64>()) else {
-                        self.message = format!("check variable '{n}' and its bounds");
+                        self.opt_msg = format!("check variable '{n}' and its bounds");
                         return;
                     };
                     let (mu, d) = conv(&m, du, v);
@@ -625,6 +712,7 @@ impl StudiesUi {
             if self.running == Some("opt") {
                 ui.spinner();
             }
+            ui.label(&self.opt_msg);
         });
         if let Some(r) = &self.opt_result {
             ui.add_space(6.0);
@@ -640,11 +728,29 @@ impl StudiesUi {
             }
             if ui.button("Apply to script").on_hover_text("Overwrite the `x = value` equations of the decision variables with the optimum").clicked() {
                 self.apply_request = Some(self.opt_units.iter().cloned().zip(r.best.iter().copied()).collect());
+                self.apply_from = "opt";
             }
-            let pts: Vec<[f64; 2]> = r.history.iter().enumerate().filter(|(_, v)| v.is_finite()).map(|(i, v)| [i as f64 + 1.0, *v]).collect();
-            egui_plot::Plot::new("opt_hist").height(220.0).x_axis_label("evaluation").y_axis_label("best objective (model units)").show(ui, |p| {
-                p.line(egui_plot::Line::new("best", pts));
-            });
+            // history of the best objective, in display units, with the
+            // same hover read-out as the other plots
+            let (mu, d) = m.var(&o.objective).map(|v| conv(&m, du, v)).unwrap_or_else(|| (Unit::none(), Unit::none()));
+            let pts: Vec<[f64; 2]> = r.history.iter().enumerate().filter(|(_, v)| v.is_finite()).map(|(i, v)| [i as f64 + 1.0, mu.convert(*v, &d)]).collect();
+            let unit = if d.symbol == "-" || d.symbol.is_empty() { String::new() } else { format!(" [{}]", d.symbol) };
+            let name = format!("best {}", o.objective);
+            let color = ui.visuals().hyperlink_color;
+            let r = egui_plot::Plot::new("opt_hist").height(220.0).x_axis_label("evaluation").y_axis_label(format!("{}{unit}", o.objective)).show_x(false).show_y(false).show(
+                ui,
+                |p| {
+                    p.line(egui_plot::Line::new(name.clone(), pts.clone()).color(color));
+                    let series: Vec<crate::plots::HoverSeries> = vec![(name.clone(), color, pts.as_slice())];
+                    crate::plots::hover_readout(p, &series, &[]).map(|(x, _, rows)| (x, rows))
+                },
+            );
+            if let Some((x, rows)) = r.inner {
+                if r.response.hovered() {
+                    let rows: Vec<(String, Color32, String)> = rows.into_iter().map(|(n, c, y)| (n, c, fmt_num(y))).collect();
+                    crate::plots::hover_tooltip(r.response, format!("evaluation {}", x.round()), &rows);
+                }
+            }
         }
     }
 }

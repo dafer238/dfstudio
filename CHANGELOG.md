@@ -26,6 +26,19 @@ All notable changes to DF Studio are listed here. The format follows
   constants, keywords and directives (as templates) and units, all
   insertable at the cursor. Also under *Help > Library*.
 
+### Tabs and studies
+- Fewer top-level tabs, with sub-tabs: **Solution** (Variables, Arrays),
+  **Analysis** (Parametric table, Optimization: goal seek and
+  optimisation) and **Define cycle** (Diagram, Components).
+- Several parametric tables per project, each with its own inputs,
+  outputs and rows (*+ New table*, name, duplicate, delete); XY and 3D
+  plots choose their table. Projects store every table and keep the first
+  one where older versions read it, so their files still open.
+- The results of goal seek and optimisation are shown below their own
+  *Run* / *Optimise* button instead of at the top of the tab.
+- The optimisation convergence plot shows the objective in display units
+  and has the hover tooltip of the other plots.
+
 ### Units
 - *Units > Units per quantity*: choose the display unit of each physical
   quantity (temperature, pressure, specific and molar enthalpy, mass and

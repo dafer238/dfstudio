@@ -277,13 +277,13 @@ Directives:
 | Equations window | Equations > Editor |
 | Formatted Equations | not needed: *Format script* lays out the text |
 | Solution window | Solution tab |
-| Arrays window | Arrays tab (copy as TSV, export CSV) |
+| Arrays window | Solution > Arrays (copy as TSV, export CSV) |
 | Residuals window, *Check/Format* | Equations > Dependencies (blocks, residuals, what determines a variable), Problems panel, degrees of freedom in the status bar |
 | Variable Information | Variables panel (guess, bounds, display unit, role filter) |
-| Parametric Table | Parametric tab |
+| Parametric Table | Analysis > Parametric table (several tables per project) |
 | Min/Max | Optimize tab |
 | Plot windows, property plots | Plots tab (x–y, secondary y axis, T-s, P-h, h-s with saturation dome) |
-| Diagram window | Cycle tab: flowsheet drawn from components, with stream values, component reports (Components tab) and a PDF report |
+| Diagram window | Define cycle > Diagram: flowsheet drawn from components, with stream values, component reports (Define cycle > Components) and a PDF report |
 | Lookup Table window | tables can be attached to a `.df` project, but no lookup functions yet (Section 7) |
 | hovering a plot | the tooltip lists every series at the hovered x (both branches of a closed cycle) |
 
