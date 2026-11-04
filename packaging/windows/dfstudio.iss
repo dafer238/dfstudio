@@ -1,10 +1,10 @@
-; Inno Setup script for DF Studio (https://jrsoftware.org/isinfo.php).
+; Inno Setup script for DeltaF Studio (https://jrsoftware.org/isinfo.php).
 ; Built by build.ps1, which stages the files in ..\..\dist\windows\stage and
 ; passes the version:  ISCC /DAppVersion=0.1.0 dfstudio.iss
 ;
 ; Installing needs no administrator rights. The first page asks:
-;   * "Install for all users"  (needs admin) -> C:\Program Files\DF Studio
-;   * "Install for me only"                   -> %LOCALAPPDATA%\Programs\DF Studio
+;   * "Install for all users"  (needs admin) -> C:\Program Files\DeltaF Studio
+;   * "Install for me only"                   -> %LOCALAPPDATA%\Programs\DeltaF Studio
 ; From the command line: /ALLUSERS or /CURRENTUSER (add /VERYSILENT for an
 ; unattended install).
 ;
@@ -13,8 +13,8 @@
 ;   startmenu  Start menu entry
 ;   addtopath  install folder on the PATH (user PATH for a per-user install,
 ;              system PATH for an all-users install), removed on uninstall
-;   assocdf    open .df and .dfs files with DF Studio
-;   assocees   open .ees files with DF Studio
+;   assocdf    open .df and .dfs files with DeltaF Studio
+;   assocees   open .ees files with DeltaF Studio
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -23,15 +23,15 @@
 
 [Setup]
 AppId={{9F99A851-0C78-4DD2-AE59-F58EBAD92123}
-AppName=DF Studio
+AppName=DeltaF Studio
 AppVersion={#AppVersion}
-AppVerName=DF Studio {#AppVersion}
-AppPublisher=DF Studio contributors
+AppVerName=DeltaF Studio {#AppVersion}
+AppPublisher=DeltaF Studio contributors
 AppPublisherURL=https://github.com/dafer238/dfstudio
 AppSupportURL=https://github.com/dafer238/dfstudio/issues
 AppUpdatesURL=https://github.com/dafer238/dfstudio/releases
-DefaultDirName={autopf}\DF Studio
-DefaultGroupName=DF Studio
+DefaultDirName={autopf}\DeltaF Studio
+DefaultGroupName=DeltaF Studio
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog commandline
@@ -40,9 +40,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\..\LICENSE
 SetupIconFile=..\icons\dfstudio.ico
 UninstallDisplayIcon={app}\dfstudio.exe
-UninstallDisplayName=DF Studio {#AppVersion}
+UninstallDisplayName=DeltaF Studio {#AppVersion}
 OutputDir=..\..\dist
-OutputBaseFilename=DF_Studio-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=DeltaF_Studio-{#AppVersion}-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -53,11 +53,11 @@ ChangesEnvironment=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "startmenu"; Description: "Add DF Studio to the Start menu"; GroupDescription: "Shortcuts:"
+Name: "startmenu"; Description: "Add DeltaF Studio to the Start menu"; GroupDescription: "Shortcuts:"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "Shortcuts:"; Flags: unchecked
-Name: "addtopath"; Description: "Add DF Studio to the PATH (run dfstudio and dfs from any terminal)"; GroupDescription: "Command line:"
-Name: "assocdf"; Description: "DF Studio projects and scripts (.df, .dfs)"; GroupDescription: "Open these files with DF Studio on double-click:"
-Name: "assocees"; Description: "EES models (.ees)"; GroupDescription: "Open these files with DF Studio on double-click:"
+Name: "addtopath"; Description: "Add DeltaF Studio to the PATH (run dfstudio and dfs from any terminal)"; GroupDescription: "Command line:"
+Name: "assocdf"; Description: "DeltaF Studio projects and scripts (.df, .dfs)"; GroupDescription: "Open these files with DeltaF Studio on double-click:"
+Name: "assocees"; Description: "EES models (.ees)"; GroupDescription: "Open these files with DeltaF Studio on double-click:"
 
 [Files]
 Source: "{#Stage}\dfstudio.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -68,23 +68,29 @@ Source: "{#Stage}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs
 
+[InstallDelete]
+; Shortcuts left by installers from before the rename to DeltaF Studio (<= 1.0.0).
+Type: files; Name: "{autoprograms}\DF Studio.lnk"
+Type: files; Name: "{autoprograms}\DF Studio examples.lnk"
+Type: files; Name: "{autodesktop}\DF Studio.lnk"
+
 [Icons]
-Name: "{autoprograms}\DF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Comment: "dfstudio equation solver"; Tasks: startmenu
-Name: "{autoprograms}\DF Studio examples"; Filename: "{app}\examples"; Tasks: startmenu
-Name: "{autodesktop}\DF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Tasks: desktopicon
+Name: "{autoprograms}\DeltaF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Comment: "dfstudio equation solver"; Tasks: startmenu
+Name: "{autoprograms}\DeltaF Studio examples"; Filename: "{app}\examples"; Tasks: startmenu
+Name: "{autodesktop}\DeltaF Studio"; Filename: "{app}\dfstudio.exe"; IconFilename: "{app}\dfstudio.ico"; Tasks: desktopicon
 
 [Registry]
 ; HKA = HKLM for an all-users install, HKCU for a per-user one.
 Root: HKA; Subkey: "Software\Classes\.df"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Project"; Flags: uninsdeletevalue; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\.dfs"; ValueType: string; ValueName: ""; ValueData: "DFStudio.Script"; Flags: uninsdeletevalue; Tasks: assocdf
-Root: HKA; Subkey: "Software\Classes\DFStudio.Project"; ValueType: string; ValueName: ""; ValueData: "DF Studio project"; Flags: uninsdeletekey; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Project"; ValueType: string; ValueName: ""; ValueData: "DeltaF Studio project"; Flags: uninsdeletekey; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\DFStudio.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\DFStudio.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assocdf
-Root: HKA; Subkey: "Software\Classes\DFStudio.Script"; ValueType: string; ValueName: ""; ValueData: "DF Studio script"; Flags: uninsdeletekey; Tasks: assocdf
+Root: HKA; Subkey: "Software\Classes\DFStudio.Script"; ValueType: string; ValueName: ""; ValueData: "DeltaF Studio script"; Flags: uninsdeletekey; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\DFStudio.Script\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.ico"; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\DFStudio.Script\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\dfstudio.exe"" ""%1"""; Tasks: assocdf
 
-; Also list DF Studio under "Open with" for each extension, so it stays one
+; Also list DeltaF Studio under "Open with" for each extension, so it stays one
 ; click away even when Windows keeps another program as the user's default.
 Root: HKA; Subkey: "Software\Classes\.df\OpenWithProgids"; ValueType: string; ValueName: "DFStudio.Project"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdf
 Root: HKA; Subkey: "Software\Classes\.dfs\OpenWithProgids"; ValueType: string; ValueName: "DFStudio.Script"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocdf
@@ -98,7 +104,7 @@ Root: HKA; Subkey: "Software\Classes\DFStudio.EES\shell\open\command"; ValueType
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\dfstudio.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\dfstudio.exe"; Flags: uninsdeletekey; Tasks: addtopath
 
 [Run]
-Filename: "{app}\dfstudio.exe"; Description: "{cm:LaunchProgram,DF Studio}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\dfstudio.exe"; Description: "{cm:LaunchProgram,DeltaF Studio}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 { PATH handling. The install folder is appended to the user PATH

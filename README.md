@@ -1,13 +1,14 @@
 <p align="center">
-  <img src="packaging/icons/dfstudio.png" width="112" alt="DF Studio icon">
+  <img src="packaging/icons/dfstudio.png" width="112" alt="DeltaF Studio icon">
 </p>
 
-<h1 align="center">DF Studio</h1>
+<h1 align="center">DeltaF Studio</h1>
 
 <p align="center">
-  <b>Write the equations. DF Studio works out the rest.</b><br>
+  <b>Write the equations. DeltaF Studio works out the rest.</b><br>
   A free, open-source equation solver for engineering models, with
-  thermodynamic properties and cycle tools built in.
+  thermodynamic properties and cycle tools built in.<br>
+  <sub>Formerly DF Studio.</sub>
 </p>
 
 <p align="center">
@@ -17,11 +18,11 @@
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational">
 </p>
 
-![DF Studio: a simple recompression supercritical CO₂ cycle with motor-driven compressors, drawn as a flowsheet with live stream values, plant KPIs and the state table](docs/img/cycle-rc.png)
+![DeltaF Studio: a simple recompression supercritical CO₂ cycle with motor-driven compressors, drawn as a flowsheet with live stream values, plant KPIs and the state table](docs/img/cycle-rc.png)
 
-DF Studio solves systems of nonlinear algebraic equations written in any
+DeltaF Studio solves systems of nonlinear algebraic equations written in any
 order, the way you would write them on paper. Type an energy balance, an
-efficiency definition and a few property calls, and DF Studio finds which
+efficiency definition and a few property calls, and DeltaF Studio finds which
 equation determines which variable, solves the system, and keeps the
 results in sync with tables, plots and a flowsheet of your cycle.
 
@@ -63,7 +64,7 @@ converge.
 your equations and the analytic derivatives of the equations of state),
 block decomposition of the system, Newton's method with line search and a
 Levenberg–Marquardt fall-back. Every step, tolerance and reference is
-documented in [How DF Studio solves a model](docs/HOW_IT_WORKS.md), and the
+documented in [How DeltaF Studio solves a model](docs/HOW_IT_WORKS.md), and the
 code is open. [Verification](docs/VERIFICATION.md) lists the tests against
 IAPWS, NIST-JANAF and closed-form solutions that run on every change, and a
 model for cross-checking with EES.
@@ -145,7 +146,7 @@ eta_th = W_net / (m_dot*(h[3] - h[2]))
 ```
 
 Press **F2**: `eta_th = 0.3706` and `W_net = 60 056 kW`. `h[2]` and `h[4]`
-are never assigned: DF Studio finds them from the efficiency definitions.
+are never assigned: DeltaF Studio finds them from the efficiency definitions.
 The [user guide](docs/USER_GUIDE.md#2-a-first-model-in-five-minutes)
 continues from here.
 
@@ -184,11 +185,11 @@ Bug reports, models that fail to solve, and pull requests are welcome; see
 
 ## Support the project
 
-DF Studio is free software and will stay free software under the AGPL-3.0.
+DeltaF Studio is free software and will stay free software under the AGPL-3.0.
 Personal, academic and educational use is and will remain free of charge.
 
 Commercial use is not restricted in any way. If you or your organisation use
-DF Studio for paid work, please consider paying for it, once or by
+DeltaF Studio for paid work, please consider paying for it, once or by
 subscription; it funds maintenance, verification against reference data and
 new features. This is a request, not a condition of the licence (see
 [License](#license)).
@@ -202,12 +203,12 @@ new features. This is a request, not a condition of the licence (see
   Invoices, payment method and cancelling:
   [manage a subscription](https://dfstudio.neodafer.com/pay/manage).
 
-The same options are in the app under *Help > Support DF Studio* and on
+The same options are in the app under *Help > Support DeltaF Studio* and on
 [the website](https://dfstudio.neodafer.com/#support).
 
 ## License
 
-DF Studio is free software under the
+DeltaF Studio is free software under the
 [GNU Affero General Public License v3.0](LICENSE). Third-party components and
 their licences (CoolProp: MIT; egui and the other Rust crates: MIT or
 Apache-2.0) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -217,5 +218,5 @@ The AGPL-3.0 allows commercial use. A term that restricted it would be a
 lets any recipient remove. The request to commercial users above is therefore
 not part of the licence and does not limit any right it grants.
 
-EES is a product of F-Chart Software. DF Studio is an independent project
+EES is a product of F-Chart Software. DeltaF Studio is an independent project
 and is not affiliated with F-Chart Software.

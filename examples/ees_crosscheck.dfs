@@ -1,9 +1,9 @@
-"DF Studio / EES cross-check model
+"DeltaF Studio / EES cross-check model
 
- Runs unchanged in EES (paste into the Equations window) and in DF Studio.
+ Runs unchanged in EES (paste into the Equations window) and in DeltaF Studio.
  Compare the results listed in docs/VERIFICATION.md. All numbers are in the
  model units below, without bracketed units, because EES does not convert
- bracketed literals and DF Studio does: plain numbers mean the same in both.
+ bracketed literals and DeltaF Studio does: plain numbers mean the same in both.
  Absolute h and s of R134a, CO2 and humid air depend on each program's
  reference state, so compare differences, temperatures, flows, powers and
  efficiencies; water (IAPWS-95) and air (Lemmon) use the same reference.

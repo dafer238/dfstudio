@@ -1,4 +1,4 @@
-# DF Studio equation language
+# DeltaF Studio equation language
 
 A model is a set of equations written in any order; names are
 case-insensitive. The syntax is compatible with EES scripts, so existing

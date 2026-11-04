@@ -1,4 +1,4 @@
-//! *Help > Support DF Studio*: how the project is funded and where to pay.
+//! *Help > Support DeltaF Studio*: how the project is funded and where to pay.
 //!
 //! The links go through short links on the project site, so the payment
 //! pages can change without a new release of the app.
@@ -21,14 +21,14 @@ pub const MANAGE: &str = "https://dfstudio.neodafer.com/pay/manage";
 
 /// Draw the window while `open` is true.
 pub fn window(ctx: &egui::Context, open: &mut bool) {
-    egui::Window::new("Support DF Studio").open(open).resizable(false).default_width(460.0).show(ctx, |ui| {
+    egui::Window::new("Support DeltaF Studio").open(open).resizable(false).default_width(460.0).show(ctx, |ui| {
         ui.label(
-            "DF Studio is free software under the GNU AGPL-3.0, and it will stay free software. \
+            "DeltaF Studio is free software under the GNU AGPL-3.0, and it will stay free software. \
              Personal, academic and educational use is and will remain free of charge.",
         );
         ui.add_space(6.0);
         ui.label(
-            "Commercial use is not restricted in any way. If you or your organisation use DF Studio \
+            "Commercial use is not restricted in any way. If you or your organisation use DeltaF Studio \
              for paid work, please consider paying for it, once or by subscription: it funds \
              maintenance, verification and new features.",
         );

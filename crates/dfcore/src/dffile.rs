@@ -1,4 +1,4 @@
-//! `.df` project files: DF Studio's own binary container.
+//! `.df` project files: DeltaF Studio's own binary container.
 //!
 //! A project file carries the equations, the application state (units,
 //! tables, plots, ...), the last solution, numeric tables and any attached
@@ -51,7 +51,7 @@ const HEADER: usize = 32;
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Meta {
-    /// Application that wrote the file, e.g. `DF Studio 0.1.0`.
+    /// Application that wrote the file, e.g. `DeltaF Studio 0.1.0`.
     pub generator: String,
     /// Unix time (s) of creation and of the last save.
     pub created: u64,
@@ -355,12 +355,12 @@ impl DfFile {
             if b.len() >= 4 && &b[1..3] == b"DF" {
                 return Err("damaged .df file (signature altered, e.g. by a text-mode transfer)".into());
             }
-            return Err("not a DF Studio project file".into());
+            return Err("not a DeltaF Studio project file".into());
         }
         let mut r = R { b, p: 8 };
         let (major, minor) = (r.u16()?, r.u16()?);
         if major > VERSION.0 {
-            return Err(format!("file format {major}.{minor} is newer than this program supports ({}.{}); please update DF Studio", VERSION.0, VERSION.1));
+            return Err(format!("file format {major}.{minor} is newer than this program supports ({}.{}); please update DeltaF Studio", VERSION.0, VERSION.1));
         }
         let _flags = r.u32()?;
         let n = r.u32()? as usize;
@@ -456,7 +456,7 @@ impl DfFile {
         }
         self.meta.modified = now;
         if self.meta.generator.is_empty() {
-            self.meta.generator = format!("DF Studio {}", env!("CARGO_PKG_VERSION"));
+            self.meta.generator = format!("DeltaF Studio {}", env!("CARGO_PKG_VERSION"));
         }
         let bytes = self.to_bytes()?;
         let tmp = p.with_extension("df.tmp");
@@ -539,7 +539,7 @@ mod tests {
         c[12] = 1;
         assert!(DfFile::from_bytes(&c).unwrap_err().contains("header checksum"));
         assert!(DfFile::from_bytes(&b[..b.len() - 5]).is_err());
-        assert!(DfFile::from_bytes(b"x = 1").unwrap_err().contains("not a DF Studio"));
+        assert!(DfFile::from_bytes(b"x = 1").unwrap_err().contains("not a DeltaF Studio"));
     }
 
     #[test]

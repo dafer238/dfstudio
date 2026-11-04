@@ -1,4 +1,4 @@
-# Contributing to DF Studio
+# Contributing to DeltaF Studio
 
 Thank you for helping. Bug reports, models that do not solve, documentation
 fixes and pull requests are all welcome.
@@ -8,7 +8,7 @@ fixes and pull requests are all welcome.
 Open an [issue](https://github.com/dafer238/dfstudio/issues/new/choose) and
 include:
 
-* the DF Studio version (shown at the bottom of the *Help* menu) and your
+* the DeltaF Studio version (shown at the bottom of the *Help* menu) and your
   operating system;
 * the smallest model that shows the problem (a `.dfs` script or `.df`
   project), and what you expected;
@@ -43,6 +43,6 @@ Before opening a pull request:
 
 ## Licence
 
-DF Studio is licensed under the GNU Affero General Public License v3.0 or
+DeltaF Studio is licensed under the GNU Affero General Public License v3.0 or
 later. By contributing, you agree that your contribution is licensed under
 the same terms.

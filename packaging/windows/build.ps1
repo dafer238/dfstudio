@@ -1,9 +1,9 @@
-# Build the DF Studio installer and portable zip for Windows x64.
+# Build the DeltaF Studio installer and portable zip for Windows x64.
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 # Needs Rust (MSVC toolchain) and Inno Setup 6 (ISCC.exe on PATH or in its
 # default folder). Output in dist\:
-#   DF_Studio-<version>-windows-x64-setup.exe
-#   DF_Studio-<version>-windows-x64-portable.zip
+#   DeltaF_Studio-<version>-windows-x64-setup.exe
+#   DeltaF_Studio-<version>-windows-x64-portable.zip
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $root
@@ -37,10 +37,10 @@ if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
 & $iscc "/DAppVersion=$version" packaging\windows\dfstudio.iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
-$zip = Join-Path $root "dist\DF_Studio-$version-windows-x64-portable.zip"
-$portable = Join-Path $root "dist\windows\DF Studio"
+$zip = Join-Path $root "dist\DeltaF_Studio-$version-windows-x64-portable.zip"
+$portable = Join-Path $root "dist\windows\DeltaF Studio"
 if (Test-Path $portable) { Remove-Item -Recurse -Force $portable }
 Copy-Item -Recurse $stage $portable
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path $portable -DestinationPath $zip
-Write-Host "wrote dist\DF_Studio-$version-windows-x64-setup.exe and $zip"
+Write-Host "wrote dist\DeltaF_Studio-$version-windows-x64-setup.exe and $zip"

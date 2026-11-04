@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build "DF Studio.app" and a DMG for macOS.
+# Build "DeltaF Studio.app" and a DMG for macOS.
 #   packaging/macos/build_app.sh [OUT_DIR]      (default: dist/)
 # Builds a universal binary (Apple silicon + Intel) when both Rust targets
 # are installed (rustup target add aarch64-apple-darwin x86_64-apple-darwin),
@@ -36,7 +36,7 @@ for t in "${targets[@]}"; do
 done
 suffix=$([ ${#targets[@]} -gt 1 ] && echo universal || echo "${targets[0]%%-*}")
 
-app="$out/DF Studio.app"
+app="$out/DeltaF Studio.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources/examples"
 for b in dfstudio dfs; do
@@ -51,8 +51,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>DF Studio</string>
-  <key>CFBundleDisplayName</key><string>DF Studio</string>
+  <key>CFBundleName</key><string>DeltaF Studio</string>
+  <key>CFBundleDisplayName</key><string>DeltaF Studio</string>
   <key>CFBundleIdentifier</key><string>io.github.dafer238.dfstudio</string>
   <key>CFBundleVersion</key><string>$version</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
@@ -64,13 +64,13 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
-      <key>CFBundleTypeName</key><string>DF Studio project</string>
+      <key>CFBundleTypeName</key><string>DeltaF Studio project</string>
       <key>CFBundleTypeExtensions</key><array><string>df</string></array>
       <key>CFBundleTypeRole</key><string>Editor</string>
       <key>CFBundleTypeIconFile</key><string>dfstudio</string>
     </dict>
     <dict>
-      <key>CFBundleTypeName</key><string>DF Studio script</string>
+      <key>CFBundleTypeName</key><string>DeltaF Studio script</string>
       <key>CFBundleTypeExtensions</key><array><string>dfs</string></array>
       <key>CFBundleTypeRole</key><string>Editor</string>
     </dict>
@@ -82,12 +82,12 @@ PLIST
 echo "linked libraries of dfstudio:"; otool -L "$app/Contents/MacOS/dfstudio"
 codesign --force --deep --sign - "$app"
 
-dmg="$out/DF_Studio-$version-macos-$suffix.dmg"
+dmg="$out/DeltaF_Studio-$version-macos-$suffix.dmg"
 stage="$out/dmg"
 rm -rf "$stage" "$dmg"
 mkdir -p "$stage"
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
-hdiutil create -volname "DF Studio $version" -srcfolder "$stage" -ov -format UDZO "$dmg"
+hdiutil create -volname "DeltaF Studio $version" -srcfolder "$stage" -ov -format UDZO "$dmg"
 rm -rf "$stage"
 echo "wrote $dmg"

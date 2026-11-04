@@ -1,4 +1,4 @@
-//! `dfs` — run DF Studio scripts and projects from the command line.
+//! `dfs` — run DeltaF Studio scripts and projects from the command line.
 //!
 //! ```text
 //! dfs run   model.dfs [--units eng|si|si-kpa|imperial]   solve and print variables
@@ -240,7 +240,7 @@ fn info(path: &str, raw: &[u8]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    println!("{path}: DF Studio project, format {}.{}, {} bytes", raw[8], raw[10], raw.len());
+    println!("{path}: DeltaF Studio project, format {}.{}, {} bytes", raw[8], raw[10], raw.len());
     println!("  generator {}, created {}, modified {}", f.meta.generator, f.meta.created, f.meta.modified);
     println!("  {:<6} {:<28} {:>12} {:>12}", "tag", "name", "stored", "raw");
     for s in DfFile::inspect(raw).unwrap_or_default() {

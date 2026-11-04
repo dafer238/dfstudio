@@ -34,7 +34,8 @@ def test_script_and_state(project):
     prefs = project.project["unit_prefs"]
     assert prefs["preset"] == "Engineering"
     assert prefs["quantities"] == {"mass_flow": "t/h"}
-    assert project.meta["generator"].startswith("DF Studio")
+    # Written by DF Studio 0.2.1, before the rename to DeltaF Studio.
+    assert project.meta["generator"].startswith(("DF Studio", "DeltaF Studio"))
 
 
 def test_table_and_files(project):
@@ -49,7 +50,7 @@ def test_damage_detected():
     b[40] ^= 0x01
     with pytest.raises(dfpy.DfError):
         dfpy.loads(bytes(b))
-    with pytest.raises(dfpy.DfError, match="not a DF Studio"):
+    with pytest.raises(dfpy.DfError, match="not a DeltaF Studio"):
         dfpy.loads(b"x = 1")
 
 

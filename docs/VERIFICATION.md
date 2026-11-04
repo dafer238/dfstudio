@@ -1,6 +1,6 @@
 # Verification
 
-How DF Studio's results are checked, and how to compare them with EES.
+How DeltaF Studio's results are checked, and how to compare them with EES.
 
 ## 1. Automated tests
 
@@ -53,7 +53,7 @@ reports on.
 * `Steam_IAPWS` was read as the IAPWS-IF97 industrial formulation. EES uses
   IAPWS-95 for `Water`, `Steam`, `Steam_IAPWS` and `R718`
   ([EES help](https://fchartsoftware.com/ees/eeshelp/steam_iapws.htm)), and
-  so does DF Studio now.
+  so does DeltaF Studio now.
 * `converttemp(C, K, T)` gave a result that was displayed as a temperature
   in the model unit (a value in K labelled °C, and converted again by a
   display unit). It is now a plain number.
@@ -63,7 +63,7 @@ reports on.
 ## 2. Cross-check against EES
 
 [`examples/ees_crosscheck.dfs`](../examples/ees_crosscheck.dfs) runs
-unchanged in EES and in DF Studio. It has 199 equations in four parts:
+unchanged in EES and in DeltaF Studio. It has 199 equations in four parts:
 
 * **A.** A reheat-regenerative Rankine cycle (water) with an open feedwater
   heater, a condenser solved with an LMTD `Function` (cooling-water outlet
@@ -106,7 +106,7 @@ The two programs agree to within that rounding on every quantity except:
 * **Humid air (part B), 0.5 %.** EES gives humidity ratios about 0.5 %
   lower: `w_a1` = 0.01331 against 0.013373 at 30 °C, 50 %. A hand
   calculation for an ideal-gas mixture without the enhancement factor
-  gives 0.621945·p_v/(p − p_v) = 0.013313, the EES value. DF Studio uses
+  gives 0.621945·p_v/(p − p_v) = 0.013313, the EES value. DeltaF Studio uses
   CoolProp's real-gas humid-air model (Hyland & Wexler with the
   enhancement factor), which reproduces the ASHRAE saturation tables (the
   `humid_air_saturation` test). The cooling load, refrigerant flow,
@@ -128,7 +128,7 @@ The two programs agree to within that rounding on every quantity except:
 
 ### A. Reheat-regenerative Rankine (water, IAPWS-95)
 
-| Variable | DF Studio | EES | Rel. diff. |
+| Variable | DeltaF Studio | EES | Rel. diff. |
 |---|---:|---:|---:|
 | `h[1]` [kJ/kg] | 173.8398 | | |
 | `h[2]` [kJ/kg] | 174.58608 | | |
@@ -169,7 +169,7 @@ The two programs agree to within that rounding on every quantity except:
 
 ### B. R134a refrigeration and moist-air cooler
 
-| Variable | DF Studio | EES | Rel. diff. |
+| Variable | DeltaF Studio | EES | Rel. diff. |
 |---|---:|---:|---:|
 | `P_ev` [kPa] | 243.34237 | 243.5 | +6.5e-04 |
 | `P_cd` [kPa] | 1016.593 | 1017 | +4.0e-04 |
@@ -189,7 +189,7 @@ The two programs agree to within that rounding on every quantity except:
 
 ### C. Recuperated CO2 Brayton (Span & Wagner)
 
-| Variable | DF Studio | EES | Rel. diff. |
+| Variable | DeltaF Studio | EES | Rel. diff. |
 |---|---:|---:|---:|
 | `T_c[2]` [C] | 93.539753 | | |
 | `T_c[3]` [C] | 295.42516 | | |
@@ -207,7 +207,7 @@ The two programs agree to within that rounding on every quantity except:
 
 ### D. Intercooled air compressor (Air_ha, Lemmon)
 
-| Variable | DF Studio | EES | Rel. diff. |
+| Variable | DeltaF Studio | EES | Rel. diff. |
 |---|---:|---:|---:|
 | `T_out[1]` [C] | 115.04234 | | |
 | `T_out[2]` [C] | 115.13526 | | |

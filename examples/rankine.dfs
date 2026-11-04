@@ -1,7 +1,7 @@
 "Simple Rankine cycle: water/steam, states 1 to 4
 
- A first look at the DF Studio language. Equations can be written in any order and on either
- side of the '=' sign: DF Studio works out which equation gives which variable (see Equations >
+ A first look at the DeltaF Studio language. Equations can be written in any order and on either
+ side of the '=' sign: DeltaF Studio works out which equation gives which variable (see Equations >
  Dependencies). Text in double quotes or braces is a comment; '//' starts a line comment.
 
  Also in this project:
@@ -38,7 +38,7 @@ h[1] = enthalpy(Water, P=P[1], x=x[1])
 s[1] = entropy(Water, P=P[1], x=x[1])
 T[1] = temperature(Water, P=P[1], h=h[1])
 
-"Pump 1 -> 2: the isentropic efficiency defines h[2]; DF Studio solves it for h[2] by itself"
+"Pump 1 -> 2: the isentropic efficiency defines h[2]; DeltaF Studio solves it for h[2] by itself"
 h_s[2] = enthalpy(Water, P=P[2], s=s[1])
 eta_p = (h_s[2] - h[1]) / (h[2] - h[1])
 T[2] = temperature(Water, P=P[2], h=h[2])

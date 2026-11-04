@@ -1,4 +1,4 @@
-"""Read DF Studio ``.df`` project files for post-processing in Python.
+"""Read DeltaF Studio ``.df`` project files for post-processing in Python.
 
 The reader only needs the standard library; ``numpy`` and ``pandas`` are used
 when available (``Table.to_numpy``, ``Table.to_pandas``,
@@ -222,7 +222,7 @@ def loads(b: bytes) -> Project:
     if len(b) < _HEADER.size or b[:8] != MAGIC:
         if b[1:3] == b"DF":
             raise DfError("damaged .df file (signature altered, e.g. by a text-mode transfer)")
-        raise DfError("not a DF Studio project file")
+        raise DfError("not a DeltaF Studio project file")
     _, major, minor, _flags, n, toc, hcrc = _HEADER.unpack_from(b)
     if major > VERSION[0]:
         raise DfError(f"file format {major}.{minor} is newer than this reader ({VERSION[0]}.{VERSION[1]})")

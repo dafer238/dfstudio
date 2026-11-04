@@ -1,6 +1,6 @@
 [package]
 name = "dfapp"
-description = "DF Studio desktop application"
+description = "DeltaF Studio desktop application"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

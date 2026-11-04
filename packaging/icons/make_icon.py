@@ -1,4 +1,4 @@
-"""Draw the DF Studio icon (a T-s saturation dome with a Rankine-like cycle)
+"""Draw the DeltaF Studio icon (a T-s saturation dome with a Rankine-like cycle)
 and write the PNG, Windows .ico, macOS .icns and the raw RGBA used for the
 window icon. Run: python3 make_icon.py (needs Pillow)."""
 import math

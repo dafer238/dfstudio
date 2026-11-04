@@ -1,6 +1,6 @@
-# DF Studio — architecture and design decisions
+# DeltaF Studio — architecture and design decisions
 
-DF Studio is a desktop, cross-platform, equation-oriented solver for
+DeltaF Studio is a desktop, cross-platform, equation-oriented solver for
 engineering models, with features for thermodynamic cycles. This document
 describes how the code is organised, the design decisions and their
 reasons, the `.df` project file format and how the program is packaged.
@@ -123,7 +123,7 @@ HOW_IT_WORKS.md §4).
 
 ## 4. Project file format `.df`
 
-`.df` is DF Studio's own binary format (not a renamed ZIP or other
+`.df` is DeltaF Studio's own binary format (not a renamed ZIP or other
 container). It is specified in `crates/dfcore/src/dffile.rs`; a reader for
 Python is in `python/dfpy`.
 

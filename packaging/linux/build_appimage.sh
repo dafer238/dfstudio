@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the DF Studio AppImage (x86_64 or aarch64, the build machine's).
+# Build the DeltaF Studio AppImage (x86_64 or aarch64, the build machine's).
 #   packaging/linux/build_appimage.sh [OUT_DIR]      (default: dist/)
 # Needs Rust and curl; appimagetool is downloaded when not on PATH.
 # The AppImage holds dfstudio, the dfs command-line runner, the CoolProp
@@ -34,7 +34,7 @@ cp "$here/dfstudio.desktop" "$app/usr/share/applications/"
 cp "$here/dfstudio.desktop" "$app/"
 cat > "$app/AppRun" <<'SH'
 #!/bin/sh
-# `DF_Studio.AppImage dfs run model.dfs` runs the command-line solver.
+# `DeltaF_Studio.AppImage dfs run model.dfs` runs the command-line solver.
 HERE=$(dirname "$(readlink -f "$0")")
 if [ "$1" = "dfs" ]; then
     shift
@@ -50,5 +50,5 @@ if [ -z "$tool" ]; then
     [ -x "$tool" ] || { curl -fsSL -o "$tool" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$arch.AppImage"; chmod +x "$tool"; }
 fi
 # no FUSE needed (CI containers)
-APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$arch" "$tool" --no-appstream "$app" "$out/DF_Studio-$version-linux-$arch.AppImage"
-echo "wrote $out/DF_Studio-$version-linux-$arch.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$arch" "$tool" --no-appstream "$app" "$out/DeltaF_Studio-$version-linux-$arch.AppImage"
+echo "wrote $out/DeltaF_Studio-$version-linux-$arch.AppImage"
