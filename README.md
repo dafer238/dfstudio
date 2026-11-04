@@ -182,12 +182,40 @@ On Linux the app needs the usual X11/Wayland and OpenGL libraries
 Bug reports, models that fail to solve, and pull requests are welcome; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Support the project
+
+DF Studio is free software and will stay free software under the AGPL-3.0.
+Personal, academic and educational use is and will remain free of charge.
+
+Commercial use is not restricted in any way. If you or your organisation use
+DF Studio for paid work, please consider paying for it, once or by
+subscription; it funds maintenance, verification against reference data and
+new features. This is a request, not a condition of the licence (see
+[License](#license)).
+
+- [GitHub Sponsors](https://github.com/sponsors/dafer238): monthly or
+  one-time, through a GitHub account.
+- Stripe, by card and other methods, without a GitHub account:
+  [one-time payment](https://dfstudio.neodafer.com/pay/once) (you choose the
+  amount), [monthly](https://dfstudio.neodafer.com/pay/monthly) or
+  [yearly](https://dfstudio.neodafer.com/pay/yearly) subscription.
+  Invoices, payment method and cancelling:
+  [manage a subscription](https://dfstudio.neodafer.com/pay/manage).
+
+The same options are in the app under *Help > Support DF Studio* and on
+[the website](https://dfstudio.neodafer.com/#support).
+
 ## License
 
 DF Studio is free software under the
 [GNU Affero General Public License v3.0](LICENSE). Third-party components and
 their licences (CoolProp: MIT; egui and the other Rust crates: MIT or
 Apache-2.0) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The AGPL-3.0 allows commercial use. A term that restricted it would be a
+"further restriction", which section 10 of the licence forbids and section 7
+lets any recipient remove. The request to commercial users above is therefore
+not part of the licence and does not limit any right it grants.
 
 EES is a product of F-Chart Software. DF Studio is an independent project
 and is not affiliated with F-Chart Software.
