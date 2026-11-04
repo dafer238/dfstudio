@@ -32,8 +32,8 @@ SmartScreen dialog, but the file is the same one.
    | `Package/Identity/Publisher` (`CN=...`) | `Publisher` |
    | `Package/Properties/PublisherDisplayName` | `PublisherDisplayName` |
 
-   These values are public (they are in every package), not secrets. Until
-   they are set, the build uses a placeholder identity and the package
+   These values are public (they are in every package), not secrets. The
+   placeholder `DeltaFStudio.Dev` identity builds a test package that
    cannot be submitted.
 
 ### Building the package
