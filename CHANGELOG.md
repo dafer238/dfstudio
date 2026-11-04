@@ -39,6 +39,14 @@ All notable changes to DF Studio are listed here. The format follows
 - The optimisation convergence plot shows the objective in display units
   and has the hover tooltip of the other plots.
 
+### Plots
+- Separate colours for the line and the markers of a series (e.g. a black
+  dashed line with red square markers); also in the Python export
+  (`mfc`, `mec`). Older plots keep one colour for both.
+- With several series on the same y axis, the automatic axis label lists
+  their names separated by spaces instead of disappearing (one unit when
+  they share it).
+
 ### Units
 - *Units > Units per quantity*: choose the display unit of each physical
   quantity (temperature, pressure, specific and molar enthalpy, mass and

@@ -416,9 +416,16 @@ To free a variable for a study it must be an input: if it is *calculated*
 The Plots tab holds any number of plots, saved with the project.
 
 * **XY**: columns of a parametric table, arrays by index, or the
-  optimisation history. Per series: colour, line style, width, marker,
-  legend text and **Right y axis** (secondary axis, e.g. efficiencies next to
+  optimisation history. Per series: line colour, line style and width;
+  marker colour, shape and size (the marker colour follows the line colour
+  until you change it; right-click its button to make it follow again, so
+  e.g. a black dashed line with red square markers is possible); legend
+  text and **Right y axis** (secondary axis, e.g. efficiencies next to
   powers; its grid is aligned with round numbers of the left axis).
+  An empty *y label* / *y2 label* is filled automatically from the series
+  on that axis: one series gives `name [unit]`, several give their names
+  separated by spaces, with one unit when they share it
+  (`W_net Q_in [kW]`) or each its own (`eta_th [-] W_net [kW]`).
 * **Property diagram**: T-s, P-h, P-v, h-s and T-h with saturation dome,
   isobars through the states and the cycle path; map the arrays holding
   T, P, h, s, v and give the state order (`1,2,3,4,1; 5,6`).
