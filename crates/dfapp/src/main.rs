@@ -3,6 +3,7 @@
 
 mod analysis;
 mod app;
+mod completion;
 mod components;
 mod cycle;
 mod deps;

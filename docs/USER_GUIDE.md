@@ -142,9 +142,25 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
 * **Live structure.** Each edit is re-analysed about 120 ms after you stop
   typing; with *Solve > Live solve while typing* the determined part is also
   solved, and the toolbar's Solve button is hidden (F2 still solves).
-* **Completion** (`Ctrl+Space`): functions, property names, fluids,
-  variables, directives and, inside `[...]`, units. Signature help appears
-  inside calls.
+* **Completion** (`Ctrl+Space`, or while typing): functions, property
+  names, fluids, variables, directives and, inside `[...]`, units.
+  Signature help appears inside calls. The list follows what is being
+  written:
+  * after `enthalpy(` it opens by itself with the fluids, those the model
+    already uses first, then common working fluids, then every other one;
+  * after `enthalpy(Water, ` it offers the state inputs not given yet
+    (`P=`, `T=`, `h=` ...), and after `P=` the variables that are
+    pressures first (by their inferred dimension, else by their name, e.g.
+    `P_cond`), then the rest;
+  * after `12 [` the units, those of the left-hand variable's quantity first;
+  * at the start of a line variables, keywords and directives; inside an
+    expression variables, functions and constants.
+
+  A name that starts with the typed text comes first, then one where it
+  starts a word (`cond` finds `P_cond`), then a fuzzy match. **Tab**
+  accepts the selected suggestion; `Enter` starts a new line and closes the
+  list; arrow keys, Page Up/Down and the mouse wheel move through it.
+  *Edit > Suggestions shown* sets the height of the list, in rows.
 * **Errors** are underlined; the Problems panel lists them.
 * **Bracket matching.** Hover over a `(`, `[` or `{` (or its closing
   partner), or put the caret next to one, and both brackets of the pair
@@ -627,7 +643,7 @@ p.results["eta_th"]; p.results.array("T"); p.tables["Parametric"].to_pandas()
 | Ctrl+S / Ctrl+O / Ctrl+N | save / open / new |
 | Ctrl+Z, Ctrl+Y (Ctrl+Shift+Z) | undo, redo |
 | Shift+Alt+F | format script |
-| Ctrl+Space | completion |
+| Ctrl+Space | completion (Tab accepts) |
 | Ctrl+F, Ctrl+H | find, find and replace |
 | Enter / Shift+Enter, F3 / Shift+F3 | next / previous match |
 | Esc | close completion, clear the focus |

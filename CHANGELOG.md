@@ -6,6 +6,19 @@ All notable changes to DF Studio are listed here. The format follows
 
 ## [Unreleased]
 
+### Editor
+- Completion follows the context: fluids after `enthalpy(` (the model's
+  first, then common ones), the missing state inputs after a comma, and
+  variables of the right quantity after `P=`, `T=` ... (pressures first
+  after `P=`); units of the left-hand variable's quantity after `12 [`.
+  Matches inside names (`cond` finds `P_cond`) and fuzzy matches are
+  offered after the prefix matches.
+- The completion list is taller and its height is set in *Edit >
+  Suggestions shown* (rows). Scrolling it with the mouse wheel or the
+  arrow keys no longer jumps back to the first suggestion; Page Up/Down
+  move a page.
+- Only Tab accepts a suggestion; Enter inserts a new line.
+
 ### Units
 - *Units > Units per quantity*: choose the display unit of each physical
   quantity (temperature, pressure, specific and molar enthalpy, mass and

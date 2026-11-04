@@ -123,6 +123,9 @@ pub struct Settings {
     /// Format the script before every save.
     #[serde(default = "yes")]
     pub format_on_save: bool,
+    /// Visible rows of the completion list in the editor.
+    #[serde(default = "completion_rows")]
+    pub completion_rows: usize,
     /// Format the script when the editor loses focus.
     #[serde(default = "yes")]
     pub format_on_blur: bool,
@@ -134,6 +137,10 @@ pub struct Settings {
 
 fn yes() -> bool {
     true
+}
+
+fn completion_rows() -> usize {
+    crate::editor::COMPLETION_ROWS
 }
 
 /// Current revision of the defaults (1: format on save and on focus change,
@@ -176,6 +183,7 @@ impl Default for Settings {
             format: Default::default(),
             format_on_save: true,
             format_on_blur: true,
+            completion_rows: completion_rows(),
             defaults_rev: DEFAULTS_REV,
         }
     }
@@ -1537,6 +1545,7 @@ impl eframe::App for DfApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.editor.completion_rows = self.s.completion_rows;
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1648,6 +1657,11 @@ impl eframe::App for DfApp {
                     ui.horizontal(|ui| {
                         ui.label("Indent");
                         ui.add(egui::DragValue::new(&mut self.s.format.indent).range(1..=8).suffix(" spaces"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Suggestions shown");
+                        ui.add(egui::DragValue::new(&mut self.s.completion_rows).range(3..=40).suffix(" rows"))
+                            .on_hover_text("Height of the completion list (Ctrl+Space), in suggestions; scroll or use the arrow keys for more. Tab accepts.");
                     });
                     ui.separator();
                     ui.label(RichText::new("Decimal and list separators").strong())
