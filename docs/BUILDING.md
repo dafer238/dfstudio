@@ -27,6 +27,7 @@ All scripts write to `dist/` and must be run from a clone of the repository.
 | Linux | `packaging/linux/build_appimage.sh` | `DeltaF_Studio-<v>-linux-<arch>.AppImage` |
 | macOS | `packaging/macos/build_app.sh` | `DeltaF Studio.app`, `DeltaF_Studio-<v>-macos-universal.dmg` |
 | Windows | `powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1` | `DeltaF_Studio-<v>-windows-x64-setup.exe`, `...-portable.zip` |
+| Windows (Microsoft Store) | then `powershell -ExecutionPolicy Bypass -File packaging\windows\msix\build_msix.ps1` | `DeltaF_Studio-<v>-windows-x64.msix` |
 
 Each package contains `dfstudio`, `dfs`, the CoolProp library and the
 example projects, which the app writes itself during packaging
@@ -54,6 +55,8 @@ as a `.df` project with its cycle diagram).
   `DeltaF_Studio-<v>-windows-x64-setup.exe /VERYSILENT /CURRENTUSER` (or
   `/ALLUSERS`); deselect tasks with e.g. `/MERGETASKS="!addtopath,!assocees"`. The executable and the installer are not code-signed, so
   SmartScreen may ask for confirmation on first run.
+  The MSIX package for the Microsoft Store and the winget manifests are
+  described in [STORE_AND_WINGET.md](STORE_AND_WINGET.md).
 
 ## Making a release
 
@@ -70,6 +73,10 @@ publishes a GitHub release with the changelog section, the packages and
 `SHA256SUMS.txt`. Running the workflow by hand (*Actions > Release > Run
 workflow*) builds the packages as downloadable artifacts without
 publishing.
+
+After the release, the workflow submits the new version to winget when the
+`WINGET_TOKEN` secret is set. The Store package (`msix-store` artifact) is
+uploaded to Partner Center by hand ([STORE_AND_WINGET.md](STORE_AND_WINGET.md)).
 
 ## Third-party notices
 
