@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- MSIX package manifest for DeltaF Studio. build_msix.ps1 fills in the
      @...@ values: the identity from store-identity.json and the version from
-     Cargo.toml (as X.Y.Z.0; the Microsoft Store needs the last field 0). -->
+     Cargo.toml (as X.Y.Z.0; the Microsoft Store needs the last field 0).
+     The package holds the desktop app only. The dfs command-line solver
+     would need a second application without a Start menu entry
+     (AppListEntry="none"), which the Store accepts only with a
+     HeadlessAppBypass waiver, and one application can have only one
+     execution alias extension. dfs comes with the installer and winget. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 uap5 desktop desktop4 rescap">
+  IgnorableNamespaces="uap uap3 desktop rescap">
 
   <Identity Name="@IdentityName@" Publisher="@Publisher@" Version="@Version@" ProcessorArchitecture="x64" />
 
@@ -41,14 +44,6 @@
             <desktop:ExecutionAlias Alias="dfstudio.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
-        <!-- "dfs", the command-line solver, in the same app: the Store does not
-             accept a second application without a Start menu entry
-             (AppListEntry="none" needs a HeadlessAppBypass waiver). -->
-        <uap5:Extension Category="windows.appExecutionAlias" Executable="dfs.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap5:AppExecutionAlias desktop4:Subsystem="console">
-            <uap5:ExecutionAlias Alias="dfs.exe" />
-          </uap5:AppExecutionAlias>
-        </uap5:Extension>
         <!-- double-click opens the file: the path is passed as the first argument -->
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="dfstudio-project">

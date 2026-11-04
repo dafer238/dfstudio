@@ -210,7 +210,7 @@ jobs:
           if (Test-Path "HKCU:\Software\Classes\DFStudio.EES") { throw ".ees association left after uninstall" }
       - name: MSIX package (Microsoft Store)
         run: powershell -ExecutionPolicy Bypass -File packaging\windows\msix\build_msix.ps1 -TestSign
-      - name: Smoke test MSIX (install, dfs alias, uninstall)
+      - name: Smoke test MSIX (install, dfstudio alias, uninstall)
         shell: pwsh
         run: |
           # the test copy is signed with a throwaway certificate; trust it for this machine only
@@ -220,14 +220,17 @@ jobs:
           $pkg = Get-AppxPackage | Where-Object { $_.Name -eq (Get-Content packaging\windows\msix\store-identity.json -Raw | ConvertFrom-Json).IdentityName }
           if (-not $pkg) { throw "MSIX package not installed" }
           Write-Host "installed $($pkg.PackageFullName) in $($pkg.InstallLocation)"
-          foreach ($f in 'dfstudio.exe', 'dfs.exe', 'CoolProp.dll', 'resources.pri', 'examples') {
+          foreach ($f in 'dfstudio.exe', 'CoolProp.dll', 'resources.pri', 'examples') {
             if (-not (Test-Path (Join-Path $pkg.InstallLocation $f))) { throw "$f missing from the package" }
           }
-          $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\dfs.exe"
-          if (-not (Test-Path $alias)) { throw "dfs alias not registered" }
-          & $alias run examples\rankine.dfs > $null
-          if ($LASTEXITCODE -ne 0) { throw "dfs (MSIX) failed" }
-          if (-not (Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\dfstudio.exe")) { throw "dfstudio alias not registered" }
+          $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\dfstudio.exe"
+          if (-not (Test-Path $alias)) { throw "dfstudio alias not registered" }
+          # solves every built-in template with CoolProp from the package and saves it
+          $out = Join-Path $env:RUNNER_TEMP "msix-examples"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath $alias -ArgumentList "--write-examples", "`"$out`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "dfstudio --write-examples (MSIX) failed ($($p.ExitCode))" }
+          if (-not (Get-ChildItem $out -Filter *.df)) { throw "no examples written by the MSIX app" }
           Remove-AppxPackage -Package $pkg.PackageFullName
       - uses: actions/upload-artifact@v4
         with:

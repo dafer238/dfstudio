@@ -1,5 +1,5 @@
 # Build the Microsoft Store package (MSIX) of DeltaF Studio from the files that
-# build.ps1 staged in dist\windows\stage:
+# build.ps1 staged in dist\windows\stage (all but dfs.exe):
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\msix\build_msix.ps1 [-TestSign]
 # Needs the Windows 10/11 SDK (makeappx.exe, makepri.exe, signtool.exe).
@@ -39,6 +39,8 @@ $layout = Join-Path $work "layout"
 if (Test-Path $work) { Remove-Item -Recurse -Force $work }
 New-Item -ItemType Directory -Force $layout | Out-Null
 Copy-Item -Recurse (Join-Path $stage "*") $layout
+# desktop app only: see the comment at the top of AppxManifest.xml
+Remove-Item (Join-Path $layout "dfs.exe")
 Copy-Item -Recurse (Join-Path $PSScriptRoot "Assets") $layout
 
 $manifest = (Get-Content (Join-Path $PSScriptRoot "AppxManifest.xml") -Raw).
