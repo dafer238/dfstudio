@@ -47,15 +47,21 @@ declares:
 
 * the Start menu entry (DeltaF Studio) and its icons (`Assets/`, generated
   from `packaging/icons/dfstudio.png` by `make_assets.py`);
-* the `dfstudio` and `dfs` commands (app execution aliases, the MSIX
-  equivalent of adding the install folder to the PATH);
+* the `dfstudio` command (an app execution alias, the MSIX equivalent of
+  adding the install folder to the PATH);
 * `.df`, `.dfs` and `.ees` file associations;
 * `runFullTrust`, required for a desktop (Win32) program.
 
+The package holds the desktop app only, without the `dfs` command-line
+solver: a second application without a Start menu entry needs a
+HeadlessAppBypass waiver from Microsoft, and one application can have only
+one execution alias. `dfs` comes with the installer and winget.
+
 The package version is the `Cargo.toml` version with a fourth field 0
 (1.0.1 becomes 1.0.1.0), as the Store requires. The workflow also signs a
-copy with a throwaway certificate, installs it, runs `dfs` through its
-alias and uninstalls it. The unsigned package is uploaded as the
+copy with a throwaway certificate, installs it, runs
+`dfstudio --write-examples` through its alias (which solves every built-in
+template with the packaged CoolProp) and uninstalls it. The unsigned package is uploaded as the
 `msix-store` artifact of the run; it is not attached to the GitHub release,
 because it does not install until the Store signs it.
 

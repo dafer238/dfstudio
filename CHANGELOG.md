@@ -7,8 +7,9 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
-- Windows: an MSIX package for the Microsoft Store, with the `dfstudio` and
-  `dfs` commands and the `.df`, `.dfs` and `.ees` file associations. The
+- Windows: an MSIX package for the Microsoft Store, with the `dfstudio`
+  command and the `.df`, `.dfs` and `.ees` file associations (the `dfs`
+  command-line solver comes with the installer and winget). The
   Store signs it, so it installs without the SmartScreen warning.
 - Windows: winget manifest (`dafer238.DeltaFStudio`); each release is
   submitted to winget automatically.

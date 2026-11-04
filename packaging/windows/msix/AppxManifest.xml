@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- MSIX package manifest for DeltaF Studio. build_msix.ps1 fills in the
      @...@ values: the identity from store-identity.json and the version from
-     Cargo.toml (as X.Y.Z.0; the Microsoft Store needs the last field 0). -->
+     Cargo.toml (as X.Y.Z.0; the Microsoft Store needs the last field 0).
+     The package holds the desktop app only. The dfs command-line solver
+     would need a second application without a Start menu entry
+     (AppListEntry="none"), which the Store accepts only with a
+     HeadlessAppBypass waiver, and one application can have only one
+     execution alias extension. dfs comes with the installer and winget. -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 desktop desktop4 rescap">
+  IgnorableNamespaces="uap uap3 desktop rescap">
 
   <Identity Name="@IdentityName@" Publisher="@Publisher@" Version="@Version@" ProcessorArchitecture="x64" />
 
@@ -63,20 +67,6 @@
       </Extensions>
     </Application>
 
-    <!-- The command-line solver: no Start menu entry, only the "dfs" alias. -->
-    <Application Id="dfs" Executable="dfs.exe" EntryPoint="Windows.FullTrustApplication"
-      desktop4:Subsystem="console" desktop4:SupportsMultipleInstances="true">
-      <uap:VisualElements DisplayName="DeltaF Studio command line (dfs)" Description="DeltaF Studio command-line solver"
-        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png"
-        AppListEntry="none" />
-      <Extensions>
-        <uap3:Extension Category="windows.appExecutionAlias" Executable="dfs.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="dfs.exe" />
-          </uap3:AppExecutionAlias>
-        </uap3:Extension>
-      </Extensions>
-    </Application>
   </Applications>
 
   <Capabilities>
