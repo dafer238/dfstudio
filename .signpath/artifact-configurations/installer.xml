@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "installer": the Inno Setup installer,
+  built from the already signed executables. The release workflow uploads it
+  as a GitHub artifact (a zip with the setup .exe at its root) and passes the
+  version. This file is a copy for review; the active configuration is the
+  one stored in the SignPath project (Project > Artifact configurations).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" default-value="0.0.0" />
+  </parameters>
+  <zip-file>
+    <pe-file path="DeltaF_Studio-${version}-windows-x64-setup.exe" product-name="DeltaF Studio" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

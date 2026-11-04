@@ -53,8 +53,9 @@ as a `.df` project with its cycle diagram).
   `[Code]` section and removed on uninstall, plus an App Paths entry),
   `assocdf` (`.df`, `.dfs`) and `assocees` (`.ees`). Unattended:
   `DeltaF_Studio-<v>-windows-x64-setup.exe /VERYSILENT /CURRENTUSER` (or
-  `/ALLUSERS`); deselect tasks with e.g. `/MERGETASKS="!addtopath,!assocees"`. The executable and the installer are not code-signed, so
-  SmartScreen may ask for confirmation on first run.
+  `/ALLUSERS`); deselect tasks with e.g. `/MERGETASKS="!addtopath,!assocees"`. A local build is not code-signed, so SmartScreen may
+  ask for confirmation on first run; release builds are signed as described
+  below.
   The MSIX package for the Microsoft Store and the winget manifests are
   described in [STORE_AND_WINGET.md](STORE_AND_WINGET.md).
 
@@ -77,6 +78,36 @@ publishing.
 After the release, the workflow submits the new version to winget when the
 `WINGET_TOKEN` secret is set. The Store package (`msix-store` artifact) is
 uploaded to Partner Center by hand ([STORE_AND_WINGET.md](STORE_AND_WINGET.md)).
+
+## Windows code signing
+
+Windows releases are signed through the SignPath Foundation open-source
+program ([CODE_SIGNING.md](../CODE_SIGNING.md) is the policy). The `windows`
+job of the release workflow runs `build.ps1 -StageOnly`, has SignPath sign
+`dfstudio.exe` and `dfs.exe`, runs `build.ps1 -PackageOnly` to build the
+installer and portable zip from the signed files, and has SignPath sign the
+installer. Each of the two signing requests waits (up to an hour) for an
+approver to approve it at <https://app.signpath.io>. Rust build caches are
+not used in a signed build.
+
+Signing runs for a tag push, or for a manual run with a *signing policy*
+other than `none`, and only when these are set in the repository settings
+(*Settings > Secrets and variables > Actions*):
+
+| Name | Kind | Value |
+|---|---|---|
+| `SIGNPATH_API_TOKEN` | secret | API token of the SignPath CI user (submitter) |
+| `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization ID |
+| `SIGNPATH_PROJECT_SLUG` | variable, optional | project slug, default `dfstudio` |
+| `SIGNPATH_SIGNING_POLICY_SLUG` | variable, optional | policy for tag builds, default `release-signing` |
+
+Without them, or for pull requests, the workflow builds unsigned packages.
+The SignPath project needs two artifact configurations, `executables` and
+`installer`; copies are kept in
+[`.signpath/artifact-configurations/`](../.signpath/artifact-configurations).
+`dfstudio.exe`, `dfs.exe` and the installer all carry the product name
+`DeltaF Studio` and the version from `Cargo.toml` (set by `build.rs` and
+`dfstudio.iss`), which those configurations check.
 
 ## Third-party notices
 

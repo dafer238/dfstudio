@@ -5,6 +5,12 @@ name: Release
 # release. Pull requests that change the packaging, and manual runs
 # (Actions > Release > Run workflow), build the packages as workflow
 # artifacts without publishing anything.
+#
+# Windows code signing (SignPath Foundation, see CODE_SIGNING.md) runs only
+# when the secret SIGNPATH_API_TOKEN and the variable SIGNPATH_ORGANIZATION_ID
+# are set, and only for a tag push or a manual run with a signing policy
+# chosen. Each signing request waits for a manual approval in SignPath.
+# Without them the workflow builds unsigned packages, as before.
 
 on:
   push:
@@ -13,6 +19,12 @@ on:
   pull_request:
     paths: ["packaging/**", ".github/workflows/release.yml"]
   workflow_dispatch:
+    inputs:
+      signing_policy:
+        description: "Sign the Windows files with this SignPath policy (needs the SignPath secret)"
+        type: choice
+        options: [none, test-signing, release-signing]
+        default: none
 
 env:
   CARGO_TERM_COLOR: always
@@ -73,10 +85,17 @@ jobs:
   windows:
     needs: check-version
     runs-on: windows-latest
+    env:
+      # 'true' when this run signs the Windows files with SignPath
+      SIGN: ${{ secrets.SIGNPATH_API_TOKEN != '' && vars.SIGNPATH_ORGANIZATION_ID != '' && (startsWith(github.ref, 'refs/tags/') || (inputs.signing_policy != '' && inputs.signing_policy != 'none')) }}
+      SIGNPATH_POLICY: ${{ (inputs.signing_policy != '' && inputs.signing_policy != 'none') && inputs.signing_policy || vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # A signed build must come from a clean build of this commit: no cache
+      # from earlier, unverified runs (SignPath origin verification).
       - uses: Swatinem/rust-cache@v2
+        if: env.SIGN != 'true'
       - run: cargo test --workspace --locked --release
       - name: Inno Setup
         shell: pwsh
@@ -84,7 +103,90 @@ jobs:
           if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
             choco install innosetup -y --no-progress
           }
-      - run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+      - name: Version
+        id: version
+        shell: bash
+        run: echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - name: Build and stage the files
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -StageOnly
+
+      # Sign dfstudio.exe and dfs.exe before they go into the installer and
+      # the portable zip (SignPath artifact configuration "executables").
+      - name: Upload the executables for signing
+        id: unsigned-exes
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-executables
+          path: |
+            dist/windows/stage/dfstudio.exe
+            dist/windows/stage/dfs.exe
+          if-no-files-found: error
+      - name: Sign the executables (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'dfstudio' }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: executables
+          github-artifact-id: ${{ steps.unsigned-exes.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/windows/signed-exes
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+      - name: Put the signed executables in the stage
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          foreach ($exe in 'dfstudio.exe', 'dfs.exe') {
+            $f = "dist\windows\signed-exes\$exe"
+            $sig = Get-AuthenticodeSignature $f
+            if (-not $sig.SignerCertificate) { throw "$exe came back unsigned" }
+            Write-Host "$exe : $($sig.Status) ($($sig.SignerCertificate.Subject))"
+            Copy-Item $f dist\windows\stage -Force
+          }
+
+      - name: Build the installer and the portable zip
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -PackageOnly
+
+      # Sign the installer itself (SignPath artifact configuration "installer").
+      - name: Upload the installer for signing
+        id: unsigned-installer
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/*-setup.exe
+          if-no-files-found: error
+      - name: Sign the installer (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'dfstudio' }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/windows/signed-installer
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+      - name: Replace the installer with the signed one
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem dist\windows\signed-installer\*-setup.exe
+          if ($f.Count -ne 1) { throw "expected one signed installer, got $($f.Count)" }
+          $sig = Get-AuthenticodeSignature $f.FullName
+          if (-not $sig.SignerCertificate) { throw "the installer came back unsigned" }
+          Write-Host "$($f.Name) : $($sig.Status) ($($sig.SignerCertificate.Subject))"
+          Copy-Item $f.FullName dist -Force
+
       - name: Smoke test (per-user install, PATH, associations, uninstall)
         shell: pwsh
         run: |
@@ -176,6 +278,7 @@ jobs:
           | Linux (x86-64, glibc 2.38+, e.g. Ubuntu 24.04) | `*-linux-x86_64.AppImage` (`chmod +x`, then run) |
 
           `SHA256SUMS.txt` lists the checksums of all files.
+          Code signing policy: https://deltafstudio.com/code-signing
           MD
           cat notes.md
       - uses: softprops/action-gh-release@v2

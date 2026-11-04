@@ -40,6 +40,9 @@ recuperated Brayton, and refrigeration cycles), each with its flowsheet, a
 parametric study, a goal seek or optimisation and plots. No account, licence key or internet connection is
 needed.
 
+Windows releases are being set up for code signing through the SignPath
+Foundation; see the [code signing policy](CODE_SIGNING.md).
+
 ## Highlights
 
 **Know what is solvable before you solve.** The model is analysed as you

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "executables": the program files of the
+  Windows release, signed before they are packed into the installer and the
+  portable zip. The release workflow uploads them as a GitHub artifact (a zip
+  with dfstudio.exe and dfs.exe at its root) and passes the version.
+  This file is a copy for review; the active configuration is the one stored
+  in the SignPath project (Project > Artifact configurations).
+  CoolProp.dll is a third-party library and is shipped unsigned.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" default-value="0.0.0" />
+  </parameters>
+  <zip-file>
+    <pe-file path="dfstudio.exe" product-name="DeltaF Studio" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="dfs.exe" product-name="DeltaF Studio" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
