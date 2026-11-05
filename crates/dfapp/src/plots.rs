@@ -649,8 +649,9 @@ fn pts(c: &[[f64; 2]], lx: bool, ly: bool) -> Vec<[f64; 2]> {
 }
 
 /// Why a plot of a parametric table has nothing to draw: no table, an
-/// empty table, or a table not run since it was opened or edited (its
-/// results are not saved with the file).
+/// empty table, or a table not run since it was created or changed (a
+/// `.df` project keeps the results of the last run; a `.dfs` script does
+/// not).
 fn parametric_hint(def: &PlotDef, inp: &PlotInputs) -> Option<&'static str> {
     if def.source != Source::Parametric {
         return None;
@@ -662,7 +663,7 @@ fn parametric_hint(def: &PlotDef, inp: &PlotInputs) -> Option<&'static str> {
         return Some("The parametric table has no rows. Fill it in Analysis > Parametric table, then press Run table.");
     }
     if t.results.is_empty() {
-        return Some("The parametric table has not been run yet. Press Run table in Analysis > Parametric table: the plot and its results appear here once it is computed.");
+        return Some("The parametric table has no results yet: it has not been run since it was created or changed. Press Run table in Analysis > Parametric table: the plot and its results appear here once it is computed.");
     }
     if t.results.iter().all(|r| r.is_none()) {
         return Some("No row of the parametric table converged. Check the inputs in Analysis > Parametric table and run it again.");
