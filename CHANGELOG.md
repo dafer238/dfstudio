@@ -19,6 +19,19 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   `CODE_SIGNING.md` and at https://deltafstudio.com/code-signing.
 - `dfs.exe` carries the icon and version information (product name and
   version) on Windows, like `dfstudio.exe`; the installer too.
+- Monochrome icons before the main tab names (Equations, Solution,
+  Analysis, Plots, Define cycle), so the tabs tell apart at a glance.
+- A plot of a parametric table that has not been run (results are not
+  saved with the file) says so and points to Run table, instead of an
+  empty plot.
+
+### Changed
+- Define cycle: the component groups of the palette start collapsed, and
+  the component, stream, stream label and text locks start off, in new
+  diagrams. Diagrams saved with locks on keep them.
+
+### Fixed
+- Plots: the y-axis label no longer touches the divider of the left panel.
 
 ## [1.0.1] - 2026-11-04
 

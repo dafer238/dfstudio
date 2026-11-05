@@ -48,28 +48,21 @@ pub struct Group {
     pub name: &'static str,
     pub icon: &'static str,
     pub kinds: &'static [Kind],
-    /// open when first shown
-    pub open: bool,
 }
 
 /// Component library, by equipment family. A component may appear in
 /// more than one group (a fan is both a turbomachine and HRSG equipment).
 pub const GROUPS: [Group; 10] = [
-    Group { name: "Turbines", icon: "turbine", kinds: &[Kind::Turbine], open: true },
-    Group { name: "Compressors and fans", icon: "compressor", kinds: &[Kind::Compressor, Kind::Fan], open: true },
-    Group { name: "Pumps", icon: "pump", kinds: &[Kind::Pump], open: true },
-    Group { name: "Heat exchangers", icon: "heat_exchanger", kinds: &[Kind::HeatExchanger, Kind::Heater, Kind::Cooler], open: true },
-    Group {
-        name: "HRSG",
-        icon: "hrsg",
-        kinds: &[Kind::Economizer, Kind::Evaporator, Kind::Superheater, Kind::DuctBurner, Kind::Scr, Kind::Duct, Kind::Stack, Kind::Fan],
-        open: false,
-    },
-    Group { name: "Condensers and cooling", icon: "condenser", kinds: &[Kind::WaterCondenser, Kind::AirCondenser, Kind::Cooler, Kind::CoolingTower], open: false },
-    Group { name: "Valves and piping", icon: "valve", kinds: &[Kind::Valve, Kind::Pipe, Kind::Mixer, Kind::Splitter], open: true },
-    Group { name: "Sources and sinks", icon: "source_sink", kinds: &[Kind::Source, Kind::Sink, Kind::Stack], open: true },
-    Group { name: "Electrical", icon: "electrical", kinds: &[Kind::Generator, Kind::Motor], open: false },
-    Group { name: "Annotations", icon: "text", kinds: &[Kind::Label], open: false },
+    Group { name: "Turbines", icon: "turbine", kinds: &[Kind::Turbine] },
+    Group { name: "Compressors and fans", icon: "compressor", kinds: &[Kind::Compressor, Kind::Fan] },
+    Group { name: "Pumps", icon: "pump", kinds: &[Kind::Pump] },
+    Group { name: "Heat exchangers", icon: "heat_exchanger", kinds: &[Kind::HeatExchanger, Kind::Heater, Kind::Cooler] },
+    Group { name: "HRSG", icon: "hrsg", kinds: &[Kind::Economizer, Kind::Evaporator, Kind::Superheater, Kind::DuctBurner, Kind::Scr, Kind::Duct, Kind::Stack, Kind::Fan] },
+    Group { name: "Condensers and cooling", icon: "condenser", kinds: &[Kind::WaterCondenser, Kind::AirCondenser, Kind::Cooler, Kind::CoolingTower] },
+    Group { name: "Valves and piping", icon: "valve", kinds: &[Kind::Valve, Kind::Pipe, Kind::Mixer, Kind::Splitter] },
+    Group { name: "Sources and sinks", icon: "source_sink", kinds: &[Kind::Source, Kind::Sink, Kind::Stack] },
+    Group { name: "Electrical", icon: "electrical", kinds: &[Kind::Generator, Kind::Motor] },
+    Group { name: "Annotations", icon: "text", kinds: &[Kind::Label] },
 ];
 
 impl Kind {
@@ -656,10 +649,10 @@ impl Default for CycleDiagram {
             label_style: LabelStyle::Cross,
             cross_vars: Default::default(),
             show_numbers: false,
-            lock_comps: true,
-            lock_text: true,
-            lock_streams: true,
-            lock_labels: true,
+            lock_comps: false,
+            lock_text: false,
+            lock_streams: false,
+            lock_labels: false,
             label_zoom: true,
             cross_on_line: true,
             label_size: LabelSize::Small,
@@ -1528,8 +1521,10 @@ impl CycleUi {
         ui.strong("Components");
         ui.label(RichText::new("Drag onto the canvas. Drag from a port (dot) to another port to connect.").small().weak());
         for (gi, g) in GROUPS.iter().enumerate() {
-            let id = ui.make_persistent_id(("palette_group", gi));
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, g.open)
+            // all groups start collapsed for a compact palette ("v2" drops
+            // the open state remembered from versions that opened some)
+            let id = ui.make_persistent_id(("palette_group_v2", gi));
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                 .show_header(ui, |ui| {
                     ui.add(crate::icons::image(ui, g.icon, 18.0));
                     ui.label(RichText::new(g.name).strong());
@@ -2937,7 +2932,7 @@ mod tests {
         let (_, pos, dir) = c.port(0).unwrap();
         assert!(dir == [0.0, -1.0] && pos[1] < -12.0);
         let d = CycleDiagram::default();
-        assert!(d.lock_comps && d.lock_streams && d.lock_labels && d.lock_text && d.cross_on_line && d.label_zoom && !d.show_numbers && d.label_size == LabelSize::Small);
+        assert!(!d.lock_comps && !d.lock_streams && !d.lock_labels && !d.lock_text && d.cross_on_line && d.label_zoom && !d.show_numbers && d.label_size == LabelSize::Small);
     }
 
     /// Pump ports on the flow axis of the triangle; mixer inlets and
