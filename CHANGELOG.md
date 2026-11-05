@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-05
+
 ### Added
 - Windows: an MSIX package for the Microsoft Store, with the `dfstudio`
   command and the `.df`, `.dfs` and `.ees` file associations (the `dfs`
@@ -283,7 +285,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/dafer238/dfstudio/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/dafer238/dfstudio/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/dafer238/dfstudio/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0
