@@ -6,7 +6,11 @@ DeltaF Studio for Windows is distributed in three ways:
 |---|---|---|
 | GitHub releases | `DeltaF_Studio-<v>-windows-x64-setup.exe` (Inno Setup) and the portable `.zip` | not signed yet (SmartScreen warns on download) |
 | winget | the same `setup.exe`, downloaded and installed by `winget install dafer238.DeltaFStudio` | as above |
-| Microsoft Store | an MSIX package, `DeltaF_Studio-<v>-windows-x64.msix` | Microsoft, when the Store publishes it |
+| Microsoft Store ([9NSJN0W1J4D3](https://apps.microsoft.com/detail/9NSJN0W1J4D3)) | an MSIX package, `DeltaF_Studio-<v>-windows-x64.msix` | Microsoft, when the Store publishes it |
+
+The README, the user guide and the website list them in this order: the
+direct downloads (always the latest), winget (updated automatically with
+each release), then the Store (updated by hand, after certification).
 
 The Store re-signs every package it publishes with a Microsoft certificate,
 so the Store version installs without a SmartScreen prompt. A browser

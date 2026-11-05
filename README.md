@@ -30,7 +30,9 @@ results in sync with tables, plots and a flowsheet of your cycle.
 
 | System | Package |
 |---|---|
-| **Windows** 10/11 (x64) | [Installer `.exe`](https://github.com/dafer238/dfstudio/releases/latest): installs for all users (Program Files) or, without administrator rights, for you only. A portable `.zip` is also available. |
+| **Windows** 10/11 (x64) | [Installer `.exe`](https://github.com/dafer238/dfstudio/releases/latest): installs for all users (Program Files) or, without administrator rights, for you only. A portable `.zip` is also available. Always the latest version. |
+| **Windows**, with winget | `winget install dafer238.DeltaFStudio`, updated with each release (`winget upgrade dafer238.DeltaFStudio`). If Windows shows a security warning when you download the installer or the zip, install with winget instead. |
+| **Windows**, from the Microsoft Store | [DeltaF Studio in the Microsoft Store](https://apps.microsoft.com/detail/9NSJN0W1J4D3): installs without any warning and updates itself, but new versions reach the Store later than the options above, after Microsoft reviews each one. Desktop app only: the `dfs` command line comes with the installer and winget. |
 | **macOS** 11+ (Apple silicon and Intel) | [Universal `.dmg`](https://github.com/dafer238/dfstudio/releases/latest). First launch: right-click the app and choose *Open*. |
 | **Linux** (x86-64, glibc 2.38+: Ubuntu 24.04, Debian 13, Fedora 39 or newer) | [`.AppImage`](https://github.com/dafer238/dfstudio/releases/latest): `chmod +x` and run. |
 
