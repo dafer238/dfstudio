@@ -1831,8 +1831,19 @@ impl eframe::App for DfApp {
                     }
                     ui.separator();
                 }
-                for (t, label) in [(Tab::Equations, "Equations"), (Tab::Solution, "Solution"), (Tab::Analysis, "Analysis"), (Tab::Plots, "Plots"), (Tab::Cycle, "Define cycle")] {
-                    ui.selectable_value(&mut self.tab, t, label);
+                let tabs = [
+                    (Tab::Equations, "Equations", "tab_equations"),
+                    (Tab::Solution, "Solution", "tab_solution"),
+                    (Tab::Analysis, "Analysis", "tab_analysis"),
+                    (Tab::Plots, "Plots", "tab_plots"),
+                    (Tab::Cycle, "Define cycle", "tab_cycle"),
+                ];
+                for (t, label, icon) in tabs {
+                    // icon + text: tabs tell apart at a glance, not by the word alone
+                    let b = egui::Button::selectable(self.tab == t, (crate::icons::image(ui, icon, 15.0), label));
+                    if ui.add(b).clicked() {
+                        self.tab = t;
+                    }
                 }
                 ui.separator();
                 if let Some(a) = &self.analysis {

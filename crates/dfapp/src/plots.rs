@@ -648,6 +648,28 @@ fn pts(c: &[[f64; 2]], lx: bool, ly: bool) -> Vec<[f64; 2]> {
     c.iter().map(|p| [tx(p[0], lx), tx(p[1], ly)]).filter(|p| p[0].is_finite() && p[1].is_finite()).collect()
 }
 
+/// Why a plot of a parametric table has nothing to draw: no table, an
+/// empty table, or a table not run since it was opened or edited (its
+/// results are not saved with the file).
+fn parametric_hint(def: &PlotDef, inp: &PlotInputs) -> Option<&'static str> {
+    if def.source != Source::Parametric {
+        return None;
+    }
+    let Some(t) = inp.tables.get(def.table).or(inp.tables.first()) else {
+        return Some("No parametric table yet. Add one in Analysis > Parametric table, then press Run table to compute it.");
+    };
+    if t.rows() == 0 {
+        return Some("The parametric table has no rows. Fill it in Analysis > Parametric table, then press Run table.");
+    }
+    if t.results.is_empty() {
+        return Some("The parametric table has not been run yet. Press Run table in Analysis > Parametric table: the plot and its results appear here once it is computed.");
+    }
+    if t.results.iter().all(|r| r.is_none()) {
+        return Some("No row of the parametric table converged. Check the inputs in Analysis > Parametric table and run it again.");
+    }
+    None
+}
+
 /// Which parametric table a plot reads, when there are several.
 fn table_combo(ui: &mut egui::Ui, def: &mut PlotDef, inp: &PlotInputs) {
     if def.source != Source::Parametric || inp.tables.len() < 2 {
@@ -774,11 +796,22 @@ impl PlotsUi {
             ui.centered_and_justified(|ui| ui.label("Add a plot with the buttons on the left."));
             return;
         };
-        match def.kind {
-            PlotKind::XY => self.xy(ui, def, inp),
-            PlotKind::Property => self.property(ui, def, inp),
-            PlotKind::Surface => self.surface(ui, def, inp),
-        }
+        // a panel of its own gives the plot a margin from the side panel's
+        // divider: egui_plot draws the y-axis label a quarter of a line
+        // outside the plot rectangle, onto the divider when there is none
+        egui::CentralPanel::default().show(ui, |ui| {
+            if def.kind != PlotKind::Property {
+                if let Some(hint) = parametric_hint(def, inp) {
+                    ui.centered_and_justified(|ui| ui.label(RichText::new(hint).weak()));
+                    return;
+                }
+            }
+            match def.kind {
+                PlotKind::XY => self.xy(ui, def, inp),
+                PlotKind::Property => self.property(ui, def, inp),
+                PlotKind::Surface => self.surface(ui, def, inp),
+            }
+        });
     }
 
     fn side(&mut self, ui: &mut egui::Ui, st: &mut PlotsState, inp: &PlotInputs) {
@@ -1726,6 +1759,31 @@ mod tests {
             warm: None,
             init: Default::default(),
         })
+    }
+
+    /// A parametric plot without results says why and how to get them.
+    #[test]
+    fn parametric_hint_until_run() {
+        let a = rankine();
+        let studies = StudiesUi::default();
+        let du = HashMap::new();
+        let hint = |tables: &[ParamTable], def: &PlotDef| {
+            let inp = PlotInputs { analysis: &a, tables, studies: &studies, display_units: &du, script: "" };
+            parametric_hint(def, &inp)
+        };
+        let mut def = PlotDef::new("xy".into(), PlotKind::XY);
+        assert!(hint(&[], &def).is_some_and(|h| h.contains("No parametric table")));
+        let mut t = ParamTable { inputs: vec!["x".into()], outputs: vec!["y".into()], ..Default::default() };
+        assert!(hint(std::slice::from_ref(&t), &def).is_some_and(|h| h.contains("no rows")));
+        t.cells = vec![vec!["1".into()], vec!["2".into()]];
+        assert!(hint(std::slice::from_ref(&t), &def).is_some_and(|h| h.contains("Run table")));
+        t.results = vec![None, None];
+        assert!(hint(std::slice::from_ref(&t), &def).is_some_and(|h| h.contains("converged")));
+        t.results = vec![Some(vec![3.0]), None];
+        assert_eq!(hint(std::slice::from_ref(&t), &def), None);
+        // other data sources never get the hint
+        def.source = Source::Arrays;
+        assert_eq!(hint(&[], &def), None);
     }
 
     /// Builds every plot kind from the Rankine example and checks the
