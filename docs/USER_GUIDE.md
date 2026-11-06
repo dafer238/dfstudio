@@ -68,8 +68,8 @@ always have the latest version:
 Every package from the releases page contains the desktop app, the `dfs`
 command-line runner, the CoolProp library and the example projects (in the
 `examples` folder of the installation; open them with *File > Load
-example…*). Examples installed
-under Program Files are read-only: use *Save as* to keep your changes.
+example…*). Examples installed under Program Files are read-only: use *Save
+as* to keep your changes.
 
 On Windows, if another program was already chosen as the default for
 `.ees` files, Windows keeps that choice and may ask which program to use
