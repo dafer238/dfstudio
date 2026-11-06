@@ -48,10 +48,28 @@ Download the installer for your system from the
 | macOS 11+ (Apple silicon and Intel) | `DeltaF_Studio-<version>-macos-universal.dmg` | Drag *DeltaF Studio* to *Applications*. The app is not notarised by Apple: the first time, right-click it and choose *Open*. |
 | Linux (x86-64, glibc 2.38 or newer: Ubuntu 24.04, Debian 13, Fedora 39 or later) | `DeltaF_Studio-<version>-linux-x86_64.AppImage` | `chmod +x` the file and run it. `./DeltaF_Studio-*.AppImage dfs run model.dfs` runs the command-line solver. |
 
-Every package contains the desktop app, the `dfs` command-line runner, the
-CoolProp library and the example projects (in the `examples` folder of the
-installation; open them with *File > Load example…*). Examples installed
-under Program Files are read-only: use *Save as* to keep your changes.
+Other ways to install on Windows, after the direct downloads above, which
+always have the latest version:
+
+* **winget**: `winget install dafer238.DeltaFStudio` in a terminal installs
+  the same installer (add `--scope user` to install for you only).
+  `winget upgrade dafer238.DeltaFStudio` updates it; new versions reach
+  winget automatically with each release. If Windows shows a security
+  warning when you download the installer or the portable zip, install with
+  winget instead.
+* **Microsoft Store**:
+  [DeltaF Studio in the Microsoft Store](https://apps.microsoft.com/detail/9NSJN0W1J4D3).
+  The Store version installs without any warning and updates itself, but
+  new versions reach it later than the other options, after Microsoft
+  reviews each one. It contains the desktop app only, with the `dfstudio`
+  command and the file associations; the `dfs` command-line runner comes
+  with the installer and winget.
+
+Every package from the releases page contains the desktop app, the `dfs`
+command-line runner, the CoolProp library and the example projects (in the
+`examples` folder of the installation; open them with *File > Load
+example…*). Examples installed under Program Files are read-only: use *Save
+as* to keep your changes.
 
 On Windows, if another program was already chosen as the default for
 `.ees` files, Windows keeps that choice and may ask which program to use
