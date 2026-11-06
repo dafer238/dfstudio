@@ -109,6 +109,19 @@ jobs:
         run: echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
       - name: Build and stage the files
         run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -StageOnly
+      - name: No Visual C++ runtime dependency
+        shell: pwsh
+        run: |
+          # The runners have the VC++ Redistributable, users' machines may not:
+          # check the imports instead of relying on the smoke tests.
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          foreach ($f in Get-ChildItem dist\windows\stage\*.exe, dist\windows\stage\*.dll) {
+            $deps = & $dumpbin.FullName /nologo /dependents $f.FullName | Select-String -Pattern '^\s+(\S+\.dll)\s*$' | ForEach-Object { $_.Matches[0].Groups[1].Value }
+            Write-Host "$($f.Name): $($deps -join ', ')"
+            $bad = $deps | Where-Object { $_ -match '^(vcruntime|msvcp|concrt|vcomp)\d*' }
+            if ($bad) { throw "$($f.Name) needs the Visual C++ Redistributable: $($bad -join ', ')" }
+          }
 
       # Sign dfstudio.exe and dfs.exe before they go into the installer and
       # the portable zip (SignPath artifact configuration "executables").
@@ -313,6 +326,10 @@ jobs:
           version=${GITHUB_REF_NAME#v}
           curl -sSLf -o komac.tar.gz "https://github.com/russellbanks/Komac/releases/download/v$KOMAC_VERSION/komac-$KOMAC_VERSION-x86_64-unknown-linux-gnu.tar.gz"
           tar -xzf komac.tar.gz komac
+          if ! ./komac list dafer238.DeltaFStudio > /dev/null 2>&1; then
+            echo "::notice::dafer238.DeltaFStudio is not in microsoft/winget-pkgs yet (first version pending): winget not updated"
+            exit 0
+          fi
           ./komac update dafer238.DeltaFStudio --version "$version" \
             --urls "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/DeltaF_Studio-$version-windows-x64-setup.exe" \
             --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \

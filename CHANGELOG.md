@@ -6,6 +6,15 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-06
+
+### Fixed
+- Windows: `dfstudio.exe` and `dfs.exe` failed to start on a Windows
+  installation without the Microsoft Visual C++ Redistributable
+  (`STATUS_DLL_NOT_FOUND`, VCRUNTIME140.dll). The C runtime is now linked
+  statically, and the release workflow checks that no executable depends
+  on the Visual C++ runtime.
+
 ## [1.0.2] - 2026-11-05
 
 ### Added
