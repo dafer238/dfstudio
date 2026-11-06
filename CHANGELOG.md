@@ -6,6 +6,17 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-06
+
+### Fixed
+- Windows: `dfstudio.exe` and `dfs.exe` failed to start on a Windows
+  installation without the Microsoft Visual C++ Redistributable
+  (`STATUS_DLL_NOT_FOUND`, VCRUNTIME140.dll). The C runtime is now linked
+  statically, and the release workflow checks that no executable depends
+  on the Visual C++ runtime.
+
+## [1.0.2] - 2026-11-05
+
 ### Added
 - Windows: an MSIX package for the Microsoft Store, with the `dfstudio`
   command and the `.df`, `.dfs` and `.ees` file associations (the `dfs`
@@ -19,6 +30,23 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   `CODE_SIGNING.md` and at https://deltafstudio.com/code-signing.
 - `dfs.exe` carries the icon and version information (product name and
   version) on Windows, like `dfstudio.exe`; the installer too.
+- Monochrome icons before the main tab names (Equations, Solution,
+  Analysis, Plots, Define cycle), so the tabs tell apart at a glance.
+- A plot of a parametric table without results (not run since it was
+  created or changed) says so and points to Run table, instead of an
+  empty plot.
+
+### Changed
+- Define cycle: the component groups of the palette start collapsed, and
+  the component, stream, stream label and text locks start off, in new
+  diagrams. Diagrams saved with locks on keep them.
+
+### Fixed
+- Plots: the y-axis label no longer touches the divider of the left panel.
+- Parametric table: adding an output column to a table with results (after
+  a run, or opened from a `.df` project) closed the program. The results
+  are now cleared when a column is added, as they already were when one
+  was removed.
 
 ## [1.0.1] - 2026-11-04
 
@@ -266,7 +294,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/dafer238/dfstudio/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/dafer238/dfstudio/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/dafer238/dfstudio/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/dafer238/dfstudio/compare/v0.2.1...v0.3.0

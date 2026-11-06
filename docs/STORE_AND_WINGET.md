@@ -111,19 +111,19 @@ version is accepted.
 ### First version (by hand, once)
 
 [`packaging/winget/manifests/`](../packaging/winget/manifests) holds the
-manifest of 1.0.1, validated against the winget 1.10 schemas. To submit it:
+manifest of 1.0.3, validated against the winget 1.10 schemas. To submit it:
 
 1. Optional local test on Windows (administrator terminal):
    ```powershell
    winget settings --enable LocalManifestFiles
-   winget validate --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
-   winget install --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
+   winget validate --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.3
+   winget install --manifest packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.3
    ```
 2. Submit it with [wingetcreate](https://github.com/microsoft/winget-create)
    (`winget install wingetcreate`), which forks winget-pkgs and opens the
    pull request:
    ```powershell
-   wingetcreate submit packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.1
+   wingetcreate submit packaging\winget\manifests\d\dafer238\DeltaFStudio\1.0.3
    ```
    Without `--token`, wingetcreate signs in to GitHub in the browser and
    keeps the session; a token on the command line can end up in logs and

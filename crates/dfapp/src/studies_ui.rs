@@ -58,6 +58,37 @@ impl ParamTable {
         }
     }
 
+    /// Add an input column. The results no longer match the table, so
+    /// they are dropped.
+    pub fn add_input(&mut self, name: String) {
+        if self.inputs.contains(&name) {
+            return;
+        }
+        self.inputs.push(name);
+        for r in &mut self.cells {
+            r.push(String::new());
+        }
+        self.fill_from.push(String::new());
+        self.fill_to.push(String::new());
+        self.clear_results();
+    }
+
+    /// Add an output column. Results computed (or loaded from a project)
+    /// before have one value per old output, so they are dropped: drawing
+    /// them under the new column read past the end of each row.
+    pub fn add_output(&mut self, name: String) {
+        if self.outputs.contains(&name) {
+            return;
+        }
+        self.outputs.push(name);
+        self.clear_results();
+    }
+
+    pub fn clear_results(&mut self) {
+        self.results.clear();
+        self.converged.clear();
+    }
+
     /// No inputs, outputs or rows.
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty() && self.outputs.is_empty() && self.cells.is_empty()
@@ -298,19 +329,14 @@ impl StudiesUi {
             let mut add_in = String::new();
             ui.label("Add input");
             var_combo(ui, "add_in", m, &mut add_in, |_| true);
-            if !add_in.is_empty() && !t.inputs.contains(&add_in) {
-                t.inputs.push(add_in);
-                for r in &mut t.cells {
-                    r.push(String::new());
-                }
-                t.fill_from.push(String::new());
-                t.fill_to.push(String::new());
+            if !add_in.is_empty() {
+                t.add_input(add_in);
             }
             let mut add_out = String::new();
             ui.label("Add output");
             var_combo(ui, "add_out", m, &mut add_out, |_| true);
-            if !add_out.is_empty() && !t.outputs.contains(&add_out) {
-                t.outputs.push(add_out);
+            if !add_out.is_empty() {
+                t.add_output(add_out);
             }
             ui.separator();
             if self.new_rows == 0 {
@@ -466,8 +492,9 @@ impl StudiesUi {
                     }
                     for k in 0..t.outputs.len() {
                         row.col(|ui| {
-                            if let Some(Some(v)) = t.results.get(i) {
-                                ui.label(RichText::new(fmt_num(v[k])).monospace());
+                            // a run finishing after a column was added has fewer values
+                            if let Some(x) = t.results.get(i).and_then(|v| v.as_ref()).and_then(|v| v.get(k)) {
+                                ui.label(RichText::new(fmt_num(*x)).monospace());
                             }
                         });
                     }
@@ -481,11 +508,11 @@ impl StudiesUi {
                     r.remove(k);
                 }
             }
-            t.results.clear();
+            t.clear_results();
         }
         if let Some(k) = remove_out {
             t.outputs.remove(k);
-            t.results.clear();
+            t.clear_results();
         }
     }
 
@@ -819,6 +846,48 @@ pub fn apply_values(text: &mut String, model: &Model, vals: &[(u32, f64)]) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Draw the parametric table once, headless.
+    fn draw(t: &mut ParamTable, a: &Arc<Analysis>) {
+        let ctx = egui::Context::default();
+        let mut ui_state = StudiesUi::default();
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            ui_state.parametric_table(ui, a, t, 0, &HashMap::new());
+        });
+        out.textures_delta.clear();
+    }
+
+    /// Adding an output to a table with results (from a run, or loaded
+    /// from a `.df` project) used to index past the end of each result row
+    /// while drawing it and abort the program.
+    #[test]
+    fn add_output_to_table_with_results() {
+        let a = Arc::new(crate::analysis::run(crate::analysis::Request {
+            gen: 1,
+            text: "x = 2\ny = 3*x\nz = x + y\n".into(),
+            opts: dfcore::CompileOptions::default(),
+            solve: true,
+            solve_opts: SolveOptions::default(),
+            warm: None,
+            init: Default::default(),
+        }));
+        let mut t = ParamTable { inputs: vec!["x".into()], outputs: vec!["y".into()], cells: vec![vec!["1".into()], vec!["2".into()]], ..Default::default() };
+        t.solve_now(&a, &HashMap::new()).unwrap();
+        assert_eq!(t.results, vec![Some(vec![3.0]), Some(vec![6.0])]);
+        t.add_output("z".into());
+        assert!(t.results.is_empty() && t.converged.is_empty());
+        draw(&mut t, &a);
+        // results a run started before the column was added deliver are short
+        t.results = vec![Some(vec![3.0]), Some(vec![6.0])];
+        draw(&mut t, &a);
+        t.solve_now(&a, &HashMap::new()).unwrap();
+        assert_eq!(t.results, vec![Some(vec![3.0, 4.0]), Some(vec![6.0, 8.0])]);
+        // inputs too: the results were for the old columns
+        t.add_input("y".into());
+        assert!(t.results.is_empty() && t.cells.iter().all(|r| r.len() == 2) && t.fill_from.len() == 2);
+        t.add_input("y".into());
+        assert_eq!(t.inputs.len(), 2);
+    }
 
     #[test]
     fn apply_keeps_units_and_layout() {
