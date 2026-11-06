@@ -1,0 +1,6 @@
+# Link the C runtime statically on Windows (MSVC), so dfstudio.exe and dfs.exe
+# do not need VCRUNTIME140.dll from the Visual C++ Redistributable, which a
+# clean Windows install does not have. The Universal CRT (api-ms-win-crt-*)
+# is part of Windows 10 and later.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
