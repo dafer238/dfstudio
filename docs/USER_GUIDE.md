@@ -65,9 +65,10 @@ always have the latest version:
   command and the file associations; the `dfs` command-line runner comes
   with the installer and winget.
 
-Every package from the releases page contains the desktop app, the `dfs` command-line runner, the
-CoolProp library and the example projects (in the `examples` folder of the
-installation; open them with *File > Load example…*). Examples installed
+Every package from the releases page contains the desktop app, the `dfs`
+command-line runner, the CoolProp library and the example projects (in the
+`examples` folder of the installation; open them with *File > Load
+example…*). Examples installed
 under Program Files are read-only: use *Save as* to keep your changes.
 
 On Windows, if another program was already chosen as the default for
