@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-09
+
 ### Added
 - Fluid aliases: every fluid can be written under its usual names, in any
   case. `CO2`, `CarbonDioxide` and `R744` are the same fluid; so are
