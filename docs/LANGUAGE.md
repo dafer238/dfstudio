@@ -79,7 +79,22 @@ taken if its pressure is below p_crit. Give P when it is known. Quality returns
 
 Fluid names: any CoolProp name or alias (`CO2`, `CarbonDioxide`, `Water`,
 `R134a`, `Air`, …), a backend prefix (`'IF97::Water'`, `'INCOMP::MEG-30%'`) or
-a mixture (`'CO2[0.9]&Argon[0.1]'`, quotes required).
+a mixture (`'CO2[0.9]&Argon[0.1]'`, quotes required). Fluid names are not
+case-sensitive, and the usual names of a fluid are aliases of each other,
+also inside mixtures and after a backend prefix:
+
+| Fluid | Also written |
+|---|---|
+| `Water` | `H2O`, `Steam`, `Steam_IAPWS`, `Steam_NBS`, `R718` |
+| `CO2` | `CarbonDioxide`, `R744` |
+| `Air` | `Air_ha`, `R729` |
+| `Nitrogen`, `Oxygen`, `Argon`, `Hydrogen`, `Helium`, `Neon` | `N2`, `O2`, `Ar`, `H2`, `He`, `Ne` (and `R728`, `R732`, `R740`, `R702`, `R704`, `R720`) |
+| `CarbonMonoxide`, `SulfurDioxide`, `HydrogenSulfide`, `NitrousOxide`, `Ammonia` | `CO`, `SO2`, `H2S`, `N2O`, `NH3` (`R717`) |
+| `Methane`, `Ethane`, `Propane`, `Butane`, `IsoButane`, `Pentane` | `CH4` (`R50`), `C2H6` (`R170`), `C3H8` (`R290`), `C4H10` (`R600`), `R600a`, `C5H12` (`R601`) |
+| `Ethylene`, `Propylene`, `Methanol`, `Ethanol`, `Benzene`, `Toluene` | `C2H4` (`R1150`), `C3H6` (`R1270`), `CH3OH`, `C2H5OH`, `C6H6`, `C7H8` |
+
+The full list is `FLUID_ALIASES` in `crates/dfcore/src/props.rs`, and the
+fluid table of the Library shows the other names of every fluid.
 
 Liquid metals, molten salts and thermal oils (liquid only):
 `Sodium`, `NaK`, `Lead`, `LBE`, `SolarSalt`, `Therminol66`, `Therminol72`,

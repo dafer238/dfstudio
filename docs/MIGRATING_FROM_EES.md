@@ -163,6 +163,10 @@ or reference state, not to the solver.
 | `Therminol66`, `Therminol72`, `TherminolVP1` (= `DowthermA`), `TherminolD12`, `DowthermJ`, `DowthermQ`, `Syltherm800`, `SylthermXLT` | CoolProp incompressibles `INCOMP::T66`, `T72`, `TVP1`, `TD12`, `DowJ`, `DowQ`, `S800`, `XLT` | liquid only |
 | mixtures, brines | `'CO2[0.9]&Argon[0.1]'`, `'INCOMP::MEG-30%'` | quotes required |
 
+All these names, and CoolProp's own aliases, are accepted in any case
+(`steam`, `STEAM`), so an EES model keeps its fluid names. LANGUAGE.md
+lists the aliases.
+
 **Ideal-gas versus real-fluid names.** In EES, chemical formulas such as
 `CO2`, `H2O`, `N2`, `O2` and the name `Air` select *ideal-gas* models
 (JANAF data), while `CarbonDioxide`, `Water`, `Nitrogen`, `Oxygen` and

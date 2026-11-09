@@ -172,6 +172,13 @@ pub struct FluidInfo {
     pub group: &'static str,
     /// (M kg/kmol, Tcrit K, pcrit Pa), when CoolProp gives them.
     pub data: Option<(f64, f64, f64)>,
+    /// Other names of the same fluid (`CarbonDioxide`, `R744` for `CO2`).
+    pub aliases: Vec<String>,
+}
+
+/// Other names of a fluid, without the name itself.
+fn other_names(name: &str) -> Vec<String> {
+    props::fluid_aliases(name).into_iter().filter(|a| !a.eq_ignore_ascii_case(name) && !a.contains("::")).collect()
 }
 
 /// Every fluid the property functions accept by name, grouped.
@@ -185,12 +192,12 @@ pub fn fluid_catalogue(coolprop: &[String]) -> Vec<FluidInfo> {
             (Some(m), Some(t), Some(p)) => Some((m, t, p)),
             _ => None,
         };
-        out.push(FluidInfo { name: f.clone(), group: "CoolProp (HEOS)", data });
+        out.push(FluidInfo { name: f.clone(), group: "CoolProp (HEOS)", data, aliases: other_names(f) });
     }
     for (f, _) in crate::completion::EXTRA_FLUIDS {
-        out.push(FluidInfo { name: f.to_string(), group: "Liquids and heat-transfer fluids", data: None });
+        out.push(FluidInfo { name: f.to_string(), group: "Liquids and heat-transfer fluids", data: None, aliases: other_names(f) });
     }
-    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None });
+    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None, aliases: Vec::new() });
     out
 }
 
@@ -639,13 +646,15 @@ impl Library {
         let q = format!("{} {}", self.search, self.fluid_filter).trim().to_lowercase();
         let mut use_in_builder: Option<String> = None;
         for group in ["CoolProp (HEOS)", "Liquids and heat-transfer fluids", "Humid air"] {
-            let rows: Vec<&FluidInfo> = fl.iter().filter(|f| f.group == group && (q.is_empty() || f.name.to_lowercase().contains(&q))).collect();
+            let hit = |f: &FluidInfo| q.is_empty() || f.name.to_lowercase().contains(&q) || f.aliases.iter().any(|a| a.to_lowercase().contains(&q));
+            let rows: Vec<&FluidInfo> = fl.iter().filter(|f| f.group == group && hit(f)).collect();
             if rows.is_empty() {
                 continue;
             }
             egui::CollapsingHeader::new(format!("{group} ({})", rows.len())).default_open(true).show(ui, |ui| {
-                egui::Grid::new(("fluids", group)).striped(true).num_columns(5).spacing([14.0, 2.0]).show(ui, |ui| {
+                egui::Grid::new(("fluids", group)).striped(true).num_columns(6).spacing([14.0, 2.0]).show(ui, |ui| {
                     ui.strong("Name");
+                    ui.strong("Also");
                     ui.strong("M [kg/kmol]");
                     ui.strong("T_crit [°C]");
                     ui.strong("p_crit [bar]");
@@ -654,6 +663,12 @@ impl Library {
                     for f in rows {
                         if ui.add(egui::Label::new(RichText::new(&f.name).monospace()).sense(egui::Sense::click())).double_clicked() {
                             act = Some(Action::Insert(f.name.clone()));
+                        }
+                        let also = f.aliases.join(", ");
+                        let short = if also.chars().count() > 40 { format!("{}…", also.chars().take(39).collect::<String>()) } else { also.clone() };
+                        let r = ui.label(RichText::new(short).small().weak());
+                        if !also.is_empty() {
+                            r.on_hover_text(format!("Same fluid: {also}"));
                         }
                         match f.data {
                             Some((m, t, p)) => {
@@ -681,7 +696,7 @@ impl Library {
             });
         }
         ui.add_space(6.0);
-        ui.label(RichText::new("Other forms: 'IF97::Water', 'INCOMP::MEG-30%' (incompressible), 'CO2[0.9]&Argon[0.1]' (mixture), see the builder.").small().weak());
+        ui.label(RichText::new("Names are not case-sensitive and every alias is the same fluid (CO2 = CarbonDioxide = R744, Water = H2O = Steam). Other forms: 'IF97::Water', 'INCOMP::MEG-30%' (incompressible), 'CO2[0.9]&Argon[0.1]' (mixture), see the builder.").small().weak());
         if let Some(f) = use_in_builder {
             self.b.backend = Backend::Default;
             self.b.fluid = f;
