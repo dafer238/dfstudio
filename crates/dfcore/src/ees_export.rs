@@ -74,10 +74,157 @@ const EES_NAMES: &[(&str, &str, Option<&str>)] = &[
     ("Deuterium", "Deuterium", None),
     ("SulfurHexafluoride", "SulfurHexafluoride", None),
     ("Isopentane", "Isopentane", None),
+    ("HeavyWater", "DeuteriumOxide", None),
+    ("1-Butene", "Butene", None),
 ];
 
-/// Fluids EES does not have (checked in EES 10: "not a recognized substance").
-const NOT_IN_EES: &[&str] = &["HeavyWater"];
+/// Real fluids and mixtures of the EES fluid list (Fluid Property
+/// Information, EES 10), in lowercase: EES names are case-insensitive. A
+/// pure fluid with the same CoolProp name keeps it; any other is reported.
+const EES_REAL: &[&str] = &[
+    "acetone",
+    "ammonia",
+    "argon",
+    "benzene",
+    "butene",
+    "carbondioxide",
+    "carbonmonoxide",
+    "carbonylsulfide",
+    "cis-2-butene",
+    "cyclohexane",
+    "cyclopentane",
+    "d4",
+    "d5",
+    "deuterium",
+    "deuteriumoxide",
+    "diethylether",
+    "dimethylcarbonate",
+    "dimethylether",
+    "ethane",
+    "ethanol",
+    "ethylbenzene",
+    "ethylene",
+    "fluorine",
+    "helium",
+    "hfe7000",
+    "hfe7100",
+    "hfe7200",
+    "hfe7500",
+    "hfo1336mzz(z)",
+    "hydrogen",
+    "hydrogenchloride",
+    "hydrogensulfide",
+    "isobutane",
+    "isobutene",
+    "isohexane",
+    "isopentane",
+    "krypton",
+    "mdm",
+    "md2m",
+    "md4m",
+    "mm",
+    "m-xylene",
+    "methane",
+    "methanol",
+    "n-butane",
+    "n-decane",
+    "n-dodecane",
+    "n-heptane",
+    "n-hexane",
+    "n-nonane",
+    "n-octane",
+    "n-pentane",
+    "n-undecane",
+    "neon",
+    "neopentane",
+    "nitrogen",
+    "nitrousoxide",
+    "novec649",
+    "o-xylene",
+    "orthohydrogen",
+    "oxygen",
+    "parahydrogen",
+    "propane",
+    "p-xylene",
+    "propylene",
+    "ses36",
+    "steam",
+    "steam_iapws",
+    "steam_nbs",
+    "sulfurdioxide",
+    "sulfurhexafluoride",
+    "toluene",
+    "trans-2-butene",
+    "water",
+    "xenon",
+    "r11",
+    "r12",
+    "r13",
+    "r13i1",
+    "r14",
+    "r22",
+    "r23",
+    "r32",
+    "r40",
+    "r41",
+    "r113",
+    "r114",
+    "r115",
+    "r116",
+    "r123",
+    "r124",
+    "r125",
+    "r134a",
+    "r141b",
+    "r142b",
+    "r143a",
+    "r143m",
+    "r152a",
+    "r161",
+    "r218",
+    "r227ea",
+    "r236ea",
+    "r236fa",
+    "r245fa",
+    "r290",
+    "r365mfc",
+    "r600",
+    "r600a",
+    "r717",
+    "r718",
+    "r744",
+    "rc318",
+    "r1216",
+    "r1224yd(z)",
+    "r1225ye(z)",
+    "r1233zd(e)",
+    "r1234yf",
+    "r1234ze(e)",
+    "r1234ze(z)",
+    "r1243zf",
+    "re245cb2",
+    "re245fa2",
+    "air_ha",
+    "nh3h2o",
+    "r404a",
+    "r407c",
+    "r410a",
+    "r423a",
+    "r448a",
+    "r449a",
+    "r450a",
+    "r452a",
+    "r452b",
+    "r454b",
+    "r454c",
+    "r500",
+    "r502",
+    "r507a",
+    "r508b",
+    "r513a",
+    "r514a",
+    "r515a",
+];
 
 /// Property functions: canonical DeltaF Studio name → EES name.
 const PROP_FUNCS: &[(&str, &str)] = &[
@@ -328,9 +475,6 @@ impl<'a> Ctx<'a> {
         if base.eq_ignore_ascii_case("airh2o") {
             return ("AirH2O".into(), None);
         }
-        if NOT_IN_EES.contains(&cp.as_str()) {
-            return (cp.clone(), Some(format!("fluid {base} is not available; replace it")));
-        }
         if let Some((_, real, ig)) = EES_NAMES.iter().find(|n| n.0 == cp) {
             return match (ideal, ig) {
                 (false, _) => (real.to_string(), None),
@@ -350,10 +494,11 @@ impl<'a> Ctx<'a> {
         if cp.contains("::") || cp.contains('&') || cp.contains('[') {
             return (format!("'{base}'"), Some(format!("fluid '{base}' (CoolProp backend or mixture) has no equivalent; replace it")));
         }
-        let ideal_note = ideal.then(|| format!("no ideal-gas model of {cp}; the real fluid is used, so the results differ"));
-        // refrigerants and other pure fluids: same name
-        let is_refrigerant = cp.len() > 1 && cp.starts_with(['R', 'r']) && cp[1..].starts_with(|c: char| c.is_ascii_digit());
-        let note = if is_refrigerant { ideal_note } else { ideal_note.or(Some(format!("check that the fluid {cp} exists under this name"))) };
+        // refrigerants and other pure fluids: same name when EES has it
+        if !EES_REAL.contains(&cp.to_ascii_lowercase().as_str()) {
+            return (cp, Some(format!("fluid {base} is not available; replace it")));
+        }
+        let note = ideal.then(|| format!("no ideal-gas model of {cp} under a formula name; the real fluid is used, so the results differ"));
         (cp, note)
     }
 
@@ -690,9 +835,11 @@ mod tests {
         assert!(e.limitations.iter().any(|l| l.0 == 7 && l.1.contains("PropsSI")), "{:?}", e.limitations);
         assert!(t.contains("line 5 of the original"), "{t}");
         let e = ex("h = enthalpy(D2O, T=20, P=1)\nz = atan2(1, 2)\nc = ceil(2.3) + step(1)\n");
-        assert!(e.limitations.iter().any(|l| l.0 == 1 && l.1.contains("HeavyWater is not available") || l.1.contains("D2O is not available")), "{:?}", e.limitations);
+        assert!(e.text.contains("Enthalpy(DeuteriumOxide,"), "{}", e.text);
         assert!(e.limitations.iter().any(|l| l.0 == 2 && l.1.contains("atan2")), "{:?}", e.limitations);
-        assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).count(), 2, "{:?}", e.limitations);
+        assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).count(), 1, "{:?}", e.limitations);
+        let e = ex("a = enthalpy(R1234yf, T=20, P=1)\nb = enthalpy(Novec649, T=20, P=1)\nc = enthalpy(MD3M, T=20, P=1)\n");
+        assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).map(|l| l.0).collect::<Vec<_>>(), [3], "{:?}", e.limitations);
     }
 
     #[test]
