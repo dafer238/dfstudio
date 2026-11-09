@@ -67,6 +67,13 @@ The EES header lines are directives. DeltaF Studio understands `$UnitSystem`
 `$TabStops`, `$CheckUnits`, `$Warnings`, `$Arrays`, `$Complex`, ...) with an
 *Info* message in the Problems panel.
 
+**Back to EES.** *File > Export simplified script…* writes the model in
+the subset of the language EES reads: one equation per line, numbers in
+model units, a `$UnitSystem` line, ideal-gas calls with the formula names
+(`CO2`, `H2O`) and real-fluid calls with the full names (`CarbonDioxide`,
+`Water`), and a header listing what could not be translated (USER_GUIDE.md
+§12).
+
 ## 2. Syntax that carries over unchanged
 
 | Construct | Example | Notes |
@@ -163,11 +170,17 @@ or reference state, not to the solver.
 | `Therminol66`, `Therminol72`, `TherminolVP1` (= `DowthermA`), `TherminolD12`, `DowthermJ`, `DowthermQ`, `Syltherm800`, `SylthermXLT` | CoolProp incompressibles `INCOMP::T66`, `T72`, `TVP1`, `TD12`, `DowJ`, `DowQ`, `S800`, `XLT` | liquid only |
 | mixtures, brines | `'CO2[0.9]&Argon[0.1]'`, `'INCOMP::MEG-30%'` | quotes required |
 
+All these names, and CoolProp's own aliases, are accepted in any case
+(`steam`, `STEAM`), so an EES model keeps its fluid names. LANGUAGE.md
+lists the aliases.
+
 **Ideal-gas versus real-fluid names.** In EES, chemical formulas such as
 `CO2`, `H2O`, `N2`, `O2` and the name `Air` select *ideal-gas* models
 (JANAF data), while `CarbonDioxide`, `Water`, `Nitrogen`, `Oxygen` and
-`Air_ha` select real-fluid equations of state. DeltaF Studio always uses the
-real fluid. Consequences:
+`Air_ha` select real-fluid equations of state. DeltaF Studio treats both
+names as the same fluid and chooses the model from the number of state
+inputs (one: ideal gas, two: real fluid), or from an explicit suffix:
+`CO2::Ideal`, `CarbonDioxide::Real` (LANGUAGE.md). Consequences:
 
 * EES ideal-gas calls with one state input (`enthalpy(CO2, T=T1)`,
   `temperature(N2, h=h1)`) also use the ideal gas in DeltaF Studio, with the
@@ -175,7 +188,8 @@ real fluid. Consequences:
   at 1 atm (NIST-JANAF; Chase, 1998). They give the same values as EES
   within the accuracy of the two data sets.
 * With **two** inputs (`entropy(H2O, T=T0, P=p_partial)`), DeltaF Studio uses
-  the real fluid, while EES still uses the ideal gas. Results differ where
+  the real fluid, while EES still uses the ideal gas. Write
+  `entropy(H2O::Ideal, T=T0, P=p_partial)` to get the EES result. Results differ where
   the real fluid is not an ideal gas (for H2O at 25 °C and a low partial
   pressure CoolProp may even give liquid water), and the absolute values
   differ because of the reference state. Exergy and combustion models that

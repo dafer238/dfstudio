@@ -16,6 +16,7 @@ pub mod dffile;
 pub mod diagrams;
 pub mod dims;
 pub mod ees;
+pub mod ees_export;
 pub mod funcs;
 pub mod lexer;
 pub mod liquids;

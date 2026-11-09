@@ -355,6 +355,15 @@ pub fn candidates(text: &str, start: usize, prefix: &str, analysis: Option<&Anal
                     push(f.clone(), f.clone(), Kind::Fluid, "CoolProp fluid".into(), 100);
                 }
             }
+            // other names of the same fluids (CarbonDioxide = CO2, H2O = Water, ...)
+            for (c, aliases) in dfcore::props::FLUID_ALIASES {
+                let main = if c.contains("::") { aliases[0] } else { c };
+                for a in aliases.iter() {
+                    if seen.insert(a.to_lowercase()) {
+                        push(a.to_string(), a.to_string(), Kind::Fluid, format!("= {main}"), 100);
+                    }
+                }
+            }
             return finish_alpha(out);
         }
         Ctx::PropInput { func, used } => {

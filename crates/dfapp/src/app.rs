@@ -255,6 +255,8 @@ pub struct DfApp {
     files: Vec<Artifact>,
     meta: Meta,
     show_files: bool,
+    /// File > Export simplified script: the exported text while its window is open.
+    export: Option<dfcore::ees_export::Export>,
     /// Variable under study (canonical name): highlighted in the editor and
     /// analysed in the Dependencies view.
     focus: Option<String>,
@@ -335,6 +337,7 @@ impl DfApp {
             files: Vec::new(),
             meta: Meta::default(),
             show_files: false,
+            export: None,
             focus: None,
             eq_view: EqView::Editor,
             sol_view: SolView::Variables,
@@ -678,6 +681,60 @@ impl DfApp {
                 self.saved_hash = self.state_hash();
             }
             Err(e) => self.status = format!("Cannot save: {e}"),
+        }
+    }
+
+    /// File > Export simplified script: the text, with Copy and Save.
+    fn export_window(&mut self, ctx: &egui::Context) {
+        let mut open = true;
+        let mut refresh = false;
+        let Some(ex) = &self.export else { return };
+        let text = ex.text.clone();
+        let n_lim = ex.limitations.len();
+        egui::Window::new("Export simplified script").open(&mut open).default_size([760.0, 560.0]).show(ctx, |ui| {
+            ui.label(
+                RichText::new(
+                    "One equation per line, numbers in the model unit system, units as comments, and fluid names chosen by the property model \
+                     (formula for the ideal gas, full name for the real fluid). Whatever has no equivalent is marked NOT TRANSLATED on its line and listed at the top.",
+                )
+                .small()
+                .weak(),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Copy to clipboard").clicked() {
+                    ui.ctx().copy_text(text.clone());
+                    self.status = "Simplified script copied to the clipboard".into();
+                }
+                if ui.button("Save as…").clicked() {
+                    let stem = self.s.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "model".into());
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Text", &["txt"]).set_file_name(format!("{stem}_simplified.txt")).save_file() {
+                        let body = if cfg!(windows) { text.replace('\n', "\r\n") } else { text.clone() };
+                        self.status = match std::fs::write(&p, body) {
+                            Ok(()) => format!("Saved {}", p.display()),
+                            Err(e) => format!("Cannot save {}: {e}", p.display()),
+                        };
+                    }
+                }
+                if ui.button("Refresh").on_hover_text("Export the current equations again").clicked() {
+                    refresh = true;
+                }
+                if n_lim == 0 {
+                    ui.label(RichText::new("Everything was translated").color(egui::Color32::from_rgb(0, 158, 115)));
+                } else {
+                    ui.label(RichText::new(format!("{n_lim} item(s) not translated: see the list at the top")).color(egui::Color32::from_rgb(213, 94, 0)));
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                let mut t = text.as_str();
+                ui.add(egui::TextEdit::multiline(&mut t).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY).code_editor());
+            });
+        });
+        if refresh {
+            self.export = Some(dfcore::ees_export::export(&self.s.text, &self.s.unit_system));
+        }
+        if !open {
+            self.export = None;
         }
     }
 
@@ -1671,6 +1728,12 @@ impl eframe::App for DfApp {
                     if crate::icons::menu_item(ui, "files", &format!("Project files… ({})", self.files.len()), "").clicked() {
                         self.show_files = true;
                     }
+                    if crate::icons::menu_item(ui, "download", "Export simplified script…", "")
+                        .on_hover_text("The script in the classic equation syntax: one equation per line, numbers in model units, units as comments, fluid names by property model. Copy it or save it as text.")
+                        .clicked()
+                    {
+                        self.export = Some(dfcore::ees_export::export(&self.s.text, &self.s.unit_system));
+                    }
                     ui.separator();
                     if crate::icons::menu_item(ui, "example", "Load example…", "").on_hover_text("Open a model from the examples folder").clicked() {
                         self.load_example();
@@ -2013,6 +2076,9 @@ impl eframe::App for DfApp {
 
         if self.show_files {
             self.files_window(&ctx);
+        }
+        if self.export.is_some() {
+            self.export_window(&ctx);
         }
         // drag and drop a project or script onto the window
         if let Some(p) = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty())) {

@@ -7,6 +7,31 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
+- Fluid aliases: every fluid can be written under its usual names, in any
+  case. `CO2`, `CarbonDioxide` and `R744` are the same fluid; so are
+  `Water`, `H2O` and `Steam`, `Propane`, `C3H8` and `R290`, `N2` and
+  `Nitrogen`, and so on (chemical formulas, ASHRAE refrigerant numbers and
+  EES names for about 40 common fluids, plus all of CoolProp's own
+  aliases). Mixture components and backend-prefixed names are mapped too
+  (`'CarbonDioxide[0.9]&Ar[0.1]'`, `'IF97::Steam'`). The fluid table of the
+  Library shows the other names of each fluid and finds a fluid by any of
+  them, and completion offers them.
+- Property model in the fluid name: `CO2::Ideal` (ideal gas) and
+  `CO2::Real` (real fluid), with any alias. Without a suffix one state
+  input still gives the ideal gas and two the real fluid. The ideal gas now
+  takes two inputs too: `entropy(CO2::Ideal, T=T, P=P)` gives
+  s°(T) − R ln(P/1 atm), and `density`, `volume`, `pressure`,
+  `temperature` (from P and s, P and v, h, ...), `soundspeed` and
+  `compressibilityfactor` follow P v = R T. The Library builder's ideal-gas
+  option writes `Fluid::Ideal`.
+- *File > Export simplified script…*: the equations rewritten in the
+  classic EES-style syntax, to copy to the clipboard or save as text. One
+  equation per line, numbers converted to model units with the original in
+  a comment, a `$UnitSystem` line, the unit of each computed variable as a
+  comment, fluid names by property model (formula for the ideal gas, full
+  name for the real fluid), and `ifelse`, `pow`, `**` and `d=`
+  translated. Whatever has no equivalent is marked *NOT TRANSLATED* on its
+  line and listed in a header. Also `dfs export model.dfs`.
 - Property diagrams: *Compute processes* joins consecutive states by the
   process they describe instead of a straight line. Each segment is
   classified from its two states by the ratio of the actual to the

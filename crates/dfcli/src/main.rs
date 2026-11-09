@@ -8,6 +8,7 @@
 //!           [--project state.json]                    app state (diagram, plots, studies) as PROJ
 //!           [--table name=file.csv ...]               numeric tables (header `name [unit]`)
 //! dfs unpack model.df [dir]                           extract script, results (CSV), tables, files
+//! dfs export model.dfs [--units ...]                  print the simplified script (one equation per line)
 //! ```
 //! `run` and `check` accept `.df` projects as well as text scripts.
 
@@ -19,7 +20,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!(
-            "usage: dfs <run|check|info|pack|unpack> <file> [--units eng|si|si-kpa|imperial] [-o out.df] [--attach files...] [--project state.json] [--table name=file.csv ...]"
+            "usage: dfs <run|check|info|pack|unpack|export> <file> [--units eng|si|si-kpa|imperial] [-o out.df] [--attach files...] [--project state.json] [--table name=file.csv ...]"
         );
         return ExitCode::from(2);
     }
@@ -69,7 +70,7 @@ fn main() -> ExitCode {
             };
             return unpack(f, args.get(3).filter(|a| !a.starts_with('-')).map(|s| s.as_str()).unwrap_or("."));
         }
-        "run" | "check" | "pack" => {}
+        "run" | "check" | "pack" | "export" => {}
         _ => {
             eprintln!("unknown command {cmd}");
             return ExitCode::from(2);
@@ -82,6 +83,11 @@ fn main() -> ExitCode {
             Some("imperial") => Some(UnitSystem::imperial()),
             _ => Some(UnitSystem::engineering()),
         };
+    }
+    if cmd == "export" {
+        let e = dfcore::ees_export::export(&src, &opts.unit_system.clone().unwrap_or_default());
+        print!("{}", e.text);
+        return ExitCode::SUCCESS;
     }
     let t0 = std::time::Instant::now();
     let model = compile(&src, &opts);
