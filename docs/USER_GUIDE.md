@@ -667,6 +667,31 @@ The status bar shows *auto save* when it is active.
 **Project files** (*File > Project files…*): attach data, images or
 references to a `.df`; they travel with it.
 
+**Export simplified script** (*File > Export simplified script…*): the
+equations rewritten in the classic syntax of EES-style solvers, to *Copy to
+clipboard* or *Save as…* a text file:
+
+* one equation per line (`a = 1; b = 2` is split), `1.5` and `f(a, b)`
+  separators, and a `$UnitSystem` line for the model unit system;
+* literals with a unit are written in model units (`10 [MPa]` becomes
+  `100 [bar]` in a bar model) with the original in a comment, because such
+  programs only check bracketed units and do not convert them; the unit of
+  the variable each equation computes is added as a `{unit}` comment;
+* fluid names follow the property model: the formula for the ideal gas
+  (`CO2`, `H2O`, `N2`, `Air`) and the full name for the real fluid
+  (`CarbonDioxide`, `Water`, `Nitrogen`, `Air_ha`), the model being the
+  `::Ideal` / `::Real` suffix or the number of inputs (LANGUAGE.md);
+  ideal-gas h, u, cp and cv keep only T, and an ideal-gas entropy from T
+  alone gets P = 1 atm;
+* `ifelse(a < b, x, y)` becomes `IF(a, b, x, y, y)`, `pow` and `**` become
+  `^`, `d=` inputs become `v=1/(...)`, and `=`
+  in a function body becomes `:=`.
+
+Anything without an equivalent (`$Guess`, `$Bounds`, `$Units`, `$Control`,
+CoolProp backends and mixtures, `PropsSI`, ...) is commented on its line
+with *NOT TRANSLATED* and listed, with the line of the original script, in
+the header. `dfs export model.dfs` prints the same text.
+
 ## 13. Command line and Python
 
 ```bash
@@ -675,6 +700,7 @@ dfs check model.dfs                                # structure only
 dfs info model.df                                  # sections of a project
 dfs pack model.dfs -o model.df [--attach f.csv] [--project state.json] [--table name=file.csv]
 dfs unpack model.df outdir/                        # script, project.json, results.csv, tables, files
+dfs export model.dfs                               # simplified script (one equation per line)
 dfstudio --report model.df report.pdf              # cycle report without a window
 ```
 

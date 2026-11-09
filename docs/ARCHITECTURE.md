@@ -37,6 +37,7 @@ command line and the tests. Its modules:
 | `diagrams` | saturation dome and isobars for property plots |
 | `dffile` | the `.df` binary container |
 | `ees` | import of EES files (text and binary), to help users move existing models |
+| `ees_export` | export as a simplified, EES-compatible script (*File > Export simplified script*) |
 
 ## 2. Design decisions
 

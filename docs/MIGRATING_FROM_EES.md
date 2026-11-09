@@ -67,6 +67,13 @@ The EES header lines are directives. DeltaF Studio understands `$UnitSystem`
 `$TabStops`, `$CheckUnits`, `$Warnings`, `$Arrays`, `$Complex`, ...) with an
 *Info* message in the Problems panel.
 
+**Back to EES.** *File > Export simplified script…* writes the model in
+the subset of the language EES reads: one equation per line, numbers in
+model units, a `$UnitSystem` line, ideal-gas calls with the formula names
+(`CO2`, `H2O`) and real-fluid calls with the full names (`CarbonDioxide`,
+`Water`), and a header listing what could not be translated (USER_GUIDE.md
+§12).
+
 ## 2. Syntax that carries over unchanged
 
 | Construct | Example | Notes |
