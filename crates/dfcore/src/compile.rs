@@ -891,6 +891,9 @@ impl Lower<'_, '_> {
             }
             Expr::Str { span, .. } => Err(err("string not allowed here", *span)),
             Expr::Var { name, idx, span, .. } => {
+                if name.contains("::") {
+                    return Err(err(format!("'{name}' is a fluid name (Fluid::Ideal / Fluid::Real); it is only allowed as the fluid of a property function"), *span));
+                }
                 if idx.is_empty() {
                     if let Some(v) = self.env.get(name) {
                         return Ok(t.constant(*v));
@@ -1090,7 +1093,7 @@ impl Lower<'_, '_> {
         match &a.value {
             Expr::Var { display, idx, .. } if idx.is_empty() && a.name.is_none() => Ok(display.clone()),
             Expr::Str { value, .. } => Ok(value.clone()),
-            other => Err(err("expected a fluid name (e.g. CO2, Water, R134a or 'IF97::Water')", other.span())),
+            other => Err(err("expected a fluid name (e.g. CO2, Water, R134a, CO2::Ideal or 'IF97::Water')", other.span())),
         }
     }
 
@@ -1112,7 +1115,14 @@ impl Lower<'_, '_> {
     fn property_call(&mut self, name: &str, display: &str, args: &[Arg], span: Span, t: &mut Tape) -> Result<Option<u32>, Diagnostic> {
         let us = self.b.m.unit_system.clone();
         // ---- EES humid air: enthalpy(AirH2O, T=, P=, w=), humrat(AirH2O, ...), ...
-        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| f.eq_ignore_ascii_case("airh2o"));
+        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| props::split_model(&f).0.eq_ignore_ascii_case("airh2o"));
+        // `Fluid::Ideal` has no saturation states
+        let no_ideal = |fluid: &str| -> Result<(), Diagnostic> {
+            if props::split_model(fluid).1 == props::Model::Ideal {
+                return Err(err(format!("{display}: an ideal gas has no saturation states; use the real fluid ({})", props::split_model(fluid).0), span));
+            }
+            Ok(())
+        };
         if air_h2o {
             let Some(out) = props::HaCall::output(name) else {
                 return Err(err(format!("{display} is not available for AirH2O"), span));
@@ -1140,6 +1150,7 @@ impl Lower<'_, '_> {
             };
             let fluid = self.fluid_arg(f)?;
             self.check_fluid(&fluid, span)?;
+            no_ideal(&fluid)?;
             let k = a.name.as_deref().and_then(Key::from_input).filter(|k| matches!(k, Key::T | Key::P)).ok_or_else(|| err(format!("{display}: give T=... or P=..."), span))?;
             let x = self.expr(&a.value, t)?;
             let mut h = [0u32; 2];
@@ -1161,6 +1172,7 @@ impl Lower<'_, '_> {
             }
             let fluid = self.fluid_arg(&args[0])?;
             self.check_fluid(&fluid, span)?;
+            no_ideal(&fluid)?;
             let x = self.expr(&args[1].value, t)?;
             let q = t.constant(0.0);
             let pc = PropCall::new(format!("{display}({fluid})"), &fluid, out, vec![inp, Key::Q], Some(&us)).map_err(|e| err(e, span))?;
@@ -1183,24 +1195,39 @@ impl Lower<'_, '_> {
                 nodes.push(self.expr(&a.value, t)?);
             }
             let trivial = matches!(out, Key::MolarMass | Key::Tcrit | Key::Pcrit);
+            // property model: `Fluid::Ideal`, `Fluid::Real`, or from the number of inputs
+            let (base, model) = props::split_model(&fluid);
+            let ideal = match model {
+                props::Model::Ideal => true,
+                props::Model::Real => false,
+                props::Model::Auto => keys.len() == 1 && out != Key::SurfTension,
+            };
             if trivial {
                 if !keys.is_empty() {
                     return Err(err(format!("{display}(Fluid) takes no state inputs"), span));
                 }
-            } else if keys.len() == 1 && out != Key::SurfTension {
-                // one input: ideal gas (EES: enthalpy(CO2, T=T))
-                let label = format!("{display}({fluid}, ideal gas)");
-                let g = props::IdealGasCall::new(label, &fluid, out, keys[0], Some(&us)).map_err(|e| err(e, span))?;
+            } else if ideal {
+                // ideal gas: EES `enthalpy(CO2, T=T)`, or explicit `entropy(CO2::Ideal, T=T, P=P)`
+                if keys.is_empty() {
+                    return Err(err(format!("{display}({fluid}, ...): give the state inputs, e.g. T=..."), span));
+                }
+                let label = format!("{display}({base}, ideal gas)");
+                let g = props::IdealGasCall::new(label, base, out, keys, Some(&us)).map_err(|e| err(e, span))?;
                 return Ok(Some(ext(t, Arc::new(g), &nodes)));
             } else if keys.len() != 2 && !(out == Key::SurfTension && keys.len() == 1) {
-                return Err(err(format!("{display}: exactly two state inputs are required (one input, T, gives the ideal-gas value)"), span));
+                let hint = if model == props::Model::Real {
+                    format!("{base}::Real is the real fluid, which needs two state inputs (use {base}::Ideal for the ideal gas)")
+                } else {
+                    "exactly two state inputs are required (one input, T, gives the ideal-gas value; Fluid::Ideal selects the ideal gas)".to_string()
+                };
+                return Err(err(format!("{display}: {hint}"), span));
             }
             if out == Key::SurfTension && keys.len() == 1 {
                 keys.push(Key::Q);
                 nodes.push(t.constant(0.0));
             }
-            let label = format!("{display}({fluid})");
-            let pc = PropCall::new(label, &fluid, out, keys, Some(&us)).map_err(|e| err(e, span))?;
+            let label = format!("{display}({base})");
+            let pc = PropCall::new(label, base, out, keys, Some(&us)).map_err(|e| err(e, span))?;
             if trivial {
                 use crate::funcs::ExtFn;
                 let v = pc.eval(&[]).map_err(|e| err(e, span))?;

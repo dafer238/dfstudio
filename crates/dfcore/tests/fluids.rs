@@ -65,3 +65,97 @@ fn aliases_give_the_same_properties() {
         assert_eq!(v[a], v[b], "{a} {b}: {v:?}");
     }
 }
+
+fn errors(src: &str) -> Vec<String> {
+    let m = compile(src, &CompileOptions::default());
+    m.diagnostics.iter().filter(|d| d.severity == dfcore::Severity::Error).map(|d| d.msg.clone()).collect()
+}
+
+fn close(name: &str, a: f64, b: f64, rel: f64) {
+    assert!((a - b).abs() <= rel * b.abs().max(1e-12), "{name}: {a} vs {b}");
+}
+
+/// `Fluid::Ideal` / `Fluid::Real`, and the model from the number of inputs.
+#[test]
+fn model_suffix_selects_the_backend() {
+    let v = values(
+        "T = 200; P = 1.01325\n\
+         h_auto1 = enthalpy(CO2, T=T)\nh_ig = enthalpy(CO2::Ideal, T=T)\nh_ig2 = enthalpy(CarbonDioxide::ideal, T=T, P=50)\n\
+         h_auto2 = enthalpy(CO2, T=T, P=50)\nh_real = enthalpy(CarbonDioxide::Real, T=T, P=50)\n\
+         s_auto1 = entropy(CO2, T=T)\ns_ig = entropy(CO2::Ideal, T=T, P=P)\ns_ig10 = entropy(CO2::Ideal, T=T, P=10*P)\n\
+         d_ig = density(CO2::Ideal, T=T, P=P)\nv_ig = volume(CO2::Ideal, T=T, P=P)\nz_ig = compressibilityfactor(CO2::Ideal, T=T, P=50)\n\
+         T_ps = temperature(CO2::Ideal, P=10*P, s=s_ig10)\nP_ts = pressure(CO2::Ideal, T=T, s=s_ig10)\nT_h = temperature(CO2::Ideal, h=h_ig)\n\
+         T_pv = temperature(CO2::Ideal, P=P, v=v_ig)\nP_tv = pressure(CO2::Ideal, T=T, d=d_ig)\nT_hs = temperature(CO2::Ideal, h=h_ig, s=s_ig10)\n\
+         cp_ig = cp(CO2::Ideal, T=T, P=50); cv_ig = cv(CO2::Ideal, T=T); c_ig = soundspeed(CO2::Ideal, T=T, P=P)\n\
+         d_low_real = density(CO2, T=T, P=1e-4); d_low_ig = density(CO2::Ideal, T=T, P=1e-4)\n\
+         M = molarmass(CO2::Ideal)",
+        &[
+            "h_auto1",
+            "h_ig",
+            "h_ig2",
+            "h_auto2",
+            "h_real",
+            "s_auto1",
+            "s_ig",
+            "s_ig10",
+            "d_ig",
+            "v_ig",
+            "z_ig",
+            "T_ps",
+            "P_ts",
+            "T_h",
+            "T_pv",
+            "P_tv",
+            "T_hs",
+            "cp_ig",
+            "cv_ig",
+            "c_ig",
+            "d_low_real",
+            "d_low_ig",
+            "M",
+        ],
+    );
+    let [h_auto1, h_ig, h_ig2, h_auto2, h_real, s_auto1, s_ig, s_ig10, d_ig, v_ig, z_ig, t_ps, p_ts, t_h, t_pv, p_tv, t_hs, cp_ig, cv_ig, c_ig, d_lr, d_li, m] = v[..] else {
+        unreachable!()
+    };
+    // one input: ideal gas; explicit ::Ideal ignores P for h; two inputs: real fluid
+    assert_eq!(h_auto1, h_ig);
+    assert_eq!(h_ig, h_ig2);
+    assert_eq!(h_auto2, h_real);
+    assert!((h_auto2 - h_ig).abs() > 100.0, "real and ideal references differ: {h_auto2} {h_ig}");
+    // s from T alone is at 1 atm; s(T, 10 P) = s(T, P) - R ln 10
+    let r = 8.314462618 / m; // kJ/kg-K, M in kg/kmol
+    close("s 1 atm", s_ig, s_auto1, 1e-12);
+    close("s ln P", s_ig - s_ig10, r * 10f64.ln(), 1e-9);
+    // P v = R T, Z = 1
+    let tk = 200.0 + 273.15;
+    close("rho", d_ig, 101.325 / (r * tk), 1e-9);
+    close("v", v_ig * d_ig, 1.0, 1e-12);
+    assert_eq!(z_ig, 1.0);
+    // inverse calls give the state back
+    close("T(P,s)", t_ps + 273.15, tk, 1e-8);
+    close("P(T,s)", p_ts, 10.0 * 1.01325, 1e-8);
+    close("T(h)", t_h + 273.15, tk, 1e-8);
+    close("T(P,v)", t_pv + 273.15, tk, 1e-9);
+    close("P(T,d)", p_tv, 1.01325, 1e-9);
+    close("T(h,s)", t_hs + 273.15, tk, 1e-8);
+    close("cp - cv = R", cp_ig - cv_ig, r, 1e-9);
+    close("sound", c_ig, (cp_ig / cv_ig * r * 1e3 * tk).sqrt(), 1e-9);
+    // at very low pressure the real fluid is an ideal gas
+    close("low-pressure limit", d_li, d_lr, 1e-5);
+}
+
+#[test]
+fn model_suffix_errors() {
+    let has = |src: &str, what: &str| {
+        let e = errors(src);
+        assert!(e.iter().any(|m| m.contains(what)), "{src}: {e:?}");
+    };
+    has("h = enthalpy(CO2::Real, T=200)", "needs two state inputs");
+    has("mu = viscosity(CO2::Ideal, T=200, P=1)", "use the real fluid");
+    has("h = enthalpy(CO2::Ideal, T=200, h=10)", "ideal-gas inputs");
+    has("T = t_sat(CO2::Ideal, P=10)", "no saturation");
+    has("x = CO2::Ideal", "only allowed as the fluid");
+    has("h = enthalpy('CO2[0.5]&Argon[0.5]::Ideal', T=200)", "no ideal-gas model");
+    assert!(errors("T = t_sat(CO2::Real, P=10)").is_empty());
+}
