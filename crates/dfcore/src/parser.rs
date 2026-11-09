@@ -67,6 +67,8 @@ const RESERVED: &[&str] = &[
     "end",
     "function",
     "procedure",
+    "module",
+    "subprogram",
     "call",
     "if",
     "then",
@@ -99,7 +101,13 @@ pub fn parse(src: &str) -> ParseResult {
             break;
         }
         let t = p.peek().clone();
-        let res = if kw(&t, "function") || kw(&t, "procedure") { p.funcdef().map(|f| prog.funcs.push(f)) } else { p.stmt().map(|s| prog.stmts.push(s)) };
+        let res = if kw(&t, "function") || kw(&t, "procedure") {
+            p.funcdef().map(|f| prog.funcs.push(f))
+        } else if kw(&t, "module") || kw(&t, "subprogram") {
+            p.moduledef().map(|m| prog.modules.push(m))
+        } else {
+            p.stmt().map(|s| prog.stmts.push(s))
+        };
         if let Err(d) = res {
             p.diags.push(d);
             p.recover();
@@ -287,6 +295,54 @@ impl<'a> Parser<'a> {
         }
         self.expect(Tok::RParen)?;
         Ok((ins, outs))
+    }
+
+    /// `Module name(a, b : c)` (or `Subprogram`) NL { stmt } `End`.
+    fn moduledef(&mut self) -> PResult<ModuleDef> {
+        let start = self.span();
+        self.bump();
+        let (display, _) = self.ident()?;
+        self.expect(Tok::LParen)?;
+        let (mut params, mut outputs, mut in_out) = (Vec::new(), Vec::new(), false);
+        while !self.at(&Tok::RParen) {
+            let (p, _) = self.ident()?;
+            if in_out {
+                outputs.push(canon(&p));
+            } else {
+                params.push(canon(&p));
+            }
+            match self.peek() {
+                Tok::Comma | Tok::Semicolon => {
+                    self.bump();
+                }
+                Tok::Colon if !in_out => {
+                    self.bump();
+                    in_out = true;
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RParen)?;
+        self.end_of_stmt()?;
+        let mut body = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.at_kw("end") {
+                self.bump();
+                break;
+            }
+            if self.at(&Tok::Eof) {
+                return Err(Diagnostic { msg: format!("Module {display} without matching End"), span: start, severity: Severity::Error });
+            }
+            match self.stmt() {
+                Ok(s) => body.push(s),
+                Err(d) => {
+                    self.diags.push(d);
+                    self.recover();
+                }
+            }
+        }
+        Ok(ModuleDef { name: canon(&display), display, params, outputs, body, span: start.to(self.prev_span()) })
     }
 
     fn funcdef(&mut self) -> PResult<FuncDef> {

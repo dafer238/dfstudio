@@ -1130,6 +1130,11 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
     for f in &pr.program.funcs {
         c.func(f);
     }
+    for m in &pr.program.modules {
+        for s in &m.body {
+            c.stmt(s);
+        }
+    }
     for s in &pr.program.stmts {
         c.stmt(s);
     }
@@ -1190,11 +1195,13 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
         top.push_str(&atan2_helper(model.unit_system.degrees));
         top.push('\n');
     }
-    for f in &pr.program.funcs {
-        if first_eq.is_some_and(|q| f.span.start > q) {
-            let ls = src[..f.span.start].rfind('\n').map(|k| k + 1).unwrap_or(0);
-            let start = if src[ls..f.span.start].trim().is_empty() { ls } else { f.span.start };
-            let le = src[f.span.end..].find('\n').map(|k| f.span.end + k + 1).unwrap_or(src.len());
+    let mut blocks: Vec<crate::lexer::Span> = pr.program.funcs.iter().map(|f| f.span).chain(pr.program.modules.iter().map(|m| m.span)).collect();
+    blocks.sort_by_key(|s| s.start);
+    for span in blocks {
+        if first_eq.is_some_and(|q| span.start > q) {
+            let ls = src[..span.start].rfind('\n').map(|k| k + 1).unwrap_or(0);
+            let start = if src[ls..span.start].trim().is_empty() { ls } else { span.start };
+            let le = src[span.end..].find('\n').map(|k| span.end + k + 1).unwrap_or(src.len());
             top.push_str(c.render(start, le).trim_end());
             top.push_str("\n\n");
             c.replace(start, le, String::new());

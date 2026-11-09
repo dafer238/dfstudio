@@ -173,6 +173,10 @@ struct Builder<'s> {
     opts: CompileOptions,
     /// String variables and constants (`F$ = 'R134a'`, `$Constant F#$ = 'Air'`), by canonical name
     strings: HashMap<String, String>,
+    /// `Module` / `Subprogram` definitions, and how many times each was instantiated
+    modules: HashMap<String, Arc<ModuleDef>>,
+    module_uses: HashMap<String, usize>,
+    module_depth: usize,
     /// Lookup tables read so far, by name
     tables: HashMap<String, Arc<crate::lookup::Table>>,
     /// `$Constant N# = 12 [kg]`: value in model units and its dimension
@@ -255,6 +259,9 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
         strings: HashMap::new(),
         user_consts: HashMap::new(),
         tables: HashMap::new(),
+        modules: HashMap::new(),
+        module_uses: HashMap::new(),
+        module_depth: 0,
         eq_units: Vec::new(),
     };
     b.m.diagnostics = diags;
@@ -298,6 +305,13 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
         if let Err(d) = b.compile_func(f) {
             b.m.diagnostics.push(d);
         }
+    }
+    for m in &prog.modules {
+        if b.func_map.contains_key(&m.name) || b.modules.contains_key(&m.name) {
+            b.m.diagnostics.push(err(format!("'{}' is defined twice", m.display), m.span));
+            continue;
+        }
+        b.modules.insert(m.name.clone(), Arc::new(m.clone()));
     }
     // 3. constants usable in indices / Duplicate bounds
     b.discover_consts(&prog.stmts);
@@ -584,6 +598,11 @@ impl<'s> Builder<'s> {
                     }
                 }
             }
+            Stmt::Call { name, inputs, outputs, span } if self.modules.contains_key(name) => {
+                if let Err(d) = self.module_call(name, inputs, outputs, *span, env) {
+                    self.m.diagnostics.push(d);
+                }
+            }
             Stmt::Call { name, inputs, outputs, span } => {
                 if let Err(d) = self.call_stmt(name, inputs, outputs, *span, env) {
                     self.m.diagnostics.push(d);
@@ -594,7 +613,7 @@ impl<'s> Builder<'s> {
 
     fn equation(&mut self, lhs: &Expr, rhs: &Expr, span: Span, env: &HashMap<String, f64>, comment: Option<&str>) -> Result<(), Diagnostic> {
         let mut t = Tape::default();
-        let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new() };
+        let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
         let l = lw.expr(lhs, &mut t)?;
         let r = lw.expr(rhs, &mut t)?;
         let const_dims = std::mem::take(&mut lw.const_dims);
@@ -650,6 +669,36 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
+    /// `Call M(a, b : c)` of a Module: its equations, with the parameters
+    /// replaced by the arguments and its other variables renamed `M1.x`,
+    /// `M2.x`, ... for each use, solved with the rest of the model.
+    fn module_call(&mut self, name: &str, inputs: &[Expr], outputs: &[Expr], span: Span, env: &HashMap<String, f64>) -> Result<(), Diagnostic> {
+        let m = self.modules[name].clone();
+        if inputs.len() != m.params.len() || outputs.len() != m.outputs.len() {
+            return Err(err(
+                format!("{} takes {} input(s) and {} output(s) ({}({} : {}))", m.display, m.params.len(), m.outputs.len(), m.display, m.params.join(", "), m.outputs.join(", ")),
+                span,
+            ));
+        }
+        if self.module_depth > 20 {
+            return Err(err(format!("{}: modules call each other too deeply (recursion?)", m.display), span));
+        }
+        let k = {
+            let n = self.module_uses.entry(name.to_string()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let map: HashMap<String, Expr> = m.params.iter().chain(&m.outputs).cloned().zip(inputs.iter().chain(outputs).cloned()).collect();
+        let r = Rename { map, prefix: format!("{}{k}", m.display), b: self };
+        let body: Vec<Stmt> = m.body.iter().map(|s| r.stmt(s)).collect();
+        self.module_depth += 1;
+        for s in &body {
+            self.stmt(s, env);
+        }
+        self.module_depth -= 1;
+        Ok(())
+    }
+
     fn call_stmt(&mut self, name: &str, inputs: &[Expr], outputs: &[Expr], span: Span, env: &HashMap<String, f64>) -> Result<(), Diagnostic> {
         let cell = self.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), span))?;
         let src = cell.source.as_ref().unwrap();
@@ -661,7 +710,7 @@ impl<'s> Builder<'s> {
         }
         for (k, out) in outputs.iter().enumerate() {
             let mut t = Tape::default();
-            let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new() };
+            let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
             let l = lw.expr(out, &mut t)?;
             let mut args = Vec::new();
             for e in inputs {
@@ -707,12 +756,13 @@ impl<'s> Builder<'s> {
                 slots.insert(o.clone(), n);
             }
         }
-        let mut lw = Lower { b: self, env: HashMap::new(), slots: Some(slots), const_dims: Vec::new() };
+        let mut lw = Lower { b: self, env: HashMap::new(), slots: Some(slots), const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
         let body = lw.fblock(&f.body)?;
+        let narrays = lw.arrays.len();
         let slots = lw.slots.take().unwrap();
         let out_slots = out_names.iter().map(|o| slots[o]).collect();
         let cell = self.func_map[&f.name].clone();
-        let _ = cell.def.set(CompiledFunc { name: f.display.clone(), nparams: f.params.len(), nslots: slots.len(), out_slots, body });
+        let _ = cell.def.set(CompiledFunc { name: f.display.clone(), nparams: f.params.len(), nslots: slots.len(), narrays, out_slots, body });
         Ok(())
     }
 
@@ -924,6 +974,110 @@ pub const BUILTIN_CONSTS: &[(&str, &str)] = &[
     ("c#", "Speed of light 299792458 m/s"),
 ];
 
+/// Instantiation of a Module body: parameters → arguments, locals → `M1.x`.
+struct Rename<'a, 'b> {
+    map: HashMap<String, Expr>,
+    prefix: String,
+    b: &'a Builder<'b>,
+}
+
+/// Leading arguments of a built-in function that name a fluid, a table or
+/// columns, not variables.
+fn name_args(f: &str) -> usize {
+    match f {
+        "interpolate" | "interpolate1" | "interpolate2" | "interpolate3" => 3,
+        "convert" | "converttemp" => 2,
+        "lookup"
+        | "interpolate2dm"
+        | "t_sat"
+        | "p_sat"
+        | "enthalpy_vaporization"
+        | "normalboilingpt"
+        | "humrat"
+        | "relhum"
+        | "wetbulb"
+        | "dewpoint"
+        | "enthalpy_formation"
+        | "lhv"
+        | "hhv" => 1,
+        f if props::property_function(f).is_some() => 1,
+        _ => 0,
+    }
+}
+
+impl Rename<'_, '_> {
+    fn keep(&self, name: &str) -> bool {
+        name.ends_with('#') || name.ends_with('$') || builtin_const(name, &self.b.m.unit_system).is_some() || self.b.user_consts.contains_key(name)
+    }
+    fn var(&self, display: &str) -> (String, String) {
+        let d = format!("{}.{display}", self.prefix);
+        (canon(&d), d)
+    }
+    fn expr(&self, e: &Expr) -> Expr {
+        match e {
+            Expr::Var { name, display, idx, span } => {
+                if idx.is_empty() {
+                    if let Some(x) = self.map.get(name) {
+                        return x.clone();
+                    }
+                }
+                if self.keep(name) {
+                    return e.clone();
+                }
+                let (n, d) = self.var(display);
+                Expr::Var { name: n, display: d, idx: idx.iter().map(|i| self.expr(i)).collect(), span: *span }
+            }
+            Expr::Num { .. } | Expr::Str { .. } => e.clone(),
+            Expr::Neg(a, s) => Expr::Neg(Box::new(self.expr(a)), *s),
+            Expr::Not(a, s) => Expr::Not(Box::new(self.expr(a)), *s),
+            Expr::Bin(op, a, b, s) => Expr::Bin(*op, Box::new(self.expr(a)), Box::new(self.expr(b)), *s),
+            Expr::Cmp(op, a, b, s) => Expr::Cmp(*op, Box::new(self.expr(a)), Box::new(self.expr(b)), *s),
+            Expr::Call { name, display, args, span } => {
+                let fixed = name_args(name);
+                let args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let bare = a.name.is_none() && matches!(&a.value, Expr::Var { idx, name, .. } if idx.is_empty() && !self.map.contains_key(name));
+                        if i < fixed && bare {
+                            return a.clone();
+                        }
+                        // the index of sum / product
+                        let n = match (&a.name, name.as_str(), i) {
+                            (Some(n), "sum" | "product", 1) => Some(self.var(n).1),
+                            _ => a.name.clone(),
+                        };
+                        Arg { name: n, value: self.expr(&a.value) }
+                    })
+                    .collect();
+                Expr::Call { name: name.clone(), display: display.clone(), args, span: *span }
+            }
+        }
+    }
+    fn stmt(&self, s: &Stmt) -> Stmt {
+        match s {
+            Stmt::Equation { lhs, rhs, span, trailing_comment, unit } => {
+                Stmt::Equation { lhs: self.expr(lhs), rhs: self.expr(rhs), span: *span, trailing_comment: trailing_comment.clone(), unit: unit.clone() }
+            }
+            Stmt::Duplicate { var, from, to, body, span } => {
+                Stmt::Duplicate { var: self.var(var).0, from: self.expr(from), to: self.expr(to), body: body.iter().map(|b| self.stmt(b)).collect(), span: *span }
+            }
+            Stmt::Call { name, inputs, outputs, span } => {
+                Stmt::Call { name: name.clone(), inputs: inputs.iter().map(|e| self.expr(e)).collect(), outputs: outputs.iter().map(|e| self.expr(e)).collect(), span: *span }
+            }
+            Stmt::Directive { .. } => s.clone(),
+        }
+    }
+}
+
+/// Text of an array element as written, for messages.
+fn display_of(e: &Expr) -> String {
+    match e {
+        Expr::Var { display, .. } => format!("{display}[...]"),
+        _ => String::new(),
+    }
+}
+
 fn ext(t: &mut Tape, f: Arc<dyn crate::funcs::ExtFn>, args: &[u32]) -> u32 {
     let st = t.args.len() as u32;
     t.args.extend_from_slice(args);
@@ -1022,6 +1176,39 @@ struct Lower<'b, 's> {
     env: HashMap<String, f64>,
     slots: Option<HashMap<String, u32>>,
     const_dims: Vec<(u32, Dim)>,
+    /// Variables bound to a tape node (the variable of `integral`)
+    bound: HashMap<String, u32>,
+    /// Arrays local to a function body, by name
+    arrays: HashMap<String, u32>,
+    /// Array elements the expression being compiled reads
+    loads: Vec<crate::funcs::Load>,
+}
+
+/// Nodes and weights of the n-point Gauss-Legendre rule on [-1, 1], from
+/// Newton's method on P_n (Press et al., Numerical Recipes, 3rd ed., §4.6).
+pub fn gauss_legendre(n: usize) -> Vec<(f64, f64)> {
+    let mut r = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut x = (std::f64::consts::PI * (i as f64 + 0.75) / (n as f64 + 0.5)).cos();
+        let mut dp = 1.0;
+        for _ in 0..100 {
+            // P_n(x) and P_n'(x) by the three-term recurrence
+            let (mut p0, mut p1) = (1.0, x);
+            for k in 2..=n {
+                let p2 = ((2 * k - 1) as f64 * x * p1 - (k - 1) as f64 * p0) / k as f64;
+                p0 = p1;
+                p1 = p2;
+            }
+            dp = n as f64 * (x * p1 - p0) / (x * x - 1.0);
+            let dx = p1 / dp;
+            x -= dx;
+            if dx.abs() < 1e-15 {
+                break;
+            }
+        }
+        r.push((x, 2.0 / ((1.0 - x * x) * dp * dp)));
+    }
+    r
 }
 
 impl Lower<'_, '_> {
@@ -1032,21 +1219,38 @@ impl Lower<'_, '_> {
     }
 
     fn fexpr(&mut self, e: &Expr) -> Result<Expr1, Diagnostic> {
+        let saved = std::mem::take(&mut self.loads);
         let mut t = Tape::default();
-        let root = self.expr(e, &mut t)?;
-        Ok(Expr1 { tape: t, root })
+        let root = self.expr(e, &mut t);
+        let loads = std::mem::replace(&mut self.loads, saved);
+        Ok(Expr1 { tape: t, root: root?, loads })
+    }
+
+    fn array(&mut self, name: &str) -> u32 {
+        let n = self.arrays.len() as u32;
+        *self.arrays.entry(name.to_string()).or_insert(n)
+    }
+
+    /// A fresh local slot, for intermediate values.
+    fn temp_slot(&mut self) -> u32 {
+        let n = self.slots.as_ref().map_or(0, |s| s.len());
+        self.slot(&format!("\u{1}{n}"))
     }
 
     fn fblock(&mut self, body: &[FStmt]) -> Result<Vec<IStmt>, Diagnostic> {
         let mut out = Vec::new();
         for s in body {
+            let mut after = Vec::new();
             out.push(match s {
-                FStmt::Assign { target, idx, value, span } => {
-                    if !idx.is_empty() {
-                        return Err(err("arrays are not supported inside functions yet", *span));
-                    }
+                FStmt::Assign { target, idx, value, .. } => {
                     let e = self.fexpr(value)?;
-                    IStmt::Assign(self.slot(target), e)
+                    if idx.is_empty() {
+                        IStmt::Assign(self.slot(target), e)
+                    } else {
+                        let array = self.array(target);
+                        let ix = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                        IStmt::AssignIdx(array, ix, e)
+                    }
                 }
                 FStmt::If { cond, then, els, .. } => IStmt::If(self.fexpr(cond)?, self.fblock(then)?, self.fblock(els)?),
                 FStmt::Repeat { body, until, .. } => IStmt::Repeat(self.fblock(body)?, self.fexpr(until)?),
@@ -1074,11 +1278,24 @@ impl Lower<'_, '_> {
                 FStmt::Call { name, inputs, outputs, span } => {
                     let cell = self.b.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), *span))?;
                     let ins = inputs.iter().map(|e| self.fexpr(e)).collect::<Result<Vec<_>, _>>()?;
-                    let outs = outputs.iter().map(|(n, _)| self.slot(n)).collect();
+                    let mut outs = Vec::new();
+                    for (n, idx) in outputs {
+                        if idx.is_empty() {
+                            outs.push(self.slot(n));
+                        } else {
+                            // `Call p(x : a[i])`: through a slot into the array
+                            let tmp = self.temp_slot();
+                            outs.push(tmp);
+                            let array = self.array(n);
+                            let ix = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                            after.push(IStmt::AssignIdx(array, ix, crate::funcs::single(Op::Var(tmp))));
+                        }
+                    }
                     IStmt::Call(cell, ins, outs)
                 }
                 FStmt::Return { .. } => IStmt::Return,
             });
+            out.append(&mut after);
         }
         Ok(out)
     }
@@ -1101,6 +1318,9 @@ impl Lower<'_, '_> {
                     return Err(err(format!("'{name}' is a fluid name (Fluid::Ideal / Fluid::Real); it is only allowed as the fluid of a property function"), *span));
                 }
                 if idx.is_empty() {
+                    if let Some(n) = self.bound.get(name) {
+                        return Ok(*n);
+                    }
                     if let Some(v) = self.env.get(name) {
                         return Ok(t.constant(*v));
                     }
@@ -1124,7 +1344,12 @@ impl Lower<'_, '_> {
                 }
                 if self.slots.is_some() {
                     if !idx.is_empty() {
-                        return Err(err("arrays are not supported inside functions yet", *span));
+                        // array element: read into a slot before the expression is evaluated
+                        let array = self.array(name);
+                        let idx = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                        let slot = self.temp_slot();
+                        self.loads.push(crate::funcs::Load { slot, array, name: display_of(e), idx });
+                        return Ok(t.push(Op::Var(slot)));
                     }
                     let s = self.slot(name);
                     return Ok(t.push(Op::Var(s)));
@@ -1219,6 +1444,52 @@ impl Lower<'_, '_> {
             // temperature unit: it must not take (or give) the dimension of
             // a model temperature, or a display unit would convert it again
             return Ok(t.push(Op::F1(F1::Opaque, z)));
+        }
+        // ---- definite integral: integral(expr, x, a, b), 20-point Gauss-Legendre
+        if name == "integral" {
+            if args.len() != 4 || args.iter().any(|a| a.name.is_some()) {
+                return Err(err(format!("{display}(expression, x, from, to): the integral of the expression over x"), span));
+            }
+            let Expr::Var { name: var, idx, .. } = &args[1].value else {
+                return Err(err(format!("{display}: the second argument is the variable of integration"), args[1].value.span()));
+            };
+            if !idx.is_empty() {
+                return Err(err(format!("{display}: the variable of integration cannot be an array element"), args[1].value.span()));
+            }
+            let a = self.expr(&args[2].value, t)?;
+            let b = self.expr(&args[3].value, t)?;
+            let two = t.constant(2.0);
+            let s = t.push(Op::F2(F2::Add, a, b));
+            let mid = t.push(Op::F2(F2::Div, s, two));
+            let d = t.push(Op::F2(F2::Sub, b, a));
+            let half = t.push(Op::F2(F2::Div, d, two));
+            let saved = self.bound.remove(var);
+            let mut acc: Option<u32> = None;
+            for (xi, wi) in gauss_legendre(20) {
+                let k = t.constant(xi);
+                let off = t.push(Op::F2(F2::Mul, half, k));
+                let x = t.push(Op::F2(F2::Add, mid, off));
+                self.bound.insert(var.clone(), x);
+                let f = self.expr(&args[0].value, t);
+                let f = match f {
+                    Ok(f) => f,
+                    Err(e) => {
+                        self.bound.remove(var);
+                        return Err(e);
+                    }
+                };
+                let w = t.constant(wi);
+                let wf = t.push(Op::F2(F2::Mul, w, f));
+                acc = Some(match acc {
+                    None => wf,
+                    Some(p) => t.push(Op::F2(F2::Add, p, wf)),
+                });
+            }
+            match saved {
+                Some(n) => self.bound.insert(var.clone(), n),
+                None => self.bound.remove(var),
+            };
+            return Ok(t.push(Op::F2(F2::Mul, half, acc.unwrap())));
         }
         // ---- unrolled reductions: sum(expr, i=a, b)
         if (name == "sum" || name == "product") && args.len() == 3 && args[1].name.is_some() {
