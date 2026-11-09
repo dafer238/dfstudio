@@ -11,6 +11,7 @@
 //! ```
 
 pub mod ast;
+pub mod combustion;
 pub mod compile;
 pub mod dffile;
 pub mod diagrams;

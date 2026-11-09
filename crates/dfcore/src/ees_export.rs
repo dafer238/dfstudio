@@ -270,6 +270,7 @@ const PROP_FUNCS: &[(&str, &str)] = &[
     ("acentricfactor", "AcentricFactor"),
     ("v_crit", "V_crit"),
     ("normalboilingpt", "NormalBoilingPt"),
+    ("enthalpy_formation", "Enthalpy_Formation"),
 ];
 
 /// Humid-air functions (fluid `AirH2O`), unchanged.
@@ -277,7 +278,11 @@ const HUMID_FUNCS: &[&str] = &["humrat", "relhum", "wetbulb", "dewpoint"];
 
 /// Built-in functions of DeltaF Studio that EES may not have under the same
 /// name or meaning.
-const UNSURE_FUNCS: &[(&str, &str)] = &[("p_triple", "p_triple(Fluid) is not available; write P_sat(Fluid, T=T_triple(Fluid))")];
+const UNSURE_FUNCS: &[(&str, &str)] = &[
+    ("p_triple", "p_triple(Fluid) is not available; write P_sat(Fluid, T=T_triple(Fluid))"),
+    ("lhv", "LHV(Fluid) of DeltaF Studio is per kg at 25 C; check the units of LHV in the target program"),
+    ("hhv", "HHV(Fluid) of DeltaF Studio is per kg at 25 C; check the units of HHV in the target program"),
+];
 
 /// Result of an export.
 #[derive(Debug, Clone, Default)]
@@ -352,7 +357,8 @@ pub fn unit_system_line(us: &UnitSystem) -> String {
         EnergyUnit::KJ => "KJ",
         EnergyUnit::Btu => "BTU",
     };
-    format!("$UnitSystem {base} MASS {} {p} {t} {e}", if us.degrees { "DEG" } else { "RAD" })
+    let basis = if us.molar { "MOLAR" } else { "MASS" };
+    format!("$UnitSystem {base} {basis} {} {p} {t} {e}", if us.degrees { "DEG" } else { "RAD" })
 }
 
 /// Text of a comment, safe inside `{...}`.
@@ -707,6 +713,9 @@ impl<'a> Ctx<'a> {
                 let keys: Option<Vec<String>> = [0, 1, 3, 5].iter().map(|&k| lit(&args[k])).collect();
                 let Some(keys) = keys else { return Err("PropsSI with keys or fluid that are not text constants".into()) };
                 let out = Key::from_coolprop(&keys[0]).ok_or_else(|| format!("PropsSI output '{}' is not a property function", keys[0]))?;
+                if self.us.molar {
+                    return Err("PropsSI is per kg, the EES property functions of a MOLAR unit system per kmol".into());
+                }
                 let ees = ees_function(out).ok_or_else(|| format!("PropsSI output '{}' has no property function", keys[0]))?;
                 let (fluid, note) = Self::fluid_name(&strip(&keys[3]), false);
                 if let Some(n) = note {

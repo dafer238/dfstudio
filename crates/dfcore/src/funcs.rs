@@ -92,6 +92,8 @@ pub enum IStmt {
     Error(String, Option<Expr1>),
     /// `a[i, j] := value` on a local array
     AssignIdx(u32, Vec<Expr1>, Expr1),
+    /// `Call Warning('message XXXF2', x)`: note the message and go on
+    Warning(String, Option<Expr1>),
 }
 
 /// Read of a local array element into a slot, done before the expression
@@ -163,6 +165,7 @@ struct Interp {
     scratch: Scratch,
     /// Local arrays: element (indices) → value
     arrays: Vec<HashMap<Vec<i64>, f64>>,
+    warnings: Vec<String>,
 }
 
 fn index_of(v: f64) -> Result<i64, String> {
@@ -257,6 +260,13 @@ impl Interp {
                     }
                     self.arrays[*a as usize].insert(key, v);
                 }
+                IStmt::Warning(msg, x) => {
+                    let v = match x {
+                        Some(e) => Some(self.ev(e, locals)?),
+                        None => None,
+                    };
+                    self.warnings.push(error_message(msg, v));
+                }
                 IStmt::Error(msg, x) => {
                     let v = match x {
                         Some(e) => Some(self.ev(e, locals)?),
@@ -282,7 +292,22 @@ impl Interp {
 }
 
 thread_local! {
-    static PROC_CACHE: RefCell<HashMap<usize, (Vec<f64>, Vec<f64>)>> = RefCell::new(HashMap::new());
+    static PROC_CACHE: RefCell<HashMap<usize, (Vec<f64>, Vec<f64>, Vec<String>)>> = RefCell::new(HashMap::new());
+    static WARNINGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn warn(msg: String) {
+    WARNINGS.with(|w| {
+        let mut w = w.borrow_mut();
+        if !w.contains(&msg) {
+            w.push(msg);
+        }
+    });
+}
+
+/// The `Call Warning` messages since the last call (this thread).
+pub fn take_warnings() -> Vec<String> {
+    WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()))
 }
 
 /// Run a compiled function/procedure and return all its outputs.
@@ -292,18 +317,21 @@ pub fn call_func(cell: &Arc<FuncCell>, args: &[f64]) -> Result<Vec<f64>, String>
         return Err(format!("'{}' expects {} arguments, got {}", f.name, f.nparams, args.len()));
     }
     let key = Arc::as_ptr(cell) as usize;
-    if let Some(hit) = PROC_CACHE.with(|c| c.borrow().get(&key).filter(|(a, _)| a.as_slice() == args).map(|(_, o)| o.clone())) {
+    if let Some((hit, ws)) = PROC_CACHE.with(|c| c.borrow().get(&key).filter(|(a, ..)| a.as_slice() == args).map(|(_, o, w)| (o.clone(), w.clone()))) {
+        ws.into_iter().for_each(warn);
         return Ok(hit);
     }
     let mut locals = vec![f64::NAN; f.nslots];
     locals[..args.len()].copy_from_slice(args);
-    let mut it = Interp { steps: 0, scratch: Scratch::default(), arrays: vec![HashMap::new(); f.narrays] };
+    let mut it = Interp { steps: 0, scratch: Scratch::default(), arrays: vec![HashMap::new(); f.narrays], warnings: Vec::new() };
     it.run(&f.body, &mut locals)?;
     let out: Vec<f64> = f.out_slots.iter().map(|s| locals[*s as usize]).collect();
     if let Some(k) = out.iter().position(|v| v.is_nan()) {
         return Err(format!("'{}' did not assign output #{}", f.name, k + 1));
     }
-    PROC_CACHE.with(|c| c.borrow_mut().insert(key, (args.to_vec(), out.clone())));
+    let ws = std::mem::take(&mut it.warnings);
+    ws.iter().cloned().for_each(warn);
+    PROC_CACHE.with(|c| c.borrow_mut().insert(key, (args.to_vec(), out.clone(), ws)));
     Ok(out)
 }
 

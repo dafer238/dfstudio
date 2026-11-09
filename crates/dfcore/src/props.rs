@@ -77,6 +77,17 @@ impl Key {
             Key::Q | Key::Prandtl | Key::Z | Key::Phase => Dim::NONE,
         }
     }
+    /// Dimension per amount of substance (EES molar unit system): h, u, s,
+    /// cp, cv, v and density per mol; the other properties as `dim`.
+    pub fn molar_dim(self) -> Dim {
+        match self {
+            Key::H | Key::U => Dim::MOLAR_ENERGY,
+            Key::S | Key::Cp | Key::Cv => Dim::MOLAR_ENTROPY,
+            Key::D => Dim([0, -3, 0, 0, 1, 0, 0]),
+            Key::V | Key::Vcrit => Dim([0, 3, 0, 0, -1, 0, 0]),
+            k => k.dim(),
+        }
+    }
     /// CoolProp parameter name.
     pub fn coolprop(self) -> &'static str {
         match self {
@@ -218,6 +229,9 @@ pub const PROPERTY_FUNCTIONS: &[(&str, &str)] = &[
     ("p_triple", "Triple-point pressure  p_triple(Fluid)"),
     ("acentricfactor", "Acentric factor  acentricfactor(Fluid)"),
     ("normalboilingpt", "Normal boiling point (T_sat at 1 atm)  normalboilingpt(Fluid)"),
+    ("enthalpy_formation", "Enthalpy of formation at 25 C per kg  enthalpy_formation(Fluid or 'A[x]&B[y]')"),
+    ("lhv", "Lower heating value at 25 C per kg (water as vapour)  lhv(Fluid or 'A[x]&B[y]')"),
+    ("hhv", "Higher heating value at 25 C per kg (water condensed)  hhv(Fluid or 'A[x]&B[y]')"),
     ("kinematicviscosity", "Kinematic viscosity mu/rho  kinematicviscosity(Fluid, P=, T=)"),
     ("thermaldiffusivity", "Thermal diffusivity k/(rho cp)  thermaldiffusivity(Fluid, P=, T=)"),
     ("isentropicexponent", "Isentropic exponent -(v/P)(dP/dv)_s (cp/cv for an ideal gas)  isentropicexponent(Fluid, P=, T=)"),
@@ -385,20 +399,36 @@ pub struct Conv {
     unit: Unit,
     /// specific volume: value is 1/density
     reciprocal: bool,
+    /// per-mass SI value = `scale` × SI value of the model unit: 1/M for
+    /// molar h, u, s, cp, cv, v (J/mol → J/kg), M for molar density, else 1
+    scale: f64,
 }
 
 impl Conv {
-    pub fn new(key: Key, us: Option<&UnitSystem>) -> Conv {
+    /// `m`: molar mass (kg/mol) of the fluid, used when the unit system is
+    /// molar (EES `$UnitSystem MOLAR`).
+    pub fn new(key: Key, us: Option<&UnitSystem>, m: Option<f64>) -> Conv {
+        let molar = us.is_some_and(|u| u.molar) && m.is_some() && key.molar_dim() != key.dim();
+        let dim = if molar { key.molar_dim() } else { key.dim() };
         let unit = match us {
-            Some(us) => us.unit_for(key.dim()),
-            None => Unit::si(key.dim()),
+            Some(us) => us.unit_for(dim),
+            None => Unit::si(dim),
         };
-        Conv { unit, reciprocal: matches!(key, Key::V | Key::Vcrit) }
+        let scale = match (molar, m) {
+            (true, Some(m)) if key == Key::D => m,
+            (true, Some(m)) => 1.0 / m,
+            _ => 1.0,
+        };
+        Conv { unit, reciprocal: matches!(key, Key::V | Key::Vcrit), scale }
+    }
+    /// Dimension of the value in the model.
+    pub fn dim(&self) -> Dim {
+        self.unit.dim
     }
     /// model value -> CoolProp SI value (for V returns density)
     #[inline]
     fn to_cp(&self, v: f64) -> f64 {
-        let si = self.unit.to_si(v);
+        let si = self.unit.to_si(v) * self.scale;
         if self.reciprocal {
             1.0 / si
         } else {
@@ -408,22 +438,23 @@ impl Conv {
     /// d(cp value)/d(model value)
     #[inline]
     fn to_cp_deriv(&self, v: f64) -> f64 {
+        let k = self.unit.factor * self.scale;
         if self.reciprocal {
-            let si = self.unit.to_si(v);
-            -self.unit.factor / (si * si)
+            let si = self.unit.to_si(v) * self.scale;
+            -k / (si * si)
         } else {
-            self.unit.factor
+            k
         }
     }
     #[inline]
     fn from_cp(&self, y: f64) -> f64 {
         let si = if self.reciprocal { 1.0 / y } else { y };
-        self.unit.from_si(si)
+        self.unit.from_si(si / self.scale)
     }
     #[inline]
     fn from_cp_deriv(&self, y: f64) -> f64 {
         let d = if self.reciprocal { -1.0 / (y * y) } else { 1.0 };
-        d / self.unit.factor
+        d / (self.unit.factor * self.scale)
     }
 }
 
@@ -545,8 +576,8 @@ impl IdealGasCall {
         }
         let m = backend::props1_si(&cp, "molar_mass").or_else(|_| backend::props1_si(&cp, "M")).map_err(|e| format!("{label}: {e}"))?;
         let r = 8.314462618 / m;
-        let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
-        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inputs, conv_out: Conv::new(out, us), conv_in, r, off: (0.0, 0.0) };
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, Some(m))).collect();
+        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inputs, conv_out: Conv::new(out, us, Some(m)), conv_in, r, off: (0.0, 0.0) };
         if let Some((_, hf, s0)) = JANAF.iter().find(|j| j.0 == cp) {
             let t0 = 298.15;
             let h0 = g.raw_h(t0)?;
@@ -695,7 +726,7 @@ impl ExtFn for IdealGasCall {
         self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
-        Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
+        Some((self.conv_out.dim(), self.conv_in.iter().map(|c| c.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
         let si: Vec<f64> = args.iter().zip(&self.conv_in).map(|(a, c)| c.to_cp(*a)).collect();
@@ -723,8 +754,14 @@ impl PropCall {
             }
             backend::pair_name(inputs[0], inputs[1]).ok_or_else(|| format!("{label}: unsupported input pair {:?}/{:?}", inputs[0], inputs[1]))?;
         }
-        let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
-        Ok(PropCall { label, fluid: coolprop_fluid(fluid), out, inputs, conv_out: Conv::new(out, us), conv_in, si: us.is_none() })
+        let fluid = coolprop_fluid(fluid);
+        // molar mass for a molar unit system (kg/mol)
+        let m = match us {
+            Some(u) if u.molar => Some(backend::props(&fluid, Key::MolarMass, &[], &[], None).map_err(|e| format!("{label}: molar mass: {e}"))?),
+            _ => None,
+        };
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, m)).collect();
+        Ok(PropCall { label, fluid, out, inputs, conv_out: Conv::new(out, us, m), conv_in, si: us.is_none() })
     }
 }
 
@@ -739,7 +776,7 @@ impl ExtFn for PropCall {
         if self.si {
             return None;
         }
-        Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
+        Some((self.conv_out.dim(), self.conv_in.iter().map(|c| c.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
         let si: Vec<f64> = args.iter().zip(&self.conv_in).map(|(a, c)| c.to_cp(*a)).collect();

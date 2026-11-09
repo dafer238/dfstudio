@@ -114,6 +114,9 @@ const PROPS: &[(&str, &str, Arity, Dim)] = &[
     ("p_triple", "Triple-point pressure", Arity::None, Dim::PRESSURE),
     ("acentricfactor", "Acentric factor", Arity::None, Dim::NONE),
     ("normalboilingpt", "Normal boiling point", Arity::None, Dim::TEMP),
+    ("enthalpy_formation", "Enthalpy of formation (25 C)", Arity::None, Dim::SPEC_ENERGY),
+    ("lhv", "Lower heating value (25 C)", Arity::None, Dim::SPEC_ENERGY),
+    ("hhv", "Higher heating value (25 C)", Arity::None, Dim::SPEC_ENERGY),
 ];
 
 /// Humid-air functions (fluid `AirH2O`), three inputs including P.

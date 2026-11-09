@@ -291,6 +291,31 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
             _ => {}
         }
     }
+    // `A$ = B$`: copies, in any order
+    let copies: Vec<(&String, &String, Span)> = prog
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Var { name: from, idx: i2, .. }, span, .. }
+                if idx.is_empty() && i2.is_empty() && name.ends_with('$') && from.ends_with('$') =>
+            {
+                Some((name, from, *span))
+            }
+            _ => None,
+        })
+        .collect();
+    for _ in 0..=copies.len() {
+        for (to, from, _) in &copies {
+            if let Some(v) = b.strings.get(&canon(from)).cloned() {
+                b.strings.insert((*to).clone(), v);
+            }
+        }
+    }
+    for (to, from, span) in &copies {
+        if !b.strings.contains_key(*to) {
+            b.m.diagnostics.push(err(format!("string variable {from} is not set (write {from} = 'text')"), *span));
+        }
+    }
     // 2. register functions (late-bound so they may call each other)
     for f in &prog.funcs {
         if b.func_map.contains_key(&f.name) {
@@ -425,6 +450,10 @@ impl<'s> Builder<'s> {
         let name = canon(lhs.trim());
         if !name.ends_with('#') && !name.ends_with("#$") {
             self.m.diagnostics.push(err(format!("a constant name ends with # (e.g. {}#)", lhs.trim()), span));
+            return;
+        }
+        if builtin_const(&name, &self.m.unit_system).is_some() {
+            self.m.diagnostics.push(err(format!("{} is a built-in constant; give the constant another name", lhs.trim()), span));
             return;
         }
         let pr = parse(&format!("__x = {}", text.trim()));
@@ -567,6 +596,8 @@ impl<'s> Builder<'s> {
             Stmt::Directive { .. } => {}
             // a string variable: no equation
             Stmt::Equation { lhs: Expr::Var { idx, .. }, rhs: Expr::Str { .. }, .. } if idx.is_empty() => {}
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Var { name: from, idx: i2, .. }, .. }
+                if idx.is_empty() && i2.is_empty() && name.ends_with('$') && from.ends_with('$') => {}
             Stmt::Equation { lhs, rhs, span, trailing_comment, unit } => {
                 let n = self.m.eqs.len();
                 if let Err(d) = self.equation(lhs, rhs, *span, env, trailing_comment.as_deref()) {
@@ -1263,8 +1294,8 @@ impl Lower<'_, '_> {
                     };
                     IStmt::For { slot, from: self.fexpr(from)?, to: self.fexpr(to)?, step, body: self.fblock(body)? }
                 }
-                FStmt::Call { name, inputs, outputs, span } if name == "error" && !self.b.func_map.contains_key(name) => {
-                    // EES `Call Error('message XXXF1', x)`
+                FStmt::Call { name, inputs, outputs, span } if (name == "error" || name == "warning") && !self.b.func_map.contains_key(name) => {
+                    // EES `Call Error('message XXXF1', x)`, `Call Warning(...)`
                     let (msg, rest) = match inputs.split_first() {
                         Some((Expr::Str { value, .. }, rest)) => (value.clone(), rest),
                         _ => ("Error".to_string(), &inputs[..]),
@@ -1273,7 +1304,11 @@ impl Lower<'_, '_> {
                         return Err(err("Call Error('message', value): a message and at most one value", *span));
                     }
                     let x = rest.first().map(|e| self.fexpr(e)).transpose()?;
-                    IStmt::Error(msg, x)
+                    if name == "warning" {
+                        IStmt::Warning(msg, x)
+                    } else {
+                        IStmt::Error(msg, x)
+                    }
                 }
                 FStmt::Call { name, inputs, outputs, span } => {
                     let cell = self.b.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), *span))?;
@@ -1736,6 +1771,23 @@ impl Lower<'_, '_> {
             }
             return Ok(Some(t.push(Op::F2(F2::Sub, h[0], h[1]))));
         }
+        if matches!(name, "enthalpy_formation" | "lhv" | "hhv") {
+            // per kg of the fluid or mixture, a constant
+            let [f] = args else { return Err(err(format!("{display}(Fluid) takes the fluid (or a mixture 'A[x]&B[y]') only"), span)) };
+            let fluid = self.fluid_arg(f)?;
+            let d = crate::combustion::molar(&fluid).map_err(|e| err(format!("{display}: {e}"), span))?;
+            let per_mol = match name {
+                "enthalpy_formation" => d.hf,
+                "lhv" => d.lhv,
+                _ => d.hhv,
+            };
+            // kJ/mol / (g/mol) = 1e6 J/kg; per kmol in a molar unit system
+            let (si, dim) = if us.molar { (per_mol * 1e3, Dim::MOLAR_ENERGY) } else { (per_mol / d.m * 1e6, Dim::SPEC_ENERGY) };
+            let v = us.unit_for(dim).from_si(si);
+            let n = t.constant(v);
+            self.const_dims.push((n, dim));
+            return Ok(Some(n));
+        }
         if name == "normalboilingpt" {
             // T_sat at 1 atm, a constant of the fluid
             let [f] = args else { return Err(err(format!("{display}(Fluid) takes the fluid only"), span)) };
@@ -1823,7 +1875,7 @@ impl Lower<'_, '_> {
                 let v = pc.eval(&[]).map_err(|e| err(e, span))?;
                 let n = t.constant(v);
                 // molarmass(Fluid) is kg/kmol, Tcrit a temperature, ...
-                self.const_dims.push((n, out.dim()));
+                self.const_dims.push((n, if us.molar { out.molar_dim() } else { out.dim() }));
                 return Ok(Some(n));
             }
             return Ok(Some(ext(t, Arc::new(pc), &nodes)));

@@ -300,7 +300,9 @@ pub fn solve_with_plan(model: &Model, plan: &Plan, x: &mut [f64], opts: &SolveOp
         }
         reports.push(rep);
     }
-    // residuals of all evaluable equations
+    // residuals of all evaluable equations; `Call Warning` messages of the
+    // functions at the solution
+    crate::funcs::take_warnings();
     let mut residuals = vec![f64::NAN; model.eqs.len()];
     let mut max_res: f64 = 0.0;
     for (e, eq) in model.eqs.iter().enumerate() {
@@ -338,6 +340,9 @@ pub fn solve_with_plan(model: &Model, plan: &Plan, x: &mut [f64], opts: &SolveOp
     }
     if converged && msg.is_empty() {
         msg = format!("Solved {} equations in {} blocks, max residual {:.2e}", model.eqs.len(), plan.blocks.len(), max_res);
+    }
+    for w in crate::funcs::take_warnings() {
+        msg.push_str(&format!("\nWarning: {w}"));
     }
     Solution {
         x: x.to_vec(),

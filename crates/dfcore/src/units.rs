@@ -396,6 +396,9 @@ pub struct UnitSystem {
     pub energy: EnergyUnit,
     /// Trigonometric functions take degrees instead of radians.
     pub degrees: bool,
+    /// EES `$UnitSystem MOLAR`: the property functions give h, u, s, cp, cv,
+    /// v and rho per kmol (per lbmol) instead of per kg (per lbm).
+    pub molar: bool,
 }
 
 impl Default for UnitSystem {
@@ -407,19 +410,19 @@ impl Default for UnitSystem {
 impl UnitSystem {
     /// Pure SI: K, Pa, J.
     pub fn si() -> Self {
-        UnitSystem { name: "SI".into(), temperature: TempUnit::K, pressure: PressUnit::Pa, energy: EnergyUnit::J, degrees: false }
+        UnitSystem { name: "SI".into(), temperature: TempUnit::K, pressure: PressUnit::Pa, energy: EnergyUnit::J, degrees: false, molar: false }
     }
     /// Engineering: °C, bar, kJ (kJ/kg, kW, kJ/kg-K).
     pub fn engineering() -> Self {
-        UnitSystem { name: "Engineering (C, bar, kJ)".into(), temperature: TempUnit::C, pressure: PressUnit::Bar, energy: EnergyUnit::KJ, degrees: false }
+        UnitSystem { name: "Engineering (C, bar, kJ)".into(), temperature: TempUnit::C, pressure: PressUnit::Bar, energy: EnergyUnit::KJ, degrees: false, molar: false }
     }
     /// SI with kPa and kJ: K, kPa, kJ.
     pub fn si_kpa() -> Self {
-        UnitSystem { name: "SI kPa (K, kPa, kJ)".into(), temperature: TempUnit::K, pressure: PressUnit::KPa, energy: EnergyUnit::KJ, degrees: false }
+        UnitSystem { name: "SI kPa (K, kPa, kJ)".into(), temperature: TempUnit::K, pressure: PressUnit::KPa, energy: EnergyUnit::KJ, degrees: false, molar: false }
     }
     /// Imperial / English engineering: °F, psia, Btu (Btu/lbm, Btu/lbm-R).
     pub fn imperial() -> Self {
-        UnitSystem { name: "Imperial (F, psia, Btu)".into(), temperature: TempUnit::F, pressure: PressUnit::Psia, energy: EnergyUnit::Btu, degrees: false }
+        UnitSystem { name: "Imperial (F, psia, Btu)".into(), temperature: TempUnit::F, pressure: PressUnit::Psia, energy: EnergyUnit::Btu, degrees: false, molar: false }
     }
     pub fn presets() -> Vec<UnitSystem> {
         vec![Self::engineering(), Self::si(), Self::si_kpa(), Self::imperial()]
@@ -431,9 +434,11 @@ impl UnitSystem {
         us.name = format!("Custom ({})", args.trim());
         for w in args.split(|c: char| c.is_whitespace() || c == ',') {
             match w.to_lowercase().as_str() {
-                "" | "mass" | "si" => {}
-                "eng" | "engineering" => us = UnitSystem::engineering(),
-                "imperial" | "english" | "eng_us" => us = UnitSystem::imperial(),
+                "" | "si" => {}
+                "mass" => us.molar = false,
+                "molar" => us.molar = true,
+                "eng" | "engineering" => us = UnitSystem { molar: us.molar, ..UnitSystem::engineering() },
+                "imperial" | "english" | "eng_us" => us = UnitSystem { molar: us.molar, ..UnitSystem::imperial() },
                 "c" => us.temperature = TempUnit::C,
                 "k" => us.temperature = TempUnit::K,
                 "f" => us.temperature = TempUnit::F,
