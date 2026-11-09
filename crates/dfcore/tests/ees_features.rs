@@ -112,3 +112,51 @@ fn heating_values_and_molar_units() {
     let (mm, sm) = run_with("$UnitSystem SI K kPa kJ mass\nh = enthalpy(Nitrogen, T=300, P=100)\n", &CompileOptions::default());
     assert!((v("hm") - val(&mm, &sm, "h")).abs() < 1e-9);
 }
+
+#[cfg(feature = "coolprop")]
+#[test]
+fn hot_gas_mixtures() {
+    // natural gas above the methane T_max (625 K): CoolProp's own P-h and P-s
+    // flashes fail there; the fallback search in T finds the state
+    let ng = "'Methane[0.9]&Ethane[0.05]&n-Propane[0.02]&Nitrogen[0.02]&CO2[0.01]'";
+    let src = format!(
+        "$UnitSystem SI C bar kJ mass\nT1 = 800\nP1 = 1.01325\nh1 = enthalpy({ng}, T=T1, P=P1)\ns1 = entropy({ng}, T=T1, P=P1)\n\
+         T2 = temperature({ng}, P=P1, h=h1)\nT3 = temperature({ng}, P=P1, s=s1)\nh4 = enthalpy({ng}, P=20, s=s1)\nT4 = temperature({ng}, P=20, h=h4)\n"
+    );
+    let (m, s) = run_with(&src, &CompileOptions::default());
+    let v = |n: &str| val(&m, &s, n);
+    assert!((v("T2") - 800.0).abs() < 1e-8 && (v("T3") - 800.0).abs() < 1e-8, "{} {}", v("T2"), v("T3"));
+    assert!(v("T4") > 1000.0 && v("T4") < 1300.0, "{}", v("T4"));
+    // ideal-gas mixture of flue gas: within 0.1 % of the real mixture at
+    // 800 C and 1 atm; SO2, which has no interaction parameters with N2 in
+    // CoolProp, works in the ideal-gas mixture
+    let flue = "Nitrogen[0.75]&CO2[0.08]&Water[0.10]&Oxygen[0.06]&Argon[0.01]";
+    let src = format!(
+        "$UnitSystem SI C bar kJ mass\nT = 800\nP = 1.01325\ncp_r = cp('{flue}', T=T, P=P)\ncp_i = cp('{flue}::Ideal', T=T, P=P)\n\
+         dh_r = enthalpy('{flue}', T=T, P=P) - enthalpy('{flue}', T=300, P=P)\ndh_i = enthalpy('{flue}::Ideal', T=T, P=P) - enthalpy('{flue}::Ideal', T=300, P=P)\n\
+         d_r = density('{flue}', T=T, P=P)\nd_i = density('{flue}::Ideal', T=T, P=P)\n\
+         h_s = enthalpy('Nitrogen[0.75]&CO2[0.08]&Water[0.10]&Oxygen[0.06]&SulfurDioxide[0.01]::Ideal', T=T, P=P)\n"
+    );
+    let (m, s) = run_with(&src, &CompileOptions::default());
+    let v = |n: &str| val(&m, &s, n);
+    for (a, b) in [("cp_r", "cp_i"), ("dh_r", "dh_i"), ("d_r", "d_i")] {
+        assert!((v(a) / v(b) - 1.0).abs() < 1e-3, "{a} = {}, {b} = {}", v(a), v(b));
+    }
+    assert!(v("h_s").is_finite());
+}
+
+#[cfg(feature = "coolprop")]
+#[test]
+fn adiabatic_flame_temperature_of_methane() {
+    // CH4 + 2 (O2 + 3.76 N2) -> CO2 + 2 H2O + 7.52 N2, frozen composition
+    // (no dissociation): about 2330 K (Turns, An Introduction to
+    // Combustion, ex. 2.5, estimates 2318 K with a constant cp)
+    let src = "$UnitSystem SI K kPa kJ molar\n\
+        h_R = enthalpy(Methane, T=298.15) + 2*enthalpy(Oxygen, T=298.15) + 7.52*enthalpy(Nitrogen, T=298.15)\n\
+        h_R = 10.52*enthalpy('CO2[1]&Water[2]&Nitrogen[7.52]::Ideal', T=T_ad)\n$Guess T_ad = 2000\n\
+        q = h_R - 10.52*enthalpy('CO2[1]&Water[2]&Nitrogen[7.52]::Ideal', T=298.15)\n";
+    let (m, s) = run_with(src, &CompileOptions::default());
+    assert!((val(&m, &s, "T_ad") - 2328.0).abs() < 3.0, "{}", val(&m, &s, "T_ad"));
+    // the heat of reaction is the LHV
+    assert!((val(&m, &s, "q") - 802_301.0).abs() < 1.0);
+}

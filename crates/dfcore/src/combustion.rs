@@ -84,6 +84,12 @@ fn species(name: &str) -> Result<Molar, String> {
     Ok(Molar { m, hf: *hf, lhv: hf - prod_gas, hhv: hf - prod_liq })
 }
 
+/// Standard enthalpy of formation (kJ/mol, ideal gas, 298.15 K) of a
+/// species by its CoolProp name.
+pub fn formation_enthalpy(coolprop_name: &str) -> Option<f64> {
+    SPECIES.iter().find(|s| s.0.eq_ignore_ascii_case(coolprop_name)).map(|s| s.1)
+}
+
 /// Data of a fluid or a mixture `'A[x1]&B[x2]'` (mole fractions, normalised).
 pub fn molar(fluid: &str) -> Result<Molar, String> {
     let f = fluid.trim().trim_matches(['\'', '"']);

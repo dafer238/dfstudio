@@ -1825,7 +1825,10 @@ impl Lower<'_, '_> {
                 return Err(err(format!("{display}() needs a fluid as first argument"), span));
             }
             let fluid = self.fluid_arg(&args[0])?;
-            self.check_fluid(&fluid, span)?;
+            let mixture = fluid.contains('&');
+            if !mixture {
+                self.check_fluid(&fluid, span)?;
+            }
             let mut keys = Vec::new();
             let mut nodes = Vec::new();
             for a in &args[1..] {
@@ -1844,6 +1847,22 @@ impl Lower<'_, '_> {
                 props::Model::Real => false,
                 props::Model::Auto => keys.len() == 1 && out != Key::SurfTension,
             };
+            if mixture && self.b.opts.check_fluids {
+                // the ideal-gas mixture needs its components only; the real
+                // one also the binary interaction parameters of every pair
+                if ideal && !trivial {
+                    for c in props::coolprop_fluid(base).trim_start_matches("HEOS::").split('&') {
+                        self.check_fluid(c.split('[').next().unwrap_or(c), span)?;
+                    }
+                } else if let Err(e) = props::backend::check_fluid(&props::coolprop_fluid(&fluid)) {
+                    let hint = if e.contains("binary pair") {
+                        format!("; CoolProp has no interaction parameters for that pair: the ideal-gas mixture {display}('{base}::Ideal', ...) needs none")
+                    } else {
+                        String::new()
+                    };
+                    return Err(err(format!("{e}{hint}"), span));
+                }
+            }
             if trivial {
                 if !keys.is_empty() {
                     return Err(err(format!("{display}(Fluid) takes no state inputs"), span));

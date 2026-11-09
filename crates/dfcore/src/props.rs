@@ -506,31 +506,39 @@ pub fn split_model(name: &str) -> (&str, Model) {
 }
 
 /// Ideal-gas property: `enthalpy(CO2, T=T)`, `entropy(CO2::Ideal, T=T, P=P)`
-/// and the like.
+/// and the like, of a pure gas or of an ideal-gas mixture
+/// (`'Nitrogen[0.75]&CO2[0.1]&Water[0.15]::Ideal'`, mole fractions).
 ///
 /// The ideal-gas state is CoolProp's equation of state at a pressure low
 /// enough (1 Pa) for the residual part to vanish, so cp0(T) is the fluid's
-/// own ideal-gas heat capacity. For the species of [`JANAF`] the reference
-/// is the thermochemical one: h(298.15 K) = enthalpy of formation, s(298.15 K,
-/// 1 atm) = absolute entropy. Other fluids keep CoolProp's reference.
+/// own ideal-gas heat capacity. Reference state: h(298.15 K) = the standard
+/// enthalpy of formation for the species of [`crate::combustion`], so that
+/// the enthalpies of reacting mixtures balance; s(298.15 K, 1 atm) = the
+/// absolute entropy for the species of [`JANAF`]. Other fluids keep
+/// CoolProp's reference.
 ///
 /// Relations (e.g. Çengel & Boles, *Thermodynamics*, ch. 7): h = h(T),
 /// u = h − R T, cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T,
 /// Z = 1, speed of sound √(cp/cv · R T). Entropy from T alone is s° (1 atm).
+/// A mixture (Gibbs–Dalton, ch. 13): mass-fraction averages of h, cp and
+/// s° of the components, R = R_u / M with M = Σ x_i M_i, and the entropy of
+/// mixing −R Σ x_i ln x_i added to s°.
 ///
 /// Inputs: one of T, h, u; or two of T, P, h, u, s, v, d that fix T and P
 /// (h and u depend on T only, so T with h or u, or h with u, is not a state).
 pub struct IdealGasCall {
     pub label: String,
-    fluid: String,
+    /// components: CoolProp name, mass fraction, R_i (J/kg-K), (h offset
+    /// J/kg, s offset J/kg-K) added to CoolProp's low-pressure values
+    comps: Vec<(String, f64, f64, (f64, f64))>,
     out: Key,
     inputs: Vec<Key>,
     conv_out: Conv,
     conv_in: Vec<Conv>,
     /// J/kg-K
     r: f64,
-    /// (h offset J/kg, s offset J/kg-K) added to CoolProp's low-pressure values
-    off: (f64, f64),
+    /// entropy of mixing −R Σ x ln x, J/kg-K
+    s_mix: f64,
 }
 
 const P_IG: f64 = 1.0;
@@ -542,10 +550,35 @@ fn ideal_output(k: Key) -> bool {
     matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound | Key::IsenExp | Key::IsoComp | Key::ExpCoef)
 }
 
+fn raw_h(fluid: &str, t: f64) -> Result<f64, String> {
+    backend::props(fluid, Key::H, &[Key::T, Key::P], &[t, P_IG], None)
+}
+
+fn raw_s(fluid: &str, t: f64) -> Result<f64, String> {
+    backend::props(fluid, Key::S, &[Key::T, Key::P], &[t, P_IG], None)
+}
+
 impl IdealGasCall {
     pub fn new(label: String, fluid: &str, out: Key, inputs: Vec<Key>, us: Option<&UnitSystem>) -> Result<IdealGasCall, String> {
         let cp = coolprop_fluid(fluid);
-        if cp.contains("::") || cp.contains('[') || cp.contains('&') {
+        let cp = cp.strip_prefix("HEOS::").unwrap_or(&cp).to_string();
+        // components and mole fractions
+        let mut parts = Vec::new();
+        if cp.contains('&') || cp.contains('[') {
+            for c in cp.split('&') {
+                let Some((n, x)) = c.split_once('[') else {
+                    return Err(format!("{label}: give the mole fraction of every component, e.g. {c}[0.5]"));
+                };
+                let x: f64 = x.trim_end_matches(']').trim().parse().map_err(|_| format!("{label}: bad mole fraction in '{c}'"))?;
+                if !(x >= 0.0) {
+                    return Err(format!("{label}: negative mole fraction in '{c}'"));
+                }
+                parts.push((n.trim().to_string(), x));
+            }
+        } else {
+            parts.push((cp.clone(), 1.0));
+        }
+        if parts.iter().any(|(n, _)| n.contains("::")) {
             return Err(format!("{label}: {cp} has no ideal-gas model; use the real fluid with two state inputs"));
         }
         if !ideal_output(out) {
@@ -574,35 +607,53 @@ impl IdealGasCall {
                 "{label}: ideal-gas inputs are T, h or u alone (for h, u, cp, cv, s at 1 atm, T), or two of T, P, h, u, s, v, d that fix T and P (h and u depend on T only)"
             ));
         }
-        let m = backend::props1_si(&cp, "molar_mass").or_else(|_| backend::props1_si(&cp, "M")).map_err(|e| format!("{label}: {e}"))?;
-        let r = 8.314462618 / m;
-        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, Some(m))).collect();
-        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inputs, conv_out: Conv::new(out, us, Some(m)), conv_in, r, off: (0.0, 0.0) };
-        if let Some((_, hf, s0)) = JANAF.iter().find(|j| j.0 == cp) {
-            let t0 = 298.15;
-            let h0 = g.raw_h(t0)?;
-            let s_raw = g.raw_s(t0)?;
-            // CoolProp s at P_IG -> s at 1 atm: - R ln(P_STD / P_IG)
-            g.off = (hf * 1e3 / m - h0, s0 / m - (s_raw - r * (P_STD / P_IG).ln()));
+        let total: f64 = parts.iter().map(|p| p.1).sum();
+        if !(total > 0.0) {
+            return Err(format!("{label}: the mole fractions add up to zero"));
         }
-        Ok(g)
-    }
-    fn raw_h(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::H, &[Key::T, Key::P], &[t, P_IG], None)
-    }
-    fn raw_s(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::S, &[Key::T, Key::P], &[t, P_IG], None)
-    }
-    fn cp0(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::Cp, &[Key::T, Key::P], &[t, P_IG], None)
+        const RU: f64 = 8.314462618;
+        let mut comps = Vec::new();
+        let mut m = 0.0;
+        let mut ms = Vec::new();
+        for (n, x) in &parts {
+            let mi = backend::props1_si(n, "molar_mass").or_else(|_| backend::props1_si(n, "M")).map_err(|e| format!("{label}: {n}: {e}"))?;
+            ms.push(mi);
+            m += x / total * mi;
+        }
+        let r = RU / m;
+        let mut s_mix = 0.0;
+        for ((n, x), mi) in parts.iter().zip(&ms) {
+            let x = x / total;
+            if x > 0.0 {
+                s_mix -= r * x * x.ln();
+            }
+            let ri = RU / mi;
+            let t0 = 298.15;
+            let h_off = match crate::combustion::formation_enthalpy(n) {
+                Some(hf) => hf * 1e3 / mi - raw_h(n, t0)?,
+                None => 0.0,
+            };
+            // CoolProp s at P_IG -> s at 1 atm: - R ln(P_STD / P_IG)
+            let s_off = match JANAF.iter().find(|j| j.0 == n) {
+                Some((_, _, s0)) => s0 / mi - (raw_s(n, t0)? - ri * (P_STD / P_IG).ln()),
+                None => 0.0,
+            };
+            comps.push((n.clone(), x * mi / m, ri, (h_off, s_off)));
+        }
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, Some(m))).collect();
+        Ok(IdealGasCall { label, comps, out, inputs, conv_out: Conv::new(out, us, Some(m)), conv_in, r, s_mix })
     }
     /// h (J/kg) at T
     fn h(&self, t: f64) -> Result<f64, String> {
-        Ok(self.raw_h(t)? + self.off.0)
+        self.comps.iter().map(|(n, y, _, off)| Ok(y * (raw_h(n, t)? + off.0))).sum()
     }
     /// s° (J/kg-K) at T and 1 atm
     fn s0(&self, t: f64) -> Result<f64, String> {
-        Ok(self.raw_s(t)? - self.r * (P_STD / P_IG).ln() + self.off.1)
+        let s: f64 = self.comps.iter().map(|(n, y, ri, off)| Ok(y * (raw_s(n, t)? - ri * (P_STD / P_IG).ln() + off.1))).sum::<Result<f64, String>>()?;
+        Ok(s + self.s_mix)
+    }
+    fn cp0(&self, t: f64) -> Result<f64, String> {
+        self.comps.iter().map(|(n, y, _, _)| Ok(y * backend::props(n, Key::Cp, &[Key::T, Key::P], &[t, P_IG], None)?)).sum()
     }
     /// T from g(T) = x by Newton, with dg/dT given; from 300 K.
     fn invert(&self, x: f64, what: &str, f: impl Fn(f64) -> Result<(f64, f64), String>) -> Result<f64, String> {
@@ -1261,11 +1312,18 @@ pub mod backend {
             let m = msg(&buf);
             // CoolProp has no T-h or T-u flash for HEOS: find the pressure.
             let t_pos = inputs.iter().position(|k| *k == Key::T);
+            let p_pos = inputs.iter().position(|k| *k == Key::P);
             if m.contains("not yet supported") && t_pos.is_some() {
                 let tk = t_pos.unwrap();
                 let other = inputs[1 - tk];
                 let (t, target) = (vals[tk], vals[1 - tk]);
                 t_flash(&cp, fluid, h, other, t, target)?;
+                err = 0;
+            } else if let Some(pk) = p_pos.filter(|_| fluid.contains('&') && matches!(inputs[1 - p_pos.unwrap()], Key::H | Key::S | Key::U | Key::D | Key::V)) {
+                // mixture: CoolProp's HSU_P / DP flash fails above about the
+                // components' T_max; search T on P-T states instead
+                let other = if inputs[1 - pk] == Key::V { Key::D } else { inputs[1 - pk] };
+                p_flash(&cp, h, other, vals[pk], vals[1 - pk]).ok_or_else(|| format!("{fluid}: {m}"))?;
                 err = 0;
             } else {
                 return Err(format!("{fluid}: {m}"));
@@ -1405,6 +1463,80 @@ pub mod backend {
                 format!(" (below the saturated liquid, {what}_f = {:.3} kJ/kg; in a liquid {what} hardly depends on P, so T and {what} fix it poorly: give P instead)", yf / 1e3)
             })),
         }
+    }
+
+    /// Mixture state at pressure `p` where the property `other` (h, s, u or
+    /// density) equals `target`, by a search in T on P-T flashes, for when
+    /// CoolProp's own flash fails: it does above about the T_max of a
+    /// component (natural gas fails from 300-500 C, methane T_max = 625 K).
+    /// Newton from 300 K with the analytic (d other/dT)_P; failing that, a
+    /// bracket that grows geometrically from 300 K (h, s and u rise with T at
+    /// constant P, the density falls), narrowed by the Illinois variant of
+    /// regula falsi. Leaves the state at the solution.
+    fn p_flash(cp: &cplib::Shared<'_>, h: c_long, other: Key, p: f64, target: f64) -> Option<()> {
+        let ix = idx();
+        let po = ix.params[other.coolprop()];
+        let f = |t: f64| -> Option<f64> {
+            let mut e: c_long = 0;
+            let mut b = [0u8; BUF];
+            unsafe { cp.AbstractState_update(h, ix.pairs["PT_INPUTS"], p, t, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            if e != 0 {
+                return None;
+            }
+            let y = unsafe { cp.AbstractState_keyed_output(h, po, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            (e == 0 && y.is_finite()).then_some(y - target)
+        };
+        // Newton on T with the analytic (d other/dT)_P of the current state
+        let (pt_, pp_) = (ix.params["T"], ix.params["P"]);
+        let slope = || {
+            let mut e: c_long = 0;
+            let mut b = [0u8; BUF];
+            let d = unsafe { cp.AbstractState_first_partial_deriv(h, po, pt_, pp_, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            (e == 0 && d.is_finite() && d != 0.0).then_some(d)
+        };
+        let mut t = 300.0;
+        for _ in 0..40 {
+            let (Some(r), Some(d)) = (f(t), slope()) else { break };
+            let step = (r / d).clamp(-0.5 * t, 2.0 * t);
+            t -= step;
+            if step.abs() < 1e-12 * t {
+                return f(t).map(|_| ());
+            }
+        }
+        // the residual rises with T for h, s, u and falls for the density
+        let rising = other != Key::D;
+        let t0 = 300.0;
+        let f0 = f(t0)?;
+        let up = (f0 < 0.0) == rising;
+        let (mut a, mut fa) = (t0, f0);
+        let mut b = None;
+        for k in 1..=40 {
+            let t = if up { t0 * 1.25f64.powi(k) } else { t0 / 1.25f64.powi(k) };
+            if !(20.0..=1e4).contains(&t) {
+                break;
+            }
+            let Some(ft) = f(t) else { break };
+            if ft == 0.0 || ft.signum() != fa.signum() {
+                b = Some((t, ft));
+                break;
+            }
+            (a, fa) = (t, ft);
+        }
+        let (mut b, mut fb) = b?;
+        for _ in 0..200 {
+            if fb == 0.0 || (b - a).abs() < 1e-13 * b {
+                break;
+            }
+            let c = (a * fb - b * fa) / (fb - fa);
+            let fc = f(c)?;
+            if fc.signum() == fb.signum() {
+                fa /= 2.0;
+            } else {
+                (a, fa) = (b, fb);
+            }
+            (b, fb) = (c, fc);
+        }
+        f(b).map(|_| ())
     }
 
     fn cs(s: &str) -> CString {
