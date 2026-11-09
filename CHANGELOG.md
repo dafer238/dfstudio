@@ -24,6 +24,14 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   `temperature` (from P and s, P and v, h, ...), `soundspeed` and
   `compressibilityfactor` follow P v = R T. The Library builder's ideal-gas
   option writes `Fluid::Ideal`.
+- *File > Export simplified script…*: the equations rewritten in the
+  classic EES-style syntax, to copy to the clipboard or save as text. One
+  equation per line, numbers converted to model units with the original in
+  a comment, a `$UnitSystem` line, the unit of each computed variable as a
+  comment, fluid names by property model (formula for the ideal gas, full
+  name for the real fluid), and `ifelse`, `pow`, `**`, `d=` and `//`
+  translated. Whatever has no equivalent is marked *NOT TRANSLATED* on its
+  line and listed in a header. Also `dfs export model.dfs`.
 
 ## [1.0.3] - 2026-11-06
 
