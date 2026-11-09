@@ -282,6 +282,10 @@ fn lex_us(src: &str) -> Lexed {
                         continue;
                     }
                     i += 1;
+                    // `Fluid::Backend` (`CO2::Ideal`, `IF97::Water`) is one name
+                    if i + 2 < b.len() && b[i] == b':' && b[i + 1] == b':' && (b[i + 2].is_ascii_alphabetic() || b[i + 2] == b'_') {
+                        i += 2;
+                    }
                 }
                 if i == start {
                     // a non-alphanumeric unicode char
@@ -368,6 +372,12 @@ mod tests {
             toks("T[1] = 25 [C] {comment {nested}} \"c2\""),
             vec![Tok::Ident("T".into()), Tok::LBracket, Tok::Num(1.0), Tok::RBracket, Tok::Eq, Tok::Num(25.0), Tok::Unit("C".into()), Tok::Eof]
         );
+    }
+    #[test]
+    fn fluid_backend_suffix() {
+        assert_eq!(toks("f(CO2::Ideal)"), vec![Tok::Ident("f".into()), Tok::LParen, Tok::Ident("CO2::Ideal".into()), Tok::RParen, Tok::Eof]);
+        // a single colon (procedure outputs) is unchanged
+        assert_eq!(toks("a:b"), vec![Tok::Ident("a".into()), Tok::Colon, Tok::Ident("b".into()), Tok::Eof]);
     }
     #[test]
     fn newline_in_parens_ignored() {

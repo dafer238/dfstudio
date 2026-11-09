@@ -16,6 +16,14 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   (`'CarbonDioxide[0.9]&Ar[0.1]'`, `'IF97::Steam'`). The fluid table of the
   Library shows the other names of each fluid and finds a fluid by any of
   them, and completion offers them.
+- Property model in the fluid name: `CO2::Ideal` (ideal gas) and
+  `CO2::Real` (real fluid), with any alias. Without a suffix one state
+  input still gives the ideal gas and two the real fluid. The ideal gas now
+  takes two inputs too: `entropy(CO2::Ideal, T=T, P=P)` gives
+  s°(T) − R ln(P/1 atm), and `density`, `volume`, `pressure`,
+  `temperature` (from P and s, P and v, h, ...), `soundspeed` and
+  `compressibilityfactor` follow P v = R T. The Library builder's ideal-gas
+  option writes `Fluid::Ideal`.
 
 ## [1.0.3] - 2026-11-06
 

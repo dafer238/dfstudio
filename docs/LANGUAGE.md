@@ -106,14 +106,33 @@ Humid air, in model units (CoolProp `HAPropsSI`; per kg dry air):
 `wetbulb`, `dewpoint` of `AirH2O` with inputs `T`, `P`, `w`, `R`, `B`
 (wet bulb), `D` (dew point), `h`, e.g. `w = humrat(AirH2O, T=T1, P=P1, R=0.5)`.
 
-Ideal gas from one input: a call with only one state input uses the
-ideal-gas model of the fluid, e.g. `h = enthalpy(CO2, T=T[1])`. Allowed:
-`enthalpy`, `entropy`, `intenergy`, `cp`, `cv` from `T`, and `temperature`
-from `h` or `u`. Values come from the CoolProp ideal-gas part (the equation
-of state at 1 Pa); entropy is at 1 atm. For `CO2`, `Water`/`H2O`, `N2`,
-`O2`, `CO`, `H2`, `Ar`, `He`, `CH4`, `NH3`, `SO2` the thermochemical reference is used:
+Ideal gas or real fluid. A fluid name may carry the property model as a
+suffix: `CO2::Ideal` (ideal gas) or `CO2::Real` (real fluid, equation of
+state), with any alias (`CarbonDioxide::Ideal`, `H2O::Real`). Without a
+suffix the model follows the number of state inputs: one input gives the
+ideal gas, two the real fluid.
+
+```
+h1 = enthalpy(CO2, T=200)                    // one input: ideal gas
+h2 = enthalpy(CO2, T=200, P=1.013)           // two inputs: real fluid
+s3 = entropy(CO2::Ideal, T=200, P=1.013)     // ideal gas, s(T, P)
+h4 = enthalpy(CarbonDioxide::Real, T=200, P=80)
+```
+
+Ideal-gas relations: h(T) and cp0(T) are the fluid's own ideal-gas part of
+the CoolProp equation of state (the equation of state at 1 Pa), u = h − R T,
+cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T, Z = 1 and speed of
+sound √(cp/cv R T). Inputs: `T`, `h` or `u` alone (for `enthalpy`,
+`intenergy`, `cp`, `cv`, `temperature`, and `entropy` at 1 atm), or two of
+`T, P, h, u, s, v, d` that fix T and P (T with h is not a state, since h
+depends on T only). `quality`, `viscosity`, `conductivity`, `prandtl`,
+`surfacetension` and the saturation functions need the real fluid; `::Real`
+needs two inputs. For `CO2`, `Water`/`H2O`, `N2`, `O2`, `CO`, `H2`, `Ar`,
+`He`, `CH4`, `NH3`, `SO2` the ideal gas uses the thermochemical reference:
 h(25 °C) = enthalpy of formation and s = absolute entropy at 1 atm
-(NIST-JANAF). Other fluids keep the CoolProp reference.
+(NIST-JANAF; Chase, 1998), as EES does. Other fluids keep the CoolProp
+reference, and the real fluid always does, so do not mix the two models in
+one energy balance.
 
 Latent heat: `enthalpy_vaporization(Water, T=100)` (or `P=`).
 

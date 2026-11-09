@@ -256,11 +256,13 @@ fn alias_entry(name: &str) -> Option<&'static (&'static str, &'static [&'static 
 /// * a CoolProp backend prefix keeps the prefix and maps the fluid
 ///   (`IF97::Steam` → `IF97::Water`); `INCOMP::` and `LIQ::` names are kept;
 /// * in a mixture every component is mapped
-///   (`CarbonDioxide[0.9]&Ar[0.1]` → `CO2[0.9]&Argon[0.1]`).
+///   (`CarbonDioxide[0.9]&Ar[0.1]` → `CO2[0.9]&Argon[0.1]`);
+/// * a `::Ideal` / `::Real` suffix ([`split_model`]) is dropped.
 ///
 /// Unknown names are passed through, so CoolProp reports them.
 pub fn coolprop_fluid(name: &str) -> String {
-    let name = name.trim();
+    // the model suffix (`CO2::Ideal`) is not part of the fluid
+    let name = split_model(name).0;
     if let Some((c, _)) = alias_entry(name) {
         return c.to_string();
     }
@@ -386,21 +388,56 @@ const JANAF: &[(&str, f64, f64)] = &[
     ("SulfurDioxide", -296.842, 248.212),
 ];
 
-/// Ideal-gas property from one input: `enthalpy(CO2, T=T)` and the like.
+/// Property model of a fluid name: the `::Ideal` / `::Real` suffix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Model {
+    /// No suffix: one state input gives the ideal gas, two the real fluid.
+    Auto,
+    /// `Fluid::Ideal`: ideal gas with any number of state inputs.
+    Ideal,
+    /// `Fluid::Real`: the real fluid (equation of state), two state inputs.
+    Real,
+}
+
+/// Split a fluid name into the name and its model suffix:
+/// `CO2::Ideal` → (`CO2`, Ideal), `CarbonDioxide::real` → (`CarbonDioxide`,
+/// Real), `IF97::Water` → (`IF97::Water`, Auto). The suffix is not
+/// case-sensitive.
+pub fn split_model(name: &str) -> (&str, Model) {
+    let name = name.trim();
+    if let Some((base, last)) = name.rsplit_once("::") {
+        if last.eq_ignore_ascii_case("ideal") {
+            return (base, Model::Ideal);
+        }
+        if last.eq_ignore_ascii_case("real") {
+            return (base, Model::Real);
+        }
+    }
+    (name, Model::Auto)
+}
+
+/// Ideal-gas property: `enthalpy(CO2, T=T)`, `entropy(CO2::Ideal, T=T, P=P)`
+/// and the like.
 ///
 /// The ideal-gas state is CoolProp's equation of state at a pressure low
 /// enough (1 Pa) for the residual part to vanish, so cp0(T) is the fluid's
 /// own ideal-gas heat capacity. For the species of [`JANAF`] the reference
-/// the thermochemical one: h(298.15 K) = enthalpy of formation, s(298.15 K, 1 atm) =
-/// absolute entropy, s at 1 atm (standard state) when no pressure is given.
-/// Other fluids keep CoolProp's reference. u = h - R T, cv = cp - R.
+/// is the thermochemical one: h(298.15 K) = enthalpy of formation, s(298.15 K,
+/// 1 atm) = absolute entropy. Other fluids keep CoolProp's reference.
+///
+/// Relations (e.g. Çengel & Boles, *Thermodynamics*, ch. 7): h = h(T),
+/// u = h − R T, cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T,
+/// Z = 1, speed of sound √(cp/cv · R T). Entropy from T alone is s° (1 atm).
+///
+/// Inputs: one of T, h, u; or two of T, P, h, u, s, v, d that fix T and P
+/// (h and u depend on T only, so T with h or u, or h with u, is not a state).
 pub struct IdealGasCall {
     pub label: String,
     fluid: String,
     out: Key,
-    inp: Key,
+    inputs: Vec<Key>,
     conv_out: Conv,
-    conv_in: Conv,
+    conv_in: Vec<Conv>,
     /// J/kg-K
     r: f64,
     /// (h offset J/kg, s offset J/kg-K) added to CoolProp's low-pressure values
@@ -410,25 +447,46 @@ pub struct IdealGasCall {
 const P_IG: f64 = 1.0;
 const P_STD: f64 = 101_325.0;
 
+/// Outputs an ideal gas gives (transport properties, quality and surface
+/// tension need the real fluid).
+fn ideal_output(k: Key) -> bool {
+    matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound)
+}
+
 impl IdealGasCall {
-    pub fn new(label: String, fluid: &str, out: Key, inp: Key, us: Option<&UnitSystem>) -> Result<IdealGasCall, String> {
+    pub fn new(label: String, fluid: &str, out: Key, inputs: Vec<Key>, us: Option<&UnitSystem>) -> Result<IdealGasCall, String> {
         let cp = coolprop_fluid(fluid);
         if cp.contains("::") || cp.contains('[') || cp.contains('&') {
-            return Err(format!("{label}: {cp} has no ideal-gas state; give two state inputs"));
+            return Err(format!("{label}: {cp} has no ideal-gas model; use the real fluid with two state inputs"));
         }
-        let ok = match inp {
-            Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv),
-            Key::H | Key::U => out == Key::T,
+        if !ideal_output(out) {
+            return Err(format!("{label}: the ideal gas gives T, P, h, u, s, v, density, cp, cv, Z and the speed of sound; use the real fluid for this property"));
+        }
+        let caloric = |k: &Key| matches!(k, Key::T | Key::H | Key::U);
+        let ok = match inputs.as_slice() {
+            [k] => match k {
+                Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv | Key::T),
+                Key::H | Key::U => matches!(out, Key::T | Key::H | Key::U | Key::Cp | Key::Cv),
+                _ => false,
+            },
+            [a, b] => {
+                a != b
+                    && !(caloric(a) && caloric(b))
+                    && [a, b].iter().all(|k| matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::V | Key::D))
+                    // v (or d) with s fixes neither T nor P without a search in two variables
+                    && !([a, b].iter().any(|k| matches!(k, Key::V | Key::D)) && [a, b].iter().any(|k| **k == Key::S))
+            }
             _ => false,
         };
         if !ok {
             return Err(format!(
-                "{label}: with one input, the ideal-gas functions are enthalpy, entropy, intEnergy, cp, cv (T=...) and temperature (h=... or u=...); otherwise give two state inputs"
+                "{label}: ideal-gas inputs are T, h or u alone (for h, u, cp, cv, s at 1 atm, T), or two of T, P, h, u, s, v, d that fix T and P (h and u depend on T only)"
             ));
         }
         let m = backend::props1_si(&cp, "molar_mass").or_else(|_| backend::props1_si(&cp, "M")).map_err(|e| format!("{label}: {e}"))?;
         let r = 8.314462618 / m;
-        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inp, conv_out: Conv::new(out, us), conv_in: Conv::new(inp, us), r, off: (0.0, 0.0) };
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
+        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inputs, conv_out: Conv::new(out, us), conv_in, r, off: (0.0, 0.0) };
         if let Some((_, hf, s0)) = JANAF.iter().find(|j| j.0 == cp) {
             let t0 = 298.15;
             let h0 = g.raw_h(t0)?;
@@ -451,34 +509,100 @@ impl IdealGasCall {
     fn h(&self, t: f64) -> Result<f64, String> {
         Ok(self.raw_h(t)? + self.off.0)
     }
-    /// SI output from the SI input
-    pub fn eval_si(&self, x: f64) -> Result<f64, String> {
-        match (self.inp, self.out) {
-            (Key::T, Key::H) => self.h(x),
-            (Key::T, Key::U) => Ok(self.h(x)? - self.r * x),
-            // standard-state entropy (1 atm)
-            (Key::T, Key::S) => Ok(self.raw_s(x)? - self.r * (P_STD / P_IG).ln() + self.off.1),
-            (Key::T, Key::Cp) => self.cp0(x),
-            (Key::T, Key::Cv) => Ok(self.cp0(x)? - self.r),
-            (k, Key::T) => {
-                // invert h(T) (or u(T)) by Newton on cp0, from 300 K
-                let f = |t: f64| -> Result<(f64, f64), String> {
-                    let cp = self.cp0(t)?;
-                    Ok(if k == Key::H { (self.h(t)? - x, cp) } else { (self.h(t)? - self.r * t - x, cp - self.r) })
-                };
-                let mut t = 300.0;
-                for _ in 0..60 {
-                    let (r, d) = f(t)?;
-                    let step = (r / d).clamp(-0.5 * t, 2.0 * t);
-                    t -= step;
-                    if step.abs() < 1e-10 * t {
-                        return Ok(t);
-                    }
-                }
-                Err(format!("{}: no temperature found for {x} J/kg", self.label))
+    /// s° (J/kg-K) at T and 1 atm
+    fn s0(&self, t: f64) -> Result<f64, String> {
+        Ok(self.raw_s(t)? - self.r * (P_STD / P_IG).ln() + self.off.1)
+    }
+    /// T from g(T) = x by Newton, with dg/dT given; from 300 K.
+    fn invert(&self, x: f64, what: &str, f: impl Fn(f64) -> Result<(f64, f64), String>) -> Result<f64, String> {
+        let mut t = 300.0;
+        for _ in 0..80 {
+            let (g, d) = f(t)?;
+            let step = ((g - x) / d).clamp(-0.5 * t, 2.0 * t);
+            t -= step;
+            if step.abs() < 1e-10 * t {
+                return Ok(t);
             }
-            _ => Err(format!("{}: unsupported", self.label)),
         }
+        Err(format!("{}: no temperature found for {what} = {x}", self.label))
+    }
+    fn t_from_h(&self, h: f64) -> Result<f64, String> {
+        self.invert(h, "h", |t| Ok((self.h(t)?, self.cp0(t)?)))
+    }
+    fn t_from_u(&self, u: f64) -> Result<f64, String> {
+        self.invert(u, "u", |t| Ok((self.h(t)? - self.r * t, self.cp0(t)? - self.r)))
+    }
+    /// T from s at pressure p: s°(T) = s + R ln(p / 1 atm), ds°/dT = cp0 / T
+    fn t_from_s(&self, s: f64, p: f64) -> Result<f64, String> {
+        let target = s + self.r * (p / P_STD).ln();
+        self.invert(target, "s", |t| Ok((self.s0(t)?, self.cp0(t)? / t)))
+    }
+    /// The state (T K, P Pa if fixed) from the SI inputs.
+    fn state(&self, x: &[f64]) -> Result<(f64, Option<f64>), String> {
+        let get = |k: Key| self.inputs.iter().position(|i| *i == k).map(|i| x[i]);
+        // Conv gives the density for a v input, as for CoolProp
+        let rho = get(Key::D).or(get(Key::V));
+        // temperature from a caloric input
+        let t_cal = if let Some(t) = get(Key::T) {
+            Some(t)
+        } else if let Some(h) = get(Key::H) {
+            Some(self.t_from_h(h)?)
+        } else if let Some(u) = get(Key::U) {
+            Some(self.t_from_u(u)?)
+        } else {
+            None
+        };
+        let p = get(Key::P);
+        Ok(match (t_cal, p) {
+            (Some(t), Some(p)) => (t, Some(p)),
+            (Some(t), None) => {
+                if let Some(s) = get(Key::S) {
+                    (t, Some(P_STD * ((self.s0(t)? - s) / self.r).exp()))
+                } else if let Some(d) = rho {
+                    (t, Some(d * self.r * t))
+                } else {
+                    (t, None)
+                }
+            }
+            (None, Some(p)) => {
+                if let Some(s) = get(Key::S) {
+                    (self.t_from_s(s, p)?, Some(p))
+                } else if let Some(d) = rho {
+                    (p / (d * self.r), Some(p))
+                } else {
+                    return Err(format!("{}: no state", self.label));
+                }
+            }
+            (None, None) => return Err(format!("{}: no state", self.label)),
+        })
+    }
+    /// SI output from the SI inputs (density for v, as in CoolProp calls)
+    pub fn eval_si(&self, x: &[f64]) -> Result<f64, String> {
+        let (t, p) = self.state(x)?;
+        if t.is_nan() || t <= 0.0 {
+            return Err(format!("{}: T = {t} K", self.label));
+        }
+        let need_p = || p.ok_or_else(|| format!("{}: give the pressure too (or another input that fixes it)", self.label));
+        Ok(match self.out {
+            Key::T => t,
+            Key::P => need_p()?,
+            Key::H => self.h(t)?,
+            Key::U => self.h(t)? - self.r * t,
+            Key::S => match p {
+                Some(p) => self.s0(t)? - self.r * (p / P_STD).ln(),
+                // one input: standard-state entropy (1 atm)
+                None => self.s0(t)?,
+            },
+            Key::D | Key::V => need_p()? / (self.r * t),
+            Key::Cp => self.cp0(t)?,
+            Key::Cv => self.cp0(t)? - self.r,
+            Key::Z => 1.0,
+            Key::Sound => {
+                let cp = self.cp0(t)?;
+                (cp / (cp - self.r) * self.r * t).sqrt()
+            }
+            _ => return Err(format!("{}: unsupported", self.label)),
+        })
     }
 }
 
@@ -501,13 +625,14 @@ impl ExtFn for IdealGasCall {
         &self.label
     }
     fn arg_kinds(&self) -> Vec<Option<crate::funcs::ArgKind>> {
-        vec![self.inp.arg_kind()]
+        self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
-        Some((self.out.dim(), vec![self.inp.dim()]))
+        Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
-        let y = self.eval_si(self.conv_in.to_cp(args[0]))?;
+        let si: Vec<f64> = args.iter().zip(&self.conv_in).map(|(a, c)| c.to_cp(*a)).collect();
+        let y = self.eval_si(&si)?;
         Ok(self.conv_out.from_cp(y))
     }
 }

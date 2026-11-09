@@ -248,7 +248,9 @@ impl Builder {
             Arity::One(k) => k.to_vec(),
             Arity::Two if self.ideal => match self.func.as_str() {
                 "temperature" => vec!["h", "u"],
-                _ => vec!["T"],
+                "enthalpy" | "intenergy" | "cp" | "cv" => vec!["T"],
+                // T and P, or inputs that fix them (h and u depend on T only)
+                _ => vec!["T", "P", "h", "u", "s", "v", "d"],
             },
             Arity::Two => STATE_INPUTS.iter().map(|i| i.0).collect(),
         }
@@ -262,7 +264,10 @@ impl Builder {
         match self.arity() {
             Arity::None => 0,
             Arity::One(_) => 1,
-            Arity::Two if self.ideal => 1,
+            Arity::Two if self.ideal => match self.func.as_str() {
+                "temperature" | "enthalpy" | "intenergy" | "cp" | "cv" => 1,
+                _ => 2,
+            },
             Arity::Two => 2,
         }
     }
@@ -290,6 +295,7 @@ impl Builder {
 
     fn fluid_text(&self) -> String {
         match self.backend {
+            Backend::Default if self.ideal => format!("{}::Ideal", dfcore::props::split_model(&self.fluid).0),
             Backend::Default => self.fluid.clone(),
             Backend::If97 => "'IF97::Water'".into(),
             Backend::Incomp => format!("'INCOMP::{}'", self.fluid),
@@ -519,11 +525,17 @@ impl Library {
             });
             ui.end_row();
 
-            let can_ideal = self.b.backend == Backend::Default && matches!(self.b.func.as_str(), "enthalpy" | "entropy" | "intenergy" | "cp" | "cv" | "temperature");
+            let can_ideal = self.b.backend == Backend::Default
+                && matches!(
+                    self.b.func.as_str(),
+                    "enthalpy" | "entropy" | "intenergy" | "cp" | "cv" | "temperature" | "pressure" | "density" | "volume" | "soundspeed" | "compressibilityfactor"
+                );
             if can_ideal {
                 ui.label("");
-                ui.checkbox(&mut self.b.ideal, "Ideal gas (one input)")
-                    .on_hover_text("enthalpy, entropy, intenergy, cp, cv from T; temperature from h or u. Uses the ideal-gas part of the equation of state.");
+                ui.checkbox(&mut self.b.ideal, "Ideal gas (Fluid::Ideal)").on_hover_text(
+                    "Writes Fluid::Ideal: the ideal-gas model, P v = R T with the fluid's own cp0(T). enthalpy, intenergy, cp, cv from T; entropy, density, ... from T and P. \
+                     Without it, one input selects the ideal gas and two the real fluid; Fluid::Real forces the real fluid.",
+                );
                 ui.end_row();
             } else {
                 self.b.ideal = false;
@@ -851,6 +863,11 @@ mod tests {
         b.fix_inputs();
         assert_eq!(b.ins.len(), 1);
         assert_eq!(b.ins[0].0, "T");
+        assert!(b.call(", ").starts_with("enthalpy(Water::Ideal, T="));
+        b.func = "entropy".into();
+        b.fix_inputs();
+        assert_eq!(b.ins.len(), 2);
+        b.func = "enthalpy".into();
         b.backend = Backend::HumidAir;
         b.ideal = false;
         b.fix_inputs();
