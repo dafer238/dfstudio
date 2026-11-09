@@ -55,7 +55,18 @@ indices, or variables set to a constant somewhere in the model).
 
 Math: `sin cos tan asin acos atan atan2 sinh cosh tanh exp ln log10 sqrt abs
 sign floor ceil round trunc step min max mod pow`, `ifelse(cond, a, b)`,
-`if(a, b, x, y, z)` (x if a<b, y if a=b, z if a>b), `sum`, `product`.
+`if(a, b, x, y, z)` (x if a<b, y if a=b, z if a>b), `sum`, `product`,
+`average(a, b, ...)`.
+
+Special functions: `erf`, `erfc`, `gamma_` (Γ(x); Γ(n + 1) = n!),
+`factorial` (n! of round(n), 1 for n ≤ 0), and the Bessel functions of order
+0 and 1: `bessel_j0`, `bessel_j1`, `bessel_y0`, `bessel_y1` (first and second
+kind) and `bessel_i0`, `bessel_i1`, `bessel_k0`, `bessel_k1` (modified; fin
+efficiencies of annular fins, for instance). erf, Γ, J and Y are computed to
+machine precision (fdlibm algorithms); I and K use the polynomial
+approximations of Abramowitz & Stegun (1972, §9.8), with a relative error
+below 2·10⁻⁷, as EES does. All have derivatives, so they can be solved for
+their argument (`erf(x) = 0.5`).
 
 Constants: `pi`, `g#`, `R#`, `sigma#`, `k#`, `N_A#`, `h#`, `c#`.
 
@@ -67,7 +78,9 @@ Named-input functions, in model units:
 |---|---|
 | `enthalpy`, `entropy`, `intenergy`, `temperature`, `pressure`, `density`, `volume`, `quality`, `cp`, `cv`, `viscosity`, `conductivity`, `soundspeed`, `prandtl`, `compressibilityfactor` | `s = entropy(Water, P=P1, h=h1)` |
 | `surfacetension` | `sigma = surfacetension(Water, T=T1)` |
-| `molarmass`, `t_crit`, `p_crit` | `M = molarmass(CO2)` |
+| `kinematicviscosity` (μ/ρ), `thermaldiffusivity` (k/(ρ cp)) | `nu = kinematicviscosity(Air, T=T1, P=P1)` |
+| `isentropicexponent` (−(v/P)(∂P/∂v)ₛ; cp/cv for an ideal gas), `isothermalcompress` (−(1/v)(∂v/∂P)_T, 1/model pressure unit), `volexpcoef` ((1/v)(∂v/∂T)_P, 1/K) | `k = isentropicexponent(Steam, T=870, P=350)` |
+| `molarmass`, `t_crit`, `p_crit`, `v_crit`, `t_triple`, `p_triple`, `acentricfactor`, `normalboilingpt` (T_sat at 1 atm) | `M = molarmass(CO2)` |
 | `t_sat`, `p_sat` | `Ts = t_sat(R134a, P=P1)` |
 
 State inputs: `T, P, h, s, u, v, d (rho), x (quality)`. T with h (or u),
@@ -105,6 +118,8 @@ Humid air, in model units (CoolProp `HAPropsSI`; per kg dry air):
 `enthalpy`, `entropy`, `volume`, `temperature`, `cp`, `humrat`, `relhum`,
 `wetbulb`, `dewpoint` of `AirH2O` with inputs `T`, `P`, `w`, `R`, `B`
 (wet bulb), `D` (dew point), `h`, e.g. `w = humrat(AirH2O, T=T1, P=P1, R=0.5)`.
+`HumidAir`, `Humid_Air`, `MoistAir`, `Moist_Air`, `AirWater` and `Air_H2O`
+are other names of `AirH2O`.
 
 Ideal gas or real fluid. A fluid name may carry the property model as a
 suffix: `CO2::Ideal` (ideal gas) or `CO2::Real` (real fluid, equation of
@@ -121,11 +136,13 @@ h4 = enthalpy(CarbonDioxide::Real, T=200, P=80)
 
 Ideal-gas relations: h(T) and cp0(T) are the fluid's own ideal-gas part of
 the CoolProp equation of state (the equation of state at 1 Pa), u = h − R T,
-cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T, Z = 1 and speed of
-sound √(cp/cv R T). Inputs: `T`, `h` or `u` alone (for `enthalpy`,
+cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T, Z = 1, speed of
+sound √(cp/cv R T), isentropic exponent cp/cv, compressibility 1/P and
+expansion coefficient 1/T. Inputs: `T`, `h` or `u` alone (for `enthalpy`,
 `intenergy`, `cp`, `cv`, `temperature`, and `entropy` at 1 atm), or two of
 `T, P, h, u, s, v, d` that fix T and P (T with h is not a state, since h
-depends on T only). `quality`, `viscosity`, `conductivity`, `prandtl`,
+depends on T only). `quality`, `viscosity`, `conductivity`, `prandtl`, the
+kinematic viscosity and the thermal diffusivity,
 `surfacetension` and the saturation functions need the real fluid; `::Real`
 needs two inputs. For `CO2`, `Water`/`H2O`, `N2`, `O2`, `CO`, `H2`, `Ar`,
 `He`, `CH4`, `NH3`, `SO2` the ideal gas uses the thermochemical reference:
@@ -160,6 +177,10 @@ End
 
 Call split(m[1], 0.3 : m[2], m[3])
 ```
+
+`Call Error('T must be above XXXF1 K', T_min)` inside a function or
+procedure stops the calculation with that message; `XXX` is replaced by the
+value (`XXXF2`: two decimals, `XXXE3`: exponent form, as in EES).
 
 Statements inside functions: assignment (`:=` or `=`), `If/Then/ElseIf/Else/EndIf`
 (also single-line; in a condition `=` compares, as `<>` and the other

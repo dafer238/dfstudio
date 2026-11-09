@@ -20,6 +20,7 @@ rayon = "1.10"
 coolprop-sys = "8"
 flate2 = "1"
 crc32fast = "1"
+libm = "0.2"
 
 [profile.release]
 opt-level = 3

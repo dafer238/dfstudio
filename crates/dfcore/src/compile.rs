@@ -783,6 +783,18 @@ pub fn math_f1(name: &str) -> Option<F1> {
         "round" => F1::Round,
         "trunc" => F1::Trunc,
         "step" => F1::Step,
+        "erf" => F1::Erf,
+        "erfc" => F1::Erfc,
+        "gamma_" => F1::Gamma,
+        "factorial" => F1::Factorial,
+        "bessel_j0" => F1::BesselJ0,
+        "bessel_j1" => F1::BesselJ1,
+        "bessel_y0" => F1::BesselY0,
+        "bessel_y1" => F1::BesselY1,
+        "bessel_i0" => F1::BesselI0,
+        "bessel_i1" => F1::BesselI1,
+        "bessel_k0" => F1::BesselK0,
+        "bessel_k1" => F1::BesselK1,
         _ => return None,
     })
 }
@@ -809,8 +821,21 @@ pub const MATH_FUNCTIONS: &[(&str, &str)] = &[
     ("round", "round(x)"),
     ("trunc", "trunc(x)"),
     ("step", "step(x) = 1 if x >= 0 else 0"),
+    ("erf", "Error function erf(x)"),
+    ("erfc", "Complementary error function erfc(x) = 1 - erf(x)"),
+    ("gamma_", "Gamma function gamma_(x); gamma_(n+1) = n!"),
+    ("factorial", "factorial(n) = n! of round(n); 1 for n <= 0"),
+    ("bessel_j0", "Bessel function of the first kind, order 0: bessel_j0(x)"),
+    ("bessel_j1", "Bessel function of the first kind, order 1: bessel_j1(x)"),
+    ("bessel_y0", "Bessel function of the second kind, order 0: bessel_y0(x), x > 0"),
+    ("bessel_y1", "Bessel function of the second kind, order 1: bessel_y1(x), x > 0"),
+    ("bessel_i0", "Modified Bessel function of the first kind, order 0: bessel_i0(x)"),
+    ("bessel_i1", "Modified Bessel function of the first kind, order 1: bessel_i1(x)"),
+    ("bessel_k0", "Modified Bessel function of the second kind, order 0: bessel_k0(x), x > 0"),
+    ("bessel_k1", "Modified Bessel function of the second kind, order 1: bessel_k1(x), x > 0"),
     ("min", "min(a, b, ...)"),
     ("max", "max(a, b, ...)"),
+    ("average", "average(a, b, ...): arithmetic mean"),
     ("mod", "mod(a, b)"),
     ("pow", "pow(a, b)"),
     ("convert", "convert(from, to): factor between two units, e.g. convert(bar, kPa) = 100"),
@@ -864,6 +889,18 @@ impl Lower<'_, '_> {
                         None => None,
                     };
                     IStmt::For { slot, from: self.fexpr(from)?, to: self.fexpr(to)?, step, body: self.fblock(body)? }
+                }
+                FStmt::Call { name, inputs, outputs, span } if name == "error" && !self.b.func_map.contains_key(name) => {
+                    // EES `Call Error('message XXXF1', x)`
+                    let (msg, rest) = match inputs.split_first() {
+                        Some((Expr::Str { value, .. }, rest)) => (value.clone(), rest),
+                        _ => ("Error".to_string(), &inputs[..]),
+                    };
+                    if !outputs.is_empty() || rest.len() > 1 {
+                        return Err(err("Call Error('message', value): a message and at most one value", *span));
+                    }
+                    let x = rest.first().map(|e| self.fexpr(e)).transpose()?;
+                    IStmt::Error(msg, x)
                 }
                 FStmt::Call { name, inputs, outputs, span } => {
                     let cell = self.b.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), *span))?;
@@ -1049,6 +1086,15 @@ impl Lower<'_, '_> {
                 let f = if name == "min" { F2::Min } else { F2::Max };
                 return Ok(v[1..].iter().fold(v[0], |acc, x| t.push(Op::F2(f, acc, *x))));
             }
+            "average" => {
+                if args.is_empty() {
+                    return Err(err(format!("{display}() needs arguments"), span));
+                }
+                let v: Vec<u32> = args.iter().map(|a| self.expr(&a.value, t)).collect::<Result<_, _>>()?;
+                let s = v[1..].iter().fold(v[0], |acc, x| t.push(Op::F2(F2::Add, acc, *x)));
+                let n = t.constant(v.len() as f64);
+                return Ok(t.push(Op::F2(F2::Div, s, n)));
+            }
             "pow" | "atan2" | "mod" => {
                 let a = self.positional(args, 2, display, span, t)?;
                 let f = match name {
@@ -1161,6 +1207,21 @@ impl Lower<'_, '_> {
             }
             return Ok(Some(t.push(Op::F2(F2::Sub, h[0], h[1]))));
         }
+        if name == "normalboilingpt" {
+            // T_sat at 1 atm, a constant of the fluid
+            let [f] = args else { return Err(err(format!("{display}(Fluid) takes the fluid only"), span)) };
+            let fluid = self.fluid_arg(f)?;
+            self.check_fluid(&fluid, span)?;
+            no_ideal(&fluid)?;
+            let base = props::split_model(&fluid).0;
+            let pc = PropCall::new(format!("{display}({base})"), base, Key::T, vec![Key::P, Key::Q], Some(&us)).map_err(|e| err(e, span))?;
+            use crate::funcs::ExtFn;
+            let p = us.unit_for(Dim::PRESSURE).from_si(101_325.0);
+            let v = pc.eval(&[p, 0.0]).map_err(|e| err(e, span))?;
+            let n = t.constant(v);
+            self.const_dims.push((n, Dim::TEMP));
+            return Ok(Some(n));
+        }
         let sat = match name {
             "t_sat" => Some((Key::T, Key::P)),
             "p_sat" => Some((Key::P, Key::T)),
@@ -1194,7 +1255,7 @@ impl Lower<'_, '_> {
                 keys.push(k);
                 nodes.push(self.expr(&a.value, t)?);
             }
-            let trivial = matches!(out, Key::MolarMass | Key::Tcrit | Key::Pcrit);
+            let trivial = out.is_fluid_constant();
             // property model: `Fluid::Ideal`, `Fluid::Real`, or from the number of inputs
             let (base, model) = props::split_model(&fluid);
             let ideal = match model {

@@ -88,6 +88,26 @@ pub enum IStmt {
     /// Call a procedure: (fn cell, inputs, output slots)
     Call(Arc<FuncCell>, Vec<Expr1>, Vec<u32>),
     Return,
+    /// `Call Error('message XXXF2', x)`: stop with the message
+    Error(String, Option<Expr1>),
+}
+
+/// EES error message: `XXX` (optionally `XXXF2`, `XXXE3`, `XXXA`) is
+/// replaced by the value, with 2 decimals, in exponent form with 3, or as is.
+pub fn error_message(msg: &str, value: Option<f64>) -> String {
+    let Some(v) = value else { return msg.to_string() };
+    let Some(k) = msg.find("XXX") else { return format!("{msg} ({v})") };
+    let rest = &msg[k + 3..];
+    let kind = rest.chars().next().filter(|c| matches!(c.to_ascii_uppercase(), 'F' | 'E' | 'A'));
+    let digits: String = rest.chars().skip(kind.is_some() as usize).take_while(|c| c.is_ascii_digit()).collect();
+    let used = kind.map_or(0, |_| 1 + digits.len());
+    let n: usize = digits.parse().unwrap_or(3);
+    let text = match kind.map(|c| c.to_ascii_uppercase()) {
+        Some('F') => format!("{v:.n$}"),
+        Some('E') => format!("{v:.n$e}"),
+        _ => format!("{v}"),
+    };
+    format!("{}{text}{}", &msg[..k], &rest[used..])
 }
 
 /// A single-root tape.
@@ -195,6 +215,13 @@ impl Interp {
                         }
                         i += st;
                     }
+                }
+                IStmt::Error(msg, x) => {
+                    let v = match x {
+                        Some(e) => Some(self.ev(e, locals)?),
+                        None => None,
+                    };
+                    return Err(error_message(msg, v));
                 }
                 IStmt::Call(cell, ins, outs) => {
                     let mut args = Vec::with_capacity(ins.len());

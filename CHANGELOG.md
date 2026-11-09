@@ -10,6 +10,18 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 - Humid air under other names: `HumidAir`, `Humid_Air`, `MoistAir`,
   `Moist_Air`, `AirWater` and `Air_H2O` are the same as `AirH2O` in the
   humid-air functions (`humrat(HumidAir, T=T, P=P, R=0.5)`), in any case.
+- Thermophysical functions, as in EES: `kinematicviscosity`,
+  `thermaldiffusivity`, `isentropicexponent` (the real-fluid exponent
+  −(v/P)(∂P/∂v)ₛ, cp/cv for an ideal gas), `isothermalcompress` (in 1/model
+  pressure unit), `volexpcoef` (1/K), and the fluid constants `v_crit`,
+  `t_triple`, `p_triple`, `acentricfactor` and `normalboilingpt`. The ideal
+  gas gives the isentropic exponent, compressibility and expansion
+  coefficient too, and the liquids of DeltaF Studio the kinematic viscosity,
+  diffusivity and expansion coefficient.
+- Special functions: `erf`, `erfc`, `gamma_`, `factorial`, Bessel functions
+  of order 0 and 1 (`bessel_j0` ... `bessel_k1`), and `average(a, b, ...)`.
+- `Call Error('message XXXF2', x)` in functions and procedures stops the
+  calculation with the message, the value written in place of `XXX`.
 - Export simplified script: `PropsSI`, `Props1SI` and `HAPropsSI` are
   written as the named property and `AirH2O` functions, with their SI
   arguments converted to model units (`T + 273.15`, `P*1e5` and a trailing

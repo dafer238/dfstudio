@@ -97,6 +97,11 @@ const PROPS: &[(&str, &str, Arity, Dim)] = &[
     ("soundspeed", "Speed of sound", Arity::Two, Dim::VELOCITY),
     ("prandtl", "Prandtl number", Arity::Two, Dim::NONE),
     ("compressibilityfactor", "Compressibility factor Z", Arity::Two, Dim::NONE),
+    ("kinematicviscosity", "Kinematic viscosity", Arity::Two, Dim::DIFFUSIVITY),
+    ("thermaldiffusivity", "Thermal diffusivity", Arity::Two, Dim::DIFFUSIVITY),
+    ("isentropicexponent", "Isentropic exponent", Arity::Two, Dim::NONE),
+    ("isothermalcompress", "Isothermal compressibility", Arity::Two, Dim::INV_PRESSURE),
+    ("volexpcoef", "Volumetric expansion coefficient", Arity::Two, Dim::INV_TEMP),
     ("surfacetension", "Surface tension", Arity::One(&["T"]), Dim::SURFACE_TENSION),
     ("t_sat", "Saturation temperature", Arity::One(&["P"]), Dim::TEMP),
     ("p_sat", "Saturation pressure", Arity::One(&["T"]), Dim::PRESSURE),
@@ -104,6 +109,11 @@ const PROPS: &[(&str, &str, Arity, Dim)] = &[
     ("molarmass", "Molar mass", Arity::None, Dim::MOLAR_MASS),
     ("t_crit", "Critical temperature", Arity::None, Dim::TEMP),
     ("p_crit", "Critical pressure", Arity::None, Dim::PRESSURE),
+    ("v_crit", "Critical specific volume", Arity::None, Dim::SPEC_VOLUME),
+    ("t_triple", "Triple-point temperature", Arity::None, Dim::TEMP),
+    ("p_triple", "Triple-point pressure", Arity::None, Dim::PRESSURE),
+    ("acentricfactor", "Acentric factor", Arity::None, Dim::NONE),
+    ("normalboilingpt", "Normal boiling point", Arity::None, Dim::TEMP),
 ];
 
 /// Humid-air functions (fluid `AirH2O`), three inputs including P.

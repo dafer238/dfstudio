@@ -248,3 +248,74 @@ fn start_value_precedence() {
     assert_eq!((x[i("y")], src[i("y")]), (-2.0, StartSource::Previous));
     assert_eq!((x[i("z")], src[i("z")]), (1.0, StartSource::Automatic));
 }
+
+#[test]
+fn special_functions() {
+    // reference values: Abramowitz & Stegun (1972), tables 7.1, 6.1, 9.1, 9.8
+    let (m, s) = run("a = erf(0.5); b = erfc(0.5); g = gamma_(4.5); f = factorial(5); f0 = factorial(-2)\n\
+         j0 = bessel_j0(1); j1 = bessel_j1(1); y0 = bessel_y0(1); y1 = bessel_y1(1)\n\
+         i0 = bessel_i0(1); i1 = bessel_i1(1); k0 = bessel_k0(1); k1 = bessel_k1(1); i5 = bessel_i0(5); k5 = bessel_k1(5)\n\
+         av = average(1, 2, 6)\nerf(x) = 0.5\nbessel_i1(w) = 1");
+    assert!(s.converged, "{}", s.message);
+    let near = |n: &str, v: f64, tol: f64| assert!((val(&m, &s, n) - v).abs() <= tol * v.abs(), "{n} = {} (expected {v})", val(&m, &s, n));
+    near("a", 0.5204998778, 1e-9);
+    near("b", 0.4795001222, 1e-9);
+    near("g", 11.6317283966, 1e-9);
+    near("f", 120.0, 0.0);
+    near("f0", 1.0, 0.0);
+    near("j0", 0.7651976866, 1e-9);
+    near("j1", 0.4400505857, 1e-9);
+    near("y0", 0.0882569642, 1e-8);
+    near("y1", -0.7812128213, 1e-9);
+    // modified Bessel functions: polynomial approximations, ~2e-7
+    near("i0", 1.2660658778, 3e-7);
+    near("i1", 0.5651591040, 3e-7);
+    near("k0", 0.4210244382, 3e-7);
+    near("k1", 0.6019072302, 3e-7);
+    near("i5", 27.239871823, 3e-7);
+    near("k5", 0.0040446134, 3e-7);
+    near("av", 3.0, 0.0);
+    // inverse through the derivatives: erf^-1(0.5), I1^-1(1)
+    near("x", 0.4769362762, 1e-8);
+    near("w", 1.5183471012, 1e-6);
+}
+
+#[test]
+fn call_error_stops_with_the_message() {
+    let (_, s) = run("Function f(x)\n  If x < 0 Then Call Error('x must be positive, got XXXF2', x)\n  f := sqrt(x)\nEnd\na = f(-3)");
+    assert!(!s.converged);
+    assert!(s.message.contains("x must be positive, got -3.00"), "{}", s.message);
+    assert_eq!(dfcore::funcs::error_message("T = XXXE2 K, too low", Some(1234.5)), "T = 1.23e3 K, too low");
+    assert_eq!(dfcore::funcs::error_message("n = XXX", Some(3.0)), "n = 3");
+}
+
+#[cfg(feature = "coolprop")]
+#[test]
+fn more_thermophysical_functions() {
+    // EES manual examples: steam at 870 K, 35 MPa: k = 1.331 (cp/cv = 1.615),
+    // kappa = 3.466e-5 1/kPa; water: T_triple = 273.16 K, p_triple = 611.655 Pa,
+    // omega = 0.3443, T_nbp = 373.124 K (IAPWS-95)
+    let (m, s) = run("$UnitSystem SI K kPa kJ mass\n\
+         k = isentropicexponent(Steam, T=870, P=35000); kappa = isothermalcompress(Steam, T=870, P=35000)\n\
+         r = cp(Steam, T=870, P=35000)/cv(Steam, T=870, P=35000)\n\
+         nu = kinematicviscosity(Water, T=300, P=101.325); mu = viscosity(Water, T=300, P=101.325); rho = density(Water, T=300, P=101.325)\n\
+         al = thermaldiffusivity(Water, T=300, P=101.325); kw = conductivity(Water, T=300, P=101.325); c = cp(Water, T=300, P=101.325)\n\
+         beta = volexpcoef(Water, T=300, P=101.325)\n\
+         Tt = t_triple(Water); pt = p_triple(Water); om = acentricfactor(Water); Tb = normalboilingpt(Water); vc = v_crit(Water)\n\
+         kig = isentropicexponent(Air, T=300); big = volexpcoef(Air::Ideal, T=300, P=100); kapig = isothermalcompress(Air::Ideal, T=300, P=100)\n\
+         nu_oil = kinematicviscosity(Therminol66, T=400, P=200); b_oil = volexpcoef(Therminol66, T=400, P=200)");
+    assert!(s.converged, "{}", s.message);
+    let v = |n: &str| val(&m, &s, n);
+    assert!((v("k") - 1.331).abs() < 1e-3 && (v("r") - 1.615).abs() < 1e-3);
+    assert!((v("kappa") - 3.466e-5).abs() < 1e-8);
+    assert!((v("nu") - v("mu") / v("rho")).abs() < 1e-15);
+    assert!((v("al") - v("kw") / (v("rho") * v("c") * 1e3)).abs() < 1e-15);
+    // liquid water at 300 K: beta = 2.76e-4 1/K (IAPWS-95)
+    assert!((v("beta") - 2.76e-4).abs() < 2e-6);
+    assert!((v("Tt") - 273.16).abs() < 1e-9 && (v("pt") - 0.611655).abs() < 1e-5);
+    assert!((v("om") - 0.3443).abs() < 1e-4 && (v("Tb") - 373.124).abs() < 1e-3);
+    assert!((1.0 / v("vc") - 322.0).abs() < 1e-6);
+    assert!((v("kig") - 1.4).abs() < 2e-3);
+    assert!((v("big") - 1.0 / 300.0).abs() < 1e-12 && (v("kapig") - 0.01).abs() < 1e-12);
+    assert!(v("nu_oil") > 0.0 && v("b_oil") > 1e-4 && v("b_oil") < 2e-3);
+}

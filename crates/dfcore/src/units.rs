@@ -41,6 +41,12 @@ impl Dim {
     /// Entropy or heat capacity per amount of substance (kJ/kmol-K).
     pub const MOLAR_ENTROPY: Dim = Dim([1, 2, -2, -1, -1, 0, 0]);
     pub const MOLAR_FLOW: Dim = Dim([0, 0, -1, 0, 1, 0, 0]);
+    /// Kinematic viscosity, thermal diffusivity (m^2/s).
+    pub const DIFFUSIVITY: Dim = Dim([0, 2, -1, 0, 0, 0, 0]);
+    /// Isothermal compressibility (1/Pa).
+    pub const INV_PRESSURE: Dim = Dim([-1, 1, 2, 0, 0, 0, 0]);
+    /// Volumetric expansion coefficient (1/K).
+    pub const INV_TEMP: Dim = Dim([0, 0, 0, -1, 0, 0, 0]);
 
     pub fn mul(self, o: Dim) -> Dim {
         let mut r = [0i8; 7];
@@ -479,6 +485,18 @@ impl UnitSystem {
         if dim == Dim::PRESSURE {
             return self.press_unit();
         }
+        if dim == Dim::INV_PRESSURE {
+            // per model pressure unit: 1/bar, 1/kPa, 1/psia
+            let p = self.press_unit();
+            return Unit { symbol: format!("1/{}", p.symbol.trim()), factor: 1.0 / p.factor, offset: 0.0, dim };
+        }
+        if dim == Dim::INV_TEMP {
+            // a degree C is a kelvin, a degree F a rankine
+            return match self.temperature {
+                TempUnit::F | TempUnit::R => Unit { symbol: "1/R".into(), factor: 1.8, offset: 0.0, dim },
+                _ => Unit { symbol: "1/K".into(), factor: 1.0, offset: 0.0, dim },
+            };
+        }
         let imperial = self.energy == EnergyUnit::Btu;
         if imperial {
             // English engineering: lbm, ft, s, R, Btu
@@ -496,6 +514,7 @@ impl UnitSystem {
                 Dim::CONDUCTIVITY => parse_unit("Btu/hr-ft-R").unwrap(),
                 Dim::MOLAR_MASS => parse_unit("lbm/lbmol").unwrap(),
                 Dim::VISCOSITY => parse_unit("lbm/ft-s").unwrap(),
+                Dim::DIFFUSIVITY => parse_unit("ft^2/s").unwrap(),
                 Dim::AMOUNT => parse_unit("lbmol").unwrap(),
                 Dim::MOLAR_ENERGY => parse_unit("Btu/lbmol").unwrap(),
                 Dim::MOLAR_ENTROPY => parse_unit("Btu/lbmol-R").unwrap(),

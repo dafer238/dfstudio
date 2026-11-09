@@ -35,17 +35,40 @@ pub enum Key {
     Pcrit,
     Z,
     Phase,
+    /// Kinematic viscosity mu/rho
+    KinVisc,
+    /// Thermal diffusivity k/(rho cp)
+    Diffusivity,
+    /// Isentropic exponent -(v/P)(dP/dv)_s (cp/cv for an ideal gas)
+    IsenExp,
+    /// Isothermal compressibility -(1/v)(dv/dP)_T
+    IsoComp,
+    /// Volumetric expansion coefficient (1/v)(dv/dT)_P
+    ExpCoef,
+    Ttriple,
+    Ptriple,
+    Acentric,
+    /// Critical specific volume
+    Vcrit,
 }
 
 impl Key {
+    /// A constant of the fluid (no state inputs): `t_crit(Fluid)`, ...
+    pub fn is_fluid_constant(self) -> bool {
+        matches!(self, Key::MolarMass | Key::Tcrit | Key::Pcrit | Key::Ttriple | Key::Ptriple | Key::Acentric | Key::Vcrit)
+    }
     pub fn dim(self) -> Dim {
         match self {
-            Key::T | Key::Tcrit => Dim::TEMP,
-            Key::P | Key::Pcrit => Dim::PRESSURE,
+            Key::T | Key::Tcrit | Key::Ttriple => Dim::TEMP,
+            Key::P | Key::Pcrit | Key::Ptriple => Dim::PRESSURE,
             Key::H | Key::U => Dim::SPEC_ENERGY,
             Key::S | Key::Cp | Key::Cv => Dim::SPEC_ENTROPY,
             Key::D => Dim::DENSITY,
-            Key::V => Dim::SPEC_VOLUME,
+            Key::V | Key::Vcrit => Dim::SPEC_VOLUME,
+            Key::KinVisc | Key::Diffusivity => Dim::DIFFUSIVITY,
+            Key::IsoComp => Dim::INV_PRESSURE,
+            Key::ExpCoef => Dim::INV_TEMP,
+            Key::IsenExp | Key::Acentric => Dim::NONE,
             Key::Visc => Dim::VISCOSITY,
             Key::Cond => Dim::CONDUCTIVITY,
             Key::Sound => Dim::VELOCITY,
@@ -76,6 +99,16 @@ impl Key {
             Key::Pcrit => "p_critical",
             Key::Z => "Z",
             Key::Phase => "Phase",
+            // derived in `backend::props` from these
+            Key::KinVisc => "viscosity",
+            Key::Diffusivity => "conductivity",
+            Key::IsenExp => "isentropic_expansion_coefficient",
+            Key::IsoComp => "isothermal_compressibility",
+            Key::ExpCoef => "isobaric_expansion_coefficient",
+            Key::Ttriple => "T_triple",
+            Key::Ptriple => "p_triple",
+            Key::Acentric => "acentric",
+            Key::Vcrit => "rhomass_critical",
         }
     }
     /// Key for a named input argument (`P=`, `T=`, `h=` ...).
@@ -114,6 +147,12 @@ impl Key {
             "pcrit" | "p_critical" => Key::Pcrit,
             "z" => Key::Z,
             "phase" => Key::Phase,
+            "isentropic_expansion_coefficient" => Key::IsenExp,
+            "isothermal_compressibility" => Key::IsoComp,
+            "isobaric_expansion_coefficient" => Key::ExpCoef,
+            "ttriple" | "t_triple" => Key::Ttriple,
+            "ptriple" | "p_triple" => Key::Ptriple,
+            "acentric" | "acentric_factor" => Key::Acentric,
             _ => return None,
         })
     }
@@ -141,6 +180,15 @@ pub fn property_function(name: &str) -> Option<Key> {
         "molarmass" => Key::MolarMass,
         "t_crit" => Key::Tcrit,
         "p_crit" => Key::Pcrit,
+        "kinematicviscosity" => Key::KinVisc,
+        "thermaldiffusivity" => Key::Diffusivity,
+        "isentropicexponent" => Key::IsenExp,
+        "isothermalcompress" => Key::IsoComp,
+        "volexpcoef" => Key::ExpCoef,
+        "t_triple" => Key::Ttriple,
+        "p_triple" => Key::Ptriple,
+        "acentricfactor" => Key::Acentric,
+        "v_crit" => Key::Vcrit,
         _ => return None,
     })
 }
@@ -165,6 +213,16 @@ pub const PROPERTY_FUNCTIONS: &[(&str, &str)] = &[
     ("molarmass", "Molar mass  molarmass(Fluid)"),
     ("t_crit", "Critical temperature  t_crit(Fluid)"),
     ("p_crit", "Critical pressure  p_crit(Fluid)"),
+    ("v_crit", "Critical specific volume  v_crit(Fluid)"),
+    ("t_triple", "Triple-point temperature  t_triple(Fluid)"),
+    ("p_triple", "Triple-point pressure  p_triple(Fluid)"),
+    ("acentricfactor", "Acentric factor  acentricfactor(Fluid)"),
+    ("normalboilingpt", "Normal boiling point (T_sat at 1 atm)  normalboilingpt(Fluid)"),
+    ("kinematicviscosity", "Kinematic viscosity mu/rho  kinematicviscosity(Fluid, P=, T=)"),
+    ("thermaldiffusivity", "Thermal diffusivity k/(rho cp)  thermaldiffusivity(Fluid, P=, T=)"),
+    ("isentropicexponent", "Isentropic exponent -(v/P)(dP/dv)_s (cp/cv for an ideal gas)  isentropicexponent(Fluid, P=, T=)"),
+    ("isothermalcompress", "Isothermal compressibility -(1/v)(dv/dP)_T  isothermalcompress(Fluid, P=, T=)"),
+    ("volexpcoef", "Volumetric expansion coefficient (1/v)(dv/dT)_P  volexpcoef(Fluid, P=, T=)"),
     ("t_sat", "Saturation temperature  t_sat(Fluid, P=)"),
     ("p_sat", "Saturation pressure  p_sat(Fluid, T=)"),
     ("propssi", "CoolProp PropsSI('Out','In1',v1,'In2',v2,'Fluid') in SI units"),
@@ -335,7 +393,7 @@ impl Conv {
             Some(us) => us.unit_for(key.dim()),
             None => Unit::si(key.dim()),
         };
-        Conv { unit, reciprocal: key == Key::V }
+        Conv { unit, reciprocal: matches!(key, Key::V | Key::Vcrit) }
     }
     /// model value -> CoolProp SI value (for V returns density)
     #[inline]
@@ -450,7 +508,7 @@ const P_STD: f64 = 101_325.0;
 /// Outputs an ideal gas gives (transport properties, quality and surface
 /// tension need the real fluid).
 fn ideal_output(k: Key) -> bool {
-    matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound)
+    matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound | Key::IsenExp | Key::IsoComp | Key::ExpCoef)
 }
 
 impl IdealGasCall {
@@ -460,13 +518,15 @@ impl IdealGasCall {
             return Err(format!("{label}: {cp} has no ideal-gas model; use the real fluid with two state inputs"));
         }
         if !ideal_output(out) {
-            return Err(format!("{label}: the ideal gas gives T, P, h, u, s, v, density, cp, cv, Z and the speed of sound; use the real fluid for this property"));
+            return Err(format!(
+                "{label}: the ideal gas gives T, P, h, u, s, v, density, cp, cv, Z, the speed of sound, the isentropic exponent, the compressibility and the expansion coefficient; use the real fluid for this property"
+            ));
         }
         let caloric = |k: &Key| matches!(k, Key::T | Key::H | Key::U);
         let ok = match inputs.as_slice() {
             [k] => match k {
-                Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv | Key::T),
-                Key::H | Key::U => matches!(out, Key::T | Key::H | Key::U | Key::Cp | Key::Cv),
+                Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv | Key::T | Key::IsenExp | Key::ExpCoef | Key::Sound),
+                Key::H | Key::U => matches!(out, Key::T | Key::H | Key::U | Key::Cp | Key::Cv | Key::IsenExp | Key::ExpCoef | Key::Sound),
                 _ => false,
             },
             [a, b] => {
@@ -601,6 +661,13 @@ impl IdealGasCall {
                 let cp = self.cp0(t)?;
                 (cp / (cp - self.r) * self.r * t).sqrt()
             }
+            Key::IsenExp => {
+                let cp = self.cp0(t)?;
+                cp / (cp - self.r)
+            }
+            // Pv = RT: -(1/v)(dv/dP)_T = 1/P, (1/v)(dv/dT)_P = 1/T
+            Key::IsoComp => 1.0 / need_p()?,
+            Key::ExpCoef => 1.0 / t,
             _ => return Err(format!("{}: unsupported", self.label)),
         })
     }
@@ -939,6 +1006,12 @@ pub mod backend {
         "T_max",
         "p_max",
         "T_triple",
+        "isentropic_expansion_coefficient",
+        "isothermal_compressibility",
+        "isobaric_expansion_coefficient",
+        "p_triple",
+        "acentric",
+        "rhomass_critical",
     ];
 
     fn idx() -> &'static Indices {
@@ -1114,6 +1187,17 @@ pub mod backend {
             }
             return l.props(out, inputs, vals);
         }
+        if out == Key::ExpCoef && fluid.starts_with("INCOMP::") && !inputs.is_empty() {
+            // incompressible fluids give no derivatives: -(1/rho) drho/dT at P
+            if let Some(g) = grad {
+                g.iter_mut().for_each(|x| *x = f64::NAN);
+            }
+            let t = props(fluid, Key::T, inputs, vals, None)?;
+            let p = props(fluid, Key::P, inputs, vals, None)?;
+            let rho = |t: f64| props(fluid, Key::D, &[Key::T, Key::P], &[t, p], None);
+            let eps = 1e-2;
+            return Ok(-(rho(t + eps)? - rho(t - eps)?) / (2.0 * eps * rho(t)?));
+        }
         let h = state(fluid)?;
         let ix = idx();
         let mut err: c_long = 0;
@@ -1150,14 +1234,19 @@ pub mod backend {
                 return Err(format!("{fluid}: {m}"));
             }
         }
-        let y = get(out_param, &mut err, &mut buf);
+        let y = match out {
+            // nu = mu/rho, alpha = k/(rho cp)
+            Key::KinVisc => get(out_param, &mut err, &mut buf) / get(ix.params["Dmass"], &mut err, &mut buf),
+            Key::Diffusivity => get(out_param, &mut err, &mut buf) / (get(ix.params["Dmass"], &mut err, &mut buf) * get(ix.params["Cpmass"], &mut err, &mut buf)),
+            _ => get(out_param, &mut err, &mut buf),
+        };
         if err != 0 {
             return Err(format!("{fluid}: {}", msg(&buf)));
         }
         if let Some(g) = grad {
             // Analytic partials only in single-phase states and for keys
             // CoolProp can differentiate.
-            let analytic_ok = !matches!(out, Key::Q | Key::Phase | Key::Visc | Key::Cond | Key::Prandtl | Key::SurfTension) && !inputs.contains(&Key::Q);
+            let analytic_ok = matches!(out, Key::T | Key::P | Key::H | Key::S | Key::U | Key::D | Key::V | Key::Cp | Key::Cv | Key::Sound | Key::Z) && !inputs.contains(&Key::Q);
             let two_phase = if analytic_ok {
                 let ph = get(ix.params["Phase"], &mut err, &mut buf);
                 err != 0 || ph == 6.0

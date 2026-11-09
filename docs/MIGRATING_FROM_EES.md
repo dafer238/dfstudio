@@ -313,6 +313,7 @@ Directives:
 | `Lookup`, `Interpolate`, `TableValue`, `LookupRow` | fit the data (polynomial) and write it as an equation, or a `Function` with `If` branches |
 | `Integral`, integral tables | discretise with `Duplicate` and `sum` (trapezoidal rule) |
 | string variables (`F$ = 'Water'`) | write the fluid name in each call |
+| `Call Warning(...)` | `Call Error(...)` stops with a message; there are no warnings yet |
 | molar property units (`MOLAR`) | multiply mass-specific values by `molarmass(...)` |
 | `Module`, `Subprogram` | inline the equations |
 | `$Include`, `$Common` | paste the included file |

@@ -37,6 +37,20 @@ pub enum F1 {
     Trunc,
     Step,
     Not,
+    Erf,
+    Erfc,
+    /// Gamma function (EES `gamma_`)
+    Gamma,
+    /// n! of round(x); 1 for x <= 0, as in EES
+    Factorial,
+    BesselJ0,
+    BesselJ1,
+    BesselY0,
+    BesselY1,
+    BesselI0,
+    BesselI1,
+    BesselK0,
+    BesselK1,
     /// Identity whose result has no physical dimension for the unit
     /// inference (a number in another scale, e.g. converttemp).
     Opaque,
@@ -308,6 +322,98 @@ pub fn f1(f: F1, a: f64) -> f64 {
         F1::Step => (a >= 0.0) as i32 as f64,
         F1::Not => (a == 0.0) as i32 as f64,
         F1::Opaque => a,
+        F1::Erf => libm::erf(a),
+        F1::Erfc => libm::erfc(a),
+        F1::Gamma => libm::tgamma(a),
+        F1::Factorial => {
+            let n = a.round();
+            if n <= 0.0 {
+                1.0
+            } else {
+                libm::tgamma(n + 1.0).round()
+            }
+        }
+        F1::BesselJ0 => libm::j0(a),
+        F1::BesselJ1 => libm::j1(a),
+        F1::BesselY0 => libm::y0(a),
+        F1::BesselY1 => libm::y1(a),
+        F1::BesselI0 => special::i0(a),
+        F1::BesselI1 => special::i1(a),
+        F1::BesselK0 => special::k0(a),
+        F1::BesselK1 => special::k1(a),
+    }
+}
+
+/// Special functions not in `libm`.
+pub mod special {
+    // Modified Bessel functions: polynomial approximations of Abramowitz &
+    // Stegun (1972), 9.8.1-9.8.8; relative error below about 2e-7.
+    fn poly(c: &[f64], x: f64) -> f64 {
+        c.iter().rev().fold(0.0, |acc, k| acc * x + k)
+    }
+    pub fn i0(x: f64) -> f64 {
+        let ax = x.abs();
+        if ax <= 3.75 {
+            let t = (x / 3.75).powi(2);
+            poly(&[1.0, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.0360768, 0.0045813], t)
+        } else {
+            let t = 3.75 / ax;
+            ax.exp() / ax.sqrt() * poly(&[0.39894228, 0.01328592, 0.00225319, -0.00157565, 0.00916281, -0.02057706, 0.02635537, -0.01647633, 0.00392377], t)
+        }
+    }
+    pub fn i1(x: f64) -> f64 {
+        let ax = x.abs();
+        let r = if ax <= 3.75 {
+            let t = (x / 3.75).powi(2);
+            ax * poly(&[0.5, 0.87890594, 0.51498869, 0.15084934, 0.02658733, 0.00301532, 0.00032411], t)
+        } else {
+            let t = 3.75 / ax;
+            ax.exp() / ax.sqrt() * poly(&[0.39894228, -0.03988024, -0.00362018, 0.00163801, -0.01031555, 0.02282967, -0.02895312, 0.01787654, -0.00420059], t)
+        };
+        if x < 0.0 {
+            -r
+        } else {
+            r
+        }
+    }
+    pub fn k0(x: f64) -> f64 {
+        if x <= 0.0 {
+            return f64::NAN;
+        }
+        if x <= 2.0 {
+            let u = x * x / 4.0;
+            -(x / 2.0).ln() * i0(x) + poly(&[-0.57721566, 0.42278420, 0.23069756, 0.03488590, 0.00262698, 0.00010750, 0.00000740], u)
+        } else {
+            (-x).exp() / x.sqrt() * poly(&[1.25331414, -0.07832358, 0.02189568, -0.01062446, 0.00587872, -0.00251540, 0.00053208], 2.0 / x)
+        }
+    }
+    pub fn k1(x: f64) -> f64 {
+        if x <= 0.0 {
+            return f64::NAN;
+        }
+        if x <= 2.0 {
+            let u = x * x / 4.0;
+            (x / 2.0).ln() * i1(x) + poly(&[1.0, 0.15443144, -0.67278579, -0.18156897, -0.01919402, -0.00110404, -0.00004686], u) / x
+        } else {
+            (-x).exp() / x.sqrt() * poly(&[1.25331414, 0.23498619, -0.03655620, 0.01504268, -0.00780353, 0.00325614, -0.00068245], 2.0 / x)
+        }
+    }
+    /// Digamma function psi(x) = Gamma'(x)/Gamma(x): recurrence to x >= 6,
+    /// then the asymptotic series; reflection for x <= 0.
+    pub fn digamma(mut x: f64) -> f64 {
+        if x <= 0.0 && x == x.floor() {
+            return f64::NAN;
+        }
+        if x < 0.5 {
+            return digamma(1.0 - x) - std::f64::consts::PI / (std::f64::consts::PI * x).tan();
+        }
+        let mut acc = 0.0;
+        while x < 6.0 {
+            acc -= 1.0 / x;
+            x += 1.0;
+        }
+        let z = 1.0 / (x * x);
+        acc + x.ln() - 0.5 / x - z * (1.0 / 12.0 - z * (1.0 / 120.0 - z * (1.0 / 252.0 - z * (1.0 / 240.0 - z / 132.0))))
     }
 }
 
@@ -336,6 +442,31 @@ fn d1(f: F1, a: f64, y: f64) -> f64 {
             }
         }
         F1::Opaque => 1.0,
+        F1::Erf => std::f64::consts::FRAC_2_SQRT_PI * (-a * a).exp(),
+        F1::Erfc => -std::f64::consts::FRAC_2_SQRT_PI * (-a * a).exp(),
+        F1::Gamma => y * special::digamma(a),
+        // J0' = -J1, J1' = J0 - J1/x; the same for Y; I0' = I1, I1' = I0 - I1/x;
+        // K0' = -K1, K1' = -K0 - K1/x
+        F1::BesselJ0 => -libm::j1(a),
+        F1::BesselJ1 => {
+            if a == 0.0 {
+                0.5
+            } else {
+                libm::j0(a) - y / a
+            }
+        }
+        F1::BesselY0 => -libm::y1(a),
+        F1::BesselY1 => libm::y0(a) - y / a,
+        F1::BesselI0 => special::i1(a),
+        F1::BesselI1 => {
+            if a == 0.0 {
+                0.5
+            } else {
+                special::i0(a) - y / a
+            }
+        }
+        F1::BesselK0 => -special::k1(a),
+        F1::BesselK1 => -special::k0(a) - y / a,
         _ => 0.0,
     }
 }

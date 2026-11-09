@@ -261,6 +261,15 @@ const PROP_FUNCS: &[(&str, &str)] = &[
     ("t_sat", "T_sat"),
     ("p_sat", "P_sat"),
     ("enthalpy_vaporization", "Enthalpy_vaporization"),
+    ("kinematicviscosity", "KinematicViscosity"),
+    ("thermaldiffusivity", "ThermalDiffusivity"),
+    ("isentropicexponent", "IsentropicExponent"),
+    ("isothermalcompress", "IsothermalCompress"),
+    ("volexpcoef", "VolExpCoef"),
+    ("t_triple", "T_triple"),
+    ("acentricfactor", "AcentricFactor"),
+    ("v_crit", "V_crit"),
+    ("normalboilingpt", "NormalBoilingPt"),
 ];
 
 /// Humid-air functions (fluid `AirH2O`), unchanged.
@@ -268,7 +277,7 @@ const HUMID_FUNCS: &[&str] = &["humrat", "relhum", "wetbulb", "dewpoint"];
 
 /// Built-in functions of DeltaF Studio that EES may not have under the same
 /// name or meaning.
-const UNSURE_FUNCS: &[(&str, &str)] = &[];
+const UNSURE_FUNCS: &[(&str, &str)] = &[("p_triple", "p_triple(Fluid) is not available; write P_sat(Fluid, T=T_triple(Fluid))")];
 
 /// Result of an export.
 #[derive(Debug, Clone, Default)]
@@ -927,7 +936,7 @@ impl<'a> Ctx<'a> {
         let out = props::property_function(name);
         let mut inputs: Vec<(String, Option<Key>, String)> =
             args[1..].iter().map(|a| (a.name.clone().unwrap_or_default(), a.name.as_deref().and_then(Key::from_input), self.expr_text(&a.value))).collect();
-        let trivial = matches!(out, Some(Key::MolarMass | Key::Tcrit | Key::Pcrit));
+        let trivial = out.is_none_or(|k| k.is_fluid_constant());
         let humid = props::is_humid_air(props::split_model(&written).0);
         let ideal = !humid
             && !trivial
@@ -1435,6 +1444,18 @@ mod tests {
         // a bound the body changes is kept in a variable
         let e = ex("Function g(N)\n  g := 0\n  For i = 1 To N Step N/2\n    N = N - 1\n    g := g + 1\n  End\nEnd\nz = g(4)\n");
         assert!(e.text.contains("i_end := N\n  i_step := N/2\n  i := 1\n  If ((i - i_end)*i_step <= 0) Then"), "{}", e.text);
+    }
+
+    #[test]
+    fn new_functions_keep_their_ees_names() {
+        let e = ex("k = isentropicexponent(Steam, T=600, P=100)\nnu = kinematicviscosity(Air, T=20, P=1)\nTb = normalboilingpt(Water)\n\
+                    pt = p_triple(Water)\ny = erf(0.5) + bessel_k0(1) + average(1, 2)\n");
+        let t = &e.text;
+        assert!(t.contains("k = IsentropicExponent(Water, T=600, P=100)"), "{t}");
+        assert!(t.contains("nu = KinematicViscosity(Air_ha, T=20, P=1)"), "{t}");
+        assert!(t.contains("Tb = NormalBoilingPt(Water)"), "{t}");
+        assert!(t.contains("y = erf(0.5) + bessel_k0(1) + average(1, 2)"), "{t}");
+        assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).map(|l| l.0).collect::<Vec<_>>(), [4], "{:?}", e.limitations);
     }
 
     #[test]
