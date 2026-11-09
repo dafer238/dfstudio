@@ -520,7 +520,7 @@ const GREEN: [u8; 3] = [0, 158, 115];
 
 /// How the intermediate states of a process are constructed.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Proc {
+pub(crate) enum Proc {
     /// heat exchange, pipes: P and h linear along the process, with the
     /// saturation crossings inserted exactly
     Linear,
@@ -615,7 +615,7 @@ fn polytropic(a: &St, b: &St, n: usize, log_p: bool) -> Option<Vec<(f64, f64)>> 
 
 /// Points of a process from `a` to `b` in a property diagram, states from
 /// CoolProp at (P, h).
-fn path(a: &St, b: &St, x: Key, y: Key, proc_: Proc, n: usize) -> Vec<[f64; 2]> {
+pub(crate) fn path(a: &St, b: &St, x: Key, y: Key, proc_: Proc, n: usize) -> Vec<[f64; 2]> {
     if !a.ok() || !(a.p > 0.0 && b.p > 0.0 && a.h.is_finite() && b.h.is_finite()) {
         return Vec::new();
     }
@@ -648,6 +648,71 @@ fn path(a: &St, b: &St, x: Key, y: Key, proc_: Proc, n: usize) -> Vec<[f64; 2]> 
             Some([fx(x, r[0]), fx(y, r[1])])
         })
         .collect()
+}
+
+/// Kind of process between two consecutive states, from the states alone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ProcessKind {
+    /// heat transfer (heating, cooling, with or without pressure loss)
+    Heat,
+    /// adiabatic compression; isentropic efficiency
+    Compression(f64),
+    /// adiabatic expansion; isentropic efficiency
+    Expansion(f64),
+    /// throttling (h nearly constant, pressure drop)
+    Throttle,
+}
+
+impl ProcessKind {
+    pub(crate) fn proc_(self) -> Proc {
+        match self {
+            ProcessKind::Heat => Proc::Linear,
+            ProcessKind::Compression(_) | ProcessKind::Expansion(_) => Proc::Polytropic(true),
+            ProcessKind::Throttle => Proc::Throttle,
+        }
+    }
+    pub(crate) fn label(self, dh: f64) -> String {
+        match self {
+            ProcessKind::Heat if dh >= 0.0 => "heating".into(),
+            ProcessKind::Heat => "cooling".into(),
+            ProcessKind::Compression(e) => format!("compression, eta_s = {e:.3}"),
+            ProcessKind::Expansion(e) => format!("expansion, eta_s = {e:.3}"),
+            ProcessKind::Throttle => "throttling".into(),
+        }
+    }
+}
+
+/// Classify the process from `a` to `b` by the ratio of the actual to the
+/// isentropic enthalpy change between the two pressures,
+/// r = (h_b − h_a) / (h_s(P_b, s_a) − h_a):
+/// * pressure rise with 1 ≤ r ≤ 5: adiabatic compression, η_s = 1/r;
+/// * pressure drop with 0.05 ≤ r ≤ 1: adiabatic expansion, η_s = r;
+/// * pressure drop with |r| < 0.05: throttling (h ≈ const);
+/// * anything else (equal pressures, heat added or removed beyond the
+///   work-only range): heat transfer, with P varying linearly with h
+///   between the inlet and outlet isobars.
+///
+/// An adiabatic process with η_s = 1 is isentropic, and irreversibility
+/// can only raise the entropy (second law), which bounds r on each side.
+pub(crate) fn classify(a: &St, b: &St) -> ProcessKind {
+    if (b.p - a.p).abs() <= 1e-6 * a.p.abs().max(b.p.abs()) {
+        return ProcessKind::Heat;
+    }
+    let Some(hs) = a.s_cp().and_then(|s| a.h_ps(b.p, s)) else { return ProcessKind::Heat };
+    let dhs = hs - a.h;
+    if dhs.abs() < 1e-12 {
+        return ProcessKind::Heat;
+    }
+    let r = (b.h - a.h) / dhs;
+    if b.p > a.p && (0.999..=5.0).contains(&r) {
+        ProcessKind::Compression((1.0 / r).min(1.0))
+    } else if b.p < a.p && (0.05..=1.001).contains(&r) {
+        ProcessKind::Expansion(r.min(1.0))
+    } else if b.p < a.p && r.abs() < 0.05 {
+        ProcessKind::Throttle
+    } else {
+        ProcessKind::Heat
+    }
 }
 
 /// Isentropic line from state `a` down/up to pressure `p_out`.
@@ -1562,6 +1627,29 @@ mod tests {
             }
             assert!(s[s.len() - 1] > s[0]);
         }
+    }
+
+    #[test]
+    fn processes_are_classified_from_the_states() {
+        if backend::limits("CO2").is_err() {
+            return;
+        }
+        let a = real("CO2", 7.7e6, Some(305.15), None);
+        let b = outlet(&a, 25e6, 0.85);
+        assert!(matches!(classify(&a, &b), ProcessKind::Compression(e) if (e - 0.85).abs() < 1e-9));
+        let t = real("CO2", 25e6, Some(823.15), None);
+        let u = outlet(&t, 7.8e6, 0.9);
+        assert!(matches!(classify(&t, &u), ProcessKind::Expansion(e) if (e - 0.9).abs() < 1e-9));
+        // heater with 2 % pressure loss, cooler at constant pressure, valve
+        let hot = real("CO2", 24.5e6, Some(823.15), None);
+        assert_eq!(classify(&b, &hot), ProcessKind::Heat);
+        assert_eq!(classify(&u, &real("CO2", 7.8e6, Some(320.0), None)), ProcessKind::Heat);
+        assert_eq!(classify(&hot, &real("CO2", 10e6, None, Some(hot.h))), ProcessKind::Throttle);
+        // the expansion path ends at the outlet and its entropy rises
+        let pts = path(&t, &u, Key::S, Key::T, classify(&t, &u).proc_(), 40);
+        assert!(pts.len() > 30);
+        assert!((pts.last().unwrap()[1] - u.t).abs() < 1e-6 * u.t);
+        assert!(pts.windows(2).all(|w| w[1][0] >= w[0][0] - 1e-9));
     }
 
     #[test]

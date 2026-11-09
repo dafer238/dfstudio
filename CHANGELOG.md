@@ -32,6 +32,14 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   name for the real fluid), and `ifelse`, `pow`, `**` and `d=`
   translated. Whatever has no equivalent is marked *NOT TRANSLATED* on its
   line and listed in a header. Also `dfs export model.dfs`.
+- Property diagrams: *Compute processes* joins consecutive states by the
+  process they describe instead of a straight line. Each segment is
+  classified from its two states by the ratio of the actual to the
+  isentropic enthalpy change: compression and expansion follow the path of
+  constant polytropic efficiency that ends at the outlet (labelled with the
+  isentropic efficiency), throttling keeps h constant, and heat transfer
+  follows the isobar (or P linear in h between the inlet and outlet
+  isobars when there is a pressure loss).
 
 ## [1.0.3] - 2026-11-06
 

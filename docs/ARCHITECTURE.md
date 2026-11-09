@@ -116,7 +116,12 @@ HOW_IT_WORKS.md §4).
   clustered towards T_c; isobars are swept in temperature and the two-phase
   segment is filled by a quality sweep at the saturation pressure (flat in
   T-s). Heat-addition/rejection paths are evaluated along P = const in
-  entropy, so they follow the real curvature instead of a chord.
+  entropy, so they follow the real curvature instead of a chord. With
+  *Compute processes* every segment is classified from its two states
+  (compression, expansion, throttling, heat transfer) and drawn with the
+  same process paths as the component reports (`components::path`):
+  constant polytropic efficiency for turbomachines, P linear in h for heat
+  exchangers, constant h for valves.
 * Colours: Okabe–Ito qualitative palette (colour-blind safe) for series and
   viridis for 3D surfaces (Okabe & Ito 2008; van der Walt & Smith 2015).
 * Export: the same data is written into a matplotlib script (Hunter 2007),
