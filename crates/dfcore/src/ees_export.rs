@@ -22,6 +22,16 @@
 //!   function body becomes `:=` (`//` comments are kept: EES reads them);
 //! * the unit of the variable each equation computes is added as a
 //!   `{unit}` comment when the line has none;
+//! * `For` and `While` (EES has neither) become a guarded `Repeat ... Until`,
+//!   `ElseIf` a nested `If` with its own `EndIf`, `not` is resolved by
+//!   flipping comparisons, and the operands of `and` / `or` are put in
+//!   parentheses (EES reads them left to right, without precedence);
+//! * `PropsSI`, `Props1SI` and `HAPropsSI` become the EES property and
+//!   `AirH2O` functions, their SI arguments converted to model units
+//!   (`T + 273.15`, `P*1e5` and a trailing `/1000` simplify away);
+//!   `atan2` becomes a helper function written at the top;
+//! * functions and procedures are moved before the first equation, where
+//!   EES reads them;
 //! * whatever cannot be translated (`$Guess`, `$Bounds`, `$Units`,
 //!   `$Control`, CoolProp-only fluids and functions, ...) is commented, and
 //!   listed with its line in a header block.
@@ -29,7 +39,7 @@
 //! The translation is textual on the parsed spans, so the layout and the
 //! comments of the script are kept.
 
-use crate::ast::{Arg, CmpOp, Expr, FStmt, FuncDef, Stmt};
+use crate::ast::{Arg, BinOp, CmpOp, Expr, FStmt, FuncDef, Stmt};
 use crate::lexer::{lex, Tok};
 use crate::props::{self, Key, Model};
 use crate::units::{parse_unit, Dim, EnergyUnit, PressUnit, TempUnit, UnitSystem};
@@ -258,13 +268,7 @@ const HUMID_FUNCS: &[&str] = &["humrat", "relhum", "wetbulb", "dewpoint"];
 
 /// Built-in functions of DeltaF Studio that EES may not have under the same
 /// name or meaning.
-const UNSURE_FUNCS: &[(&str, &str)] = &[
-    ("atan2", "atan2(y, x) is not available; write it with arctan(y/x) and IF on the sign of x"),
-    ("product", "product(expr, i=1, N): check that the target program has it, or expand the product"),
-    ("propssi", "PropsSI (CoolProp, SI units) is not available; write it with the property functions"),
-    ("props1si", "Props1SI (CoolProp) is not available; write it with the property functions"),
-    ("hapropssi", "HAPropsSI (CoolProp humid air) is not available; use the AirH2O functions"),
-];
+const UNSURE_FUNCS: &[(&str, &str)] = &[];
 
 /// Result of an export.
 #[derive(Debug, Clone, Default)]
@@ -290,6 +294,12 @@ struct Ctx<'a> {
     limitations: Vec<(u32, String)>,
     model: Option<&'a crate::Model>,
     quality_used: bool,
+    /// CoolProp calls written as EES functions: (call start, EES call in
+    /// model units, factor, offset of the model unit to SI)
+    si_calls: Vec<(usize, String, f64, f64)>,
+    /// start of the CoolProp calls whose SI conversion stays in the text
+    si_raw: Vec<usize>,
+    atan2_used: bool,
 }
 
 /// Number in a form both programs read.
@@ -379,8 +389,359 @@ impl<'a> Ctx<'a> {
     }
 
     fn expr_text(&self, e: &Expr) -> String {
-        let s = e.span();
-        self.render(s.start, s.end)
+        let (s, t) = self.ext(e);
+        self.render(s, t)
+    }
+
+    /// Span of an expression including the parentheses that group it
+    /// (the parser leaves them out): `(a + b)*c` → the whole text.
+    fn ext(&self, e: &Expr) -> (usize, usize) {
+        let (mut s, mut t) = match e {
+            Expr::Bin(_, a, b, _) | Expr::Cmp(_, a, b, _) => (self.ext(a).0, self.ext(b).1),
+            Expr::Neg(a, sp) | Expr::Not(a, sp) => (sp.start, self.ext(a).1.max(sp.end)),
+            _ => (e.span().start, e.span().end),
+        };
+        loop {
+            let before = self.src[..s].trim_end();
+            let after = self.src[t..].trim_start();
+            if !(before.ends_with('(') && after.starts_with(')')) {
+                break;
+            }
+            let open = before.len() - 1;
+            // `f(x)`: the parentheses of a call, not a group
+            let call = self.src[..open].chars().next_back().is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '#'));
+            let mut depth = 0i32;
+            let balanced = self.src[s..t].chars().all(|c| {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                depth >= 0
+            }) && depth == 0;
+            if call || !balanced {
+                break;
+            }
+            s = open;
+            t = self.src.len() - after.len() + 1;
+        }
+        (s, t)
+    }
+
+    /// Text of an expression in a condition: and/or operands always in
+    /// parentheses (EES evaluates and/or from left to right, without
+    /// precedence), `not` resolved (EES has no `not`), `=` / `<>` as in EES.
+    fn cond_text(&self, e: &Expr) -> String {
+        match e {
+            Expr::Bin(op @ (BinOp::And | BinOp::Or), a, b, _) => {
+                let w = if *op == BinOp::And { "and" } else { "or" };
+                format!("({}) {w} ({})", self.cond_text(a), self.cond_text(b))
+            }
+            Expr::Cmp(op, a, b, _) => format!("{} {} {}", self.expr_text(a), cmp_text(*op), self.expr_text(b)),
+            Expr::Not(a, _) => self.negate(a),
+            _ => format!("{} <> 0", self.expr_text(e)),
+        }
+    }
+
+    /// Text of `not e` without `not`: comparisons flipped, De Morgan.
+    fn negate(&self, e: &Expr) -> String {
+        match e {
+            Expr::Bin(op @ (BinOp::And | BinOp::Or), a, b, _) => {
+                let w = if *op == BinOp::And { "or" } else { "and" };
+                format!("({}) {w} ({})", self.negate(a), self.negate(b))
+            }
+            Expr::Cmp(op, a, b, _) => {
+                let n = match op {
+                    CmpOp::Lt => CmpOp::Ge,
+                    CmpOp::Le => CmpOp::Gt,
+                    CmpOp::Gt => CmpOp::Le,
+                    CmpOp::Ge => CmpOp::Lt,
+                    CmpOp::Eq => CmpOp::Ne,
+                    CmpOp::Ne => CmpOp::Eq,
+                };
+                format!("{} {} {}", self.expr_text(a), cmp_text(n), self.expr_text(b))
+            }
+            Expr::Not(a, _) => self.cond_text(a),
+            _ => format!("{} = 0", self.expr_text(e)),
+        }
+    }
+
+    /// Indentation of the line holding `pos`.
+    fn indent_at(&self, pos: usize) -> String {
+        let ls = self.src[..pos].rfind('\n').map(|k| k + 1).unwrap_or(0);
+        self.src[ls..pos].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+    }
+
+    /// Replace the closing keyword(s) `kw_start..end` of a block, on their
+    /// own line when they are, by `lines` (each already indented).
+    fn close_block(&mut self, kw_start: usize, end: usize, lines: &str) {
+        let ls = self.src[..kw_start].rfind('\n').map(|k| k + 1).unwrap_or(0);
+        if self.src[ls..kw_start].trim().is_empty() {
+            self.replace(ls, end, lines.to_string());
+        } else {
+            self.replace(kw_start, end, format!("\n{lines}"));
+        }
+    }
+
+    /// `If`, with its `ElseIf` / `Else If` chain: EES has no ElseIf, so each
+    /// one becomes `Else` + a nested `If` with its own `EndIf`.
+    fn if_chain(&mut self, s: &FStmt) {
+        let FStmt::If { cond, then, els, span } = s else { return };
+        let multi = self.src[span.start..span.end].contains('\n');
+        let ind = self.indent_at(span.start);
+        let mut cur: (&Expr, &Vec<FStmt>, &Vec<FStmt>) = (cond, then, els);
+        let mut levels = 0;
+        loop {
+            let (c, t, e) = cur;
+            self.expr(c, span.start);
+            self.paren(c);
+            self.fstmts(t);
+            match e.as_slice() {
+                [FStmt::If { cond: c2, then: t2, els: e2, span: s2 }] if multi && s2.end == span.end => {
+                    let at = s2.start;
+                    let pad = ind.clone();
+                    if self.src[at..].len() >= 6 && self.src[at..at + 6].eq_ignore_ascii_case("elseif") {
+                        self.replace(at, at + 6, format!("Else\n{pad}If"));
+                    } else {
+                        // `Else If`: the If on its own line
+                        let k = self.src[..at].trim_end().len();
+                        self.replace(k, at, format!("\n{pad}"));
+                    }
+                    levels += 1;
+                    cur = (c2, t2, e2);
+                }
+                _ => {
+                    self.fstmts(e);
+                    break;
+                }
+            }
+        }
+        if !multi {
+            return;
+        }
+        // closing keyword: EndIf, End If or End → EndIf, once per level
+        let text = &self.src[span.start..span.end];
+        let low = text.to_ascii_lowercase();
+        let kw = if low.ends_with("endif") {
+            span.end - 5
+        } else if low.ends_with("if") && low[..low.len() - 2].trim_end().ends_with("end") {
+            span.start + low[..low.len() - 2].trim_end().len() - 3
+        } else if low.ends_with("end") {
+            span.end - 3
+        } else {
+            return;
+        };
+        let lines = vec![format!("{ind}EndIf"); levels + 1].join("\n");
+        self.close_block(kw, span.end, &lines);
+    }
+
+    /// `While c ... End` → `If (c) Then Repeat ... Until (not c) EndIf`.
+    fn while_loop(&mut self, cond: &Expr, body: &[FStmt], span: crate::lexer::Span) {
+        self.expr(cond, span.start);
+        self.fstmts(body);
+        let ind = self.indent_at(span.start);
+        let (_, mut hend) = self.ext(cond);
+        let rest = &self.src[hend..];
+        let r = rest.trim_start_matches([' ', '\t']);
+        if r.len() >= 2 && r[..2].eq_ignore_ascii_case("do") && !r[2..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            hend += rest.len() - r.len() + 2;
+        }
+        let head = format!("If ({}) Then\n{ind}Repeat", self.cond_text(cond));
+        self.replace(span.start, hend, head);
+        let until = format!("{ind}Until ({})\n{ind}EndIf", self.negate(cond));
+        self.close_block(span.end - 3, span.end, &until);
+    }
+
+    /// `For i = a To b [Step s] ... End` → `i := a`, then a guarded
+    /// Repeat-Until that adds the step at the end of each pass.
+    fn for_loop(&mut self, var: &str, from: &Expr, to: &Expr, step: Option<&Expr>, body: &[FStmt], span: crate::lexer::Span) {
+        for e in [Some(from), Some(to), step].into_iter().flatten() {
+            self.expr(e, span.start);
+        }
+        self.fstmts(body);
+        let ind = self.indent_at(span.start);
+        let inner = format!("{ind}  ");
+        // the loop variable as written
+        let head = self.src[span.start + 3..].trim_start();
+        let v: String = head.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let mut assigned = Vec::new();
+        assigned_vars(body, &mut assigned);
+        if assigned.iter().any(|a| a == var) {
+            self.limit(span.start, span.start, format!("For loop: the body changes the loop variable {v}; DeltaF Studio counts with its own counter, the translation with {v}"));
+        }
+        let fixed = |e: &Expr| {
+            let mut used = Vec::new();
+            used_vars(e, &mut used);
+            !used.iter().any(|u| assigned.contains(u) || u == var)
+        };
+        let mut pre = Vec::new();
+        let atom = |t: String| if t.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '[' | ']')) { t } else { format!("({t})") };
+        let to_t = if fixed(to) {
+            atom(self.expr_text(to))
+        } else {
+            pre.push(format!("{v}_end := {}", self.expr_text(to)));
+            format!("{v}_end")
+        };
+        let lit = |e: &Expr| match e {
+            Expr::Num { value, unit: None, .. } => Some(*value),
+            Expr::Neg(a, _) => match a.as_ref() {
+                Expr::Num { value, unit: None, .. } => Some(-value),
+                _ => None,
+            },
+            _ => None,
+        };
+        let (st, sign) = match step {
+            None => ("1".to_string(), Some(true)),
+            Some(s) => match lit(s) {
+                Some(x) => (num(x.abs()), Some(x > 0.0)),
+                None if fixed(s) => (atom(self.expr_text(s)), None),
+                None => {
+                    pre.push(format!("{v}_step := {}", self.expr_text(s)));
+                    (format!("{v}_step"), None)
+                }
+            },
+        };
+        let (guard, until, incr) = match sign {
+            Some(true) => (format!("{v} <= {to_t}"), format!("{v} > {to_t}"), format!("{v} := {v} + {st}")),
+            Some(false) => (format!("{v} >= {to_t}"), format!("{v} < {to_t}"), format!("{v} := {v} - {st}")),
+            // either sign: past the end when (i - b)*s > 0
+            None => (format!("({v} - {to_t})*{st} <= 0"), format!("({v} - {to_t})*{st} > 0"), format!("{v} := {v} + {st}")),
+        };
+        let hend = self.ext(step.unwrap_or(to)).1;
+        let mut head = String::new();
+        for p in &pre {
+            head.push_str(&format!("{p}\n{ind}"));
+        }
+        head.push_str(&format!("{v} := {}\n{ind}If ({guard}) Then\n{ind}Repeat", self.expr_text(from)));
+        self.replace(span.start, hend, head);
+        self.close_block(span.end - 3, span.end, &format!("{inner}{incr}\n{ind}Until ({until})\n{ind}EndIf"));
+    }
+
+    /// `PropsSI`, `Props1SI` and `HAPropsSI` (SI units) as the property
+    /// function of EES in model units: (text, dimension of the result).
+    fn coolprop_call(&mut self, name: &str, args: &[Arg], start: usize, stmt_end: usize) -> Result<(String, Dim), String> {
+        let lit = |a: &Arg| match &a.value {
+            Expr::Str { value, .. } if a.name.is_none() => Some(value.clone()),
+            _ => None,
+        };
+        fn wrap(t: String) -> String {
+            if t.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '[' | ']')) {
+                t
+            } else {
+                format!("({t})")
+            }
+        }
+        // an argument in SI, written in model units
+        let input = |c: &Self, e: &Expr, d: Dim| -> String {
+            let u = c.us.unit_for(d);
+            let text = c.expr_text(e);
+            match e {
+                Expr::Num { unit: Some(_), .. } => return text, // `300 [K]`: already in model units
+                Expr::Num { value, unit: None, .. } => return num(u.from_si(*value)),
+                _ => {}
+            }
+            let close = |x: f64, y: f64| (x - y).abs() <= 1e-9 * y.abs().max(1e-300);
+            let num_of = |x: &Expr| match x {
+                Expr::Num { value, unit: None, .. } => Some(*value),
+                _ => None,
+            };
+            if u.offset == 0.0 {
+                if close(u.factor, 1.0) {
+                    return text;
+                }
+                if let Expr::Bin(BinOp::Mul, a, b, _) = e {
+                    if num_of(b).is_some_and(|k| close(k, u.factor)) {
+                        return c.expr_text(a);
+                    }
+                    if num_of(a).is_some_and(|k| close(k, u.factor)) {
+                        return c.expr_text(b);
+                    }
+                }
+                return format!("{}/{}", wrap(text), num(u.factor));
+            }
+            if close(u.factor, 1.0) {
+                if let Expr::Bin(BinOp::Add, a, b, _) = e {
+                    if num_of(b).is_some_and(|k| close(k, u.offset)) {
+                        return c.expr_text(a);
+                    }
+                    if num_of(a).is_some_and(|k| close(k, u.offset)) {
+                        return c.expr_text(b);
+                    }
+                }
+                return format!("{} - {}", wrap(text), num(u.offset));
+            }
+            format!("ConvertTemp(K, {}, {text})", u.symbol.trim())
+        };
+        let strip = |f: &str| f.strip_prefix("HEOS::").unwrap_or(f).to_string();
+        match name {
+            "hapropssi" => {
+                if args.len() != 7 {
+                    return Err("HAPropsSI needs an output and three inputs".into());
+                }
+                let keys: Option<Vec<String>> = [0, 1, 3, 5].iter().map(|&k| lit(&args[k])).collect();
+                let Some(keys) = keys else { return Err("HAPropsSI with keys that are not text constants".into()) };
+                let Some((f, ees)) = ha_output(&keys[0]) else { return Err(format!("HAPropsSI output '{}' has no AirH2O function", keys[0])) };
+                let (_, dim) = props::HaCall::output(f).expect("listed");
+                let mut t = format!("{ees}(AirH2O");
+                for (k, a) in [(1, 2), (2, 4), (3, 6)] {
+                    let Some(n) = ha_input(&keys[k]) else { return Err(format!("HAPropsSI input '{}' is not an input of the AirH2O functions", keys[k])) };
+                    let (_, d) = props::HaCall::input(n).expect("listed");
+                    t.push_str(&format!(", {n}={}", input(self, &args[a].value, d)));
+                }
+                t.push(')');
+                Ok((t, dim))
+            }
+            "propssi" => {
+                if args.len() != 6 {
+                    return Err("PropsSI with one input: use the property functions (T_crit, P_crit, MolarMass ...)".into());
+                }
+                let keys: Option<Vec<String>> = [0, 1, 3, 5].iter().map(|&k| lit(&args[k])).collect();
+                let Some(keys) = keys else { return Err("PropsSI with keys or fluid that are not text constants".into()) };
+                let out = Key::from_coolprop(&keys[0]).ok_or_else(|| format!("PropsSI output '{}' is not a property function", keys[0]))?;
+                let ees = ees_function(out).ok_or_else(|| format!("PropsSI output '{}' has no property function", keys[0]))?;
+                let (fluid, note) = Self::fluid_name(&strip(&keys[3]), false);
+                if let Some(n) = note {
+                    self.limit(start, stmt_end, n);
+                }
+                let mut t = format!("{ees}({fluid}");
+                for (k, a) in [(1, 2), (2, 4)] {
+                    let key = Key::from_coolprop(&keys[k]).filter(|k| matches!(k, Key::T | Key::P | Key::H | Key::S | Key::U | Key::D | Key::Q));
+                    let Some(key) = key else { return Err(format!("PropsSI input '{}' is not a state input of the property functions", keys[k])) };
+                    let v = input(self, &args[a].value, key.dim());
+                    t.push_str(&match key {
+                        Key::D => format!(", v=1/({v})"),
+                        Key::Q => format!(", x={v}"),
+                        Key::T | Key::P => format!(", {}={v}", key.coolprop()),
+                        _ => format!(", {}={v}", key.coolprop()[..1].to_ascii_lowercase()),
+                    });
+                }
+                t.push(')');
+                if out == Key::Q {
+                    self.quality_used = true;
+                }
+                Ok((t, out.dim()))
+            }
+            _ => {
+                // Props1SI(fluid, output), either order
+                let (Some(a), Some(b)) = (args.first().and_then(lit), args.get(1).and_then(lit)) else {
+                    return Err("Props1SI with arguments that are not text constants".into());
+                };
+                let ((out, ees), fl) =
+                    match (Key::from_coolprop(&a).and_then(|k| ees_function(k).map(|e| (k, e))), Key::from_coolprop(&b).and_then(|k| ees_function(k).map(|e| (k, e)))) {
+                        (_, Some(o)) => (o, a),
+                        (Some(o), None) => (o, b),
+                        _ => return Err(format!("Props1SI('{a}', '{b}') has no property function")),
+                    };
+                if !matches!(out, Key::Tcrit | Key::Pcrit | Key::MolarMass) {
+                    return Err(format!("Props1SI output '{ees}' has no property function"));
+                }
+                let (fluid, note) = Self::fluid_name(&strip(&fl), false);
+                if let Some(n) = note {
+                    self.limit(start, stmt_end, n);
+                }
+                Ok((format!("{ees}({fluid})"), out.dim()))
+            }
+        }
     }
 
     /// Visit an expression bottom-up and record its edits. `stmt_end` is
@@ -416,7 +777,28 @@ impl<'a> Ctx<'a> {
             Expr::Num { .. } | Expr::Str { .. } => {}
             Expr::Var { idx, .. } => idx.iter().for_each(|i| self.expr(i, stmt_end)),
             Expr::Neg(a, _) | Expr::Not(a, _) => self.expr(a, stmt_end),
-            Expr::Bin(_, a, b, _) | Expr::Cmp(_, a, b, _) => {
+            Expr::Bin(op, a, b, _) => {
+                self.expr(a, stmt_end);
+                self.expr(b, stmt_end);
+                // `HAPropsSI(...)/1000`, `PropsSI('T', ...) - 273.15`: the
+                // conversion to model units cancels the one written
+                let Expr::Call { span: cs, .. } = a.as_ref() else { return };
+                let Expr::Num { value: k, unit: None, .. } = b.as_ref() else { return };
+                let Some((_, core, f, o)) = self.si_calls.iter().find(|c| c.0 == cs.start).cloned() else { return };
+                let close = |x: f64, y: f64| (x - y).abs() <= 1e-9 * y.abs();
+                let cancels = match op {
+                    BinOp::Div => o == 0.0 && close(*k, f),
+                    BinOp::Mul => o == 0.0 && close(*k * f, 1.0),
+                    BinOp::Sub => close(f, 1.0) && o != 0.0 && close(*k, o),
+                    _ => false,
+                };
+                if cancels {
+                    self.si_raw.retain(|p| *p != cs.start);
+                    let (s, t) = self.ext(e);
+                    self.replace(s, t, core);
+                }
+            }
+            Expr::Cmp(_, a, b, _) => {
                 self.expr(a, stmt_end);
                 self.expr(b, stmt_end);
             }
@@ -435,6 +817,12 @@ impl<'a> Ctx<'a> {
             return;
         }
         if HUMID_FUNCS.contains(&name) {
+            // `humrat(HumidAir, ...)`: EES knows the name AirH2O only
+            if let Some(Expr::Var { display, idx, span, .. }) = args.first().map(|a| &a.value) {
+                if idx.is_empty() && props::is_humid_air(props::split_model(display).0) {
+                    self.replace(span.start, span.end, "AirH2O".into());
+                }
+            }
             return;
         }
         match name {
@@ -456,6 +844,32 @@ impl<'a> Ctx<'a> {
                     self.limit(start, stmt_end, format!("{display}(): the condition must be a comparison (a < b, ...) to become IF(a, b, x, y, z)"));
                 }
             }
+            "atan2" if args.len() == 2 => {
+                self.atan2_used = true;
+                let t = format!("atan2_df({}, {})", self.expr_text(&args[0].value), self.expr_text(&args[1].value));
+                self.replace(start, end, t);
+            }
+            "propssi" | "props1si" | "hapropssi" => match self.coolprop_call(name, args, start, stmt_end) {
+                Ok((core, dim)) => {
+                    // the call returns SI: model units → SI around the EES function
+                    let u = self.us.unit_for(dim);
+                    let t = if u.offset != 0.0 && (u.factor - 1.0).abs() < 1e-12 {
+                        format!("({core} + {})", num(u.offset))
+                    } else if u.offset != 0.0 {
+                        format!("ConvertTemp({}, K, {core})", u.symbol.trim())
+                    } else if (u.factor - 1.0).abs() < 1e-12 {
+                        core.clone()
+                    } else {
+                        format!("({core}*{})", num(u.factor))
+                    };
+                    if t != core {
+                        self.si_raw.push(start);
+                    }
+                    self.si_calls.push((start, core, u.factor, u.offset));
+                    self.replace(start, end, t);
+                }
+                Err(msg) => self.limit(start, stmt_end, format!("{msg}; write it with the property functions")),
+            },
             "pow" if args.len() == 2 => {
                 let t = format!("({})^({})", self.expr_text(&args[0].value), self.expr_text(&args[1].value));
                 self.replace(start, end, t);
@@ -472,7 +886,7 @@ impl<'a> Ctx<'a> {
     fn fluid_name(written: &str, ideal: bool) -> (String, Option<String>) {
         let (base, _) = props::split_model(written);
         let cp = props::coolprop_fluid(base);
-        if base.eq_ignore_ascii_case("airh2o") {
+        if props::is_humid_air(base) {
             return ("AirH2O".into(), None);
         }
         if let Some((_, real, ig)) = EES_NAMES.iter().find(|n| n.0 == cp) {
@@ -514,7 +928,7 @@ impl<'a> Ctx<'a> {
         let mut inputs: Vec<(String, Option<Key>, String)> =
             args[1..].iter().map(|a| (a.name.clone().unwrap_or_default(), a.name.as_deref().and_then(Key::from_input), self.expr_text(&a.value))).collect();
         let trivial = matches!(out, Some(Key::MolarMass | Key::Tcrit | Key::Pcrit));
-        let humid = props::split_model(&written).0.eq_ignore_ascii_case("airh2o");
+        let humid = props::is_humid_air(props::split_model(&written).0);
         let ideal = !humid
             && !trivial
             && match model {
@@ -581,7 +995,11 @@ impl<'a> Ctx<'a> {
                         self.replace(cut, span.end, String::new());
                         self.notes.push((span.end, format!("unit of the variable this equation computes: {u}")));
                     }
-                } else if trailing_comment.is_none() && self.notes.len() == n0 && !matches!(rhs, Expr::Num { unit: Some(_), .. }) {
+                } else if trailing_comment.is_none()
+                    && self.notes.len() == n0
+                    && !matches!(rhs, Expr::Num { unit: Some(_), .. })
+                    && !self.si_raw.iter().any(|p| (span.start..span.end).contains(p))
+                {
                     if let Some(u) = self.lhs_unit(lhs) {
                         self.notes.push((span.end, u));
                     }
@@ -623,13 +1041,9 @@ impl<'a> Ctx<'a> {
 
     /// Conditions of If / While / Until in parentheses.
     fn paren(&mut self, cond: &Expr) {
-        let sp = cond.span();
-        let before = self.src[..sp.start].trim_end().ends_with('(');
-        let after = self.src[sp.end..].trim_start().starts_with(')');
-        if !(before && after) {
-            let t = format!("({})", self.render(sp.start, sp.end));
-            self.replace(sp.start, sp.end, t);
-        }
+        let (s, t) = self.ext(cond);
+        let text = format!("({})", self.cond_text(cond));
+        self.replace(s, t, text);
     }
 
     fn fstmts(&mut self, body: &[FStmt]) {
@@ -655,30 +1069,14 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 }
-                FStmt::If { cond, then, els, span } => {
-                    self.expr(cond, span.start);
-                    self.paren(cond);
-                    self.fstmts(then);
-                    self.fstmts(els);
-                }
+                FStmt::If { .. } => self.if_chain(s),
                 FStmt::Repeat { body, until, span } => {
                     self.fstmts(body);
                     self.expr(until, span.end);
                     self.paren(until);
                 }
-                FStmt::While { cond, body, span } => {
-                    self.expr(cond, span.start);
-                    self.paren(cond);
-                    self.fstmts(body);
-                }
-                FStmt::For { from, to, step, body, span, .. } => {
-                    self.expr(from, span.start);
-                    self.expr(to, span.start);
-                    if let Some(s) = step {
-                        self.expr(s, span.start);
-                    }
-                    self.fstmts(body);
-                }
+                FStmt::While { cond, body, span } => self.while_loop(cond, body, *span),
+                FStmt::For { var, from, to, step, body, span } => self.for_loop(var, from, to, step.as_ref(), body, *span),
                 FStmt::Call { inputs, outputs, span, .. } => {
                     inputs.iter().chain(outputs.iter().flat_map(|o| o.1.iter())).for_each(|e| self.expr(e, span.end));
                 }
@@ -700,7 +1098,18 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
     let opts = crate::CompileOptions { unit_system: Some(us.clone()), check_fluids: false };
     let model = crate::compile(src, &opts);
     let pr = crate::parser::parse(src);
-    let mut c = Ctx { src, us: model.unit_system.clone(), edits: Vec::new(), notes: Vec::new(), limitations: Vec::new(), model: Some(&model), quality_used: false };
+    let mut c = Ctx {
+        src,
+        us: model.unit_system.clone(),
+        edits: Vec::new(),
+        notes: Vec::new(),
+        limitations: Vec::new(),
+        model: Some(&model),
+        quality_used: false,
+        si_calls: Vec::new(),
+        si_raw: Vec::new(),
+        atan2_used: false,
+    };
     for f in &pr.program.funcs {
         c.func(f);
     }
@@ -749,6 +1158,31 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
             _ => {}
         }
     }
+    // EES reads functions and procedures only at the top, before the equations
+    let first_eq = pr
+        .program
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Equation { span, .. } | Stmt::Duplicate { span, .. } | Stmt::Call { span, .. } => Some(span.start),
+            Stmt::Directive { .. } => None,
+        })
+        .min();
+    let mut top = String::new();
+    if c.atan2_used {
+        top.push_str(&atan2_helper(model.unit_system.degrees));
+        top.push('\n');
+    }
+    for f in &pr.program.funcs {
+        if first_eq.is_some_and(|q| f.span.start > q) {
+            let ls = src[..f.span.start].rfind('\n').map(|k| k + 1).unwrap_or(0);
+            let start = if src[ls..f.span.start].trim().is_empty() { ls } else { f.span.start };
+            let le = src[f.span.end..].find('\n').map(|k| f.span.end + k + 1).unwrap_or(src.len());
+            top.push_str(c.render(start, le).trim_end());
+            top.push_str("\n\n");
+            c.replace(start, le, String::new());
+        }
+    }
     let body = c.render(0, src.len());
     if c.quality_used {
         c.limitations.push((0, "Quality: outside the two-phase region the target program returns -100 (subcooled) or 100 (superheated), DeltaF Studio returns -1".into()));
@@ -779,11 +1213,110 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
     }
     head.push_str(&unit_system_line(&model.unit_system));
     head.push_str("\n\n");
+    head.push_str(&top);
     let mut text = head + body.trim_start_matches('\n');
     if !text.ends_with('\n') {
         text.push('\n');
     }
     Export { text, limitations: c.limitations }
+}
+
+/// EES text of a comparison operator.
+fn cmp_text(op: CmpOp) -> &'static str {
+    match op {
+        CmpOp::Lt => "<",
+        CmpOp::Le => "<=",
+        CmpOp::Gt => ">",
+        CmpOp::Ge => ">=",
+        CmpOp::Eq => "=",
+        CmpOp::Ne => "<>",
+    }
+}
+
+/// EES property function that returns a CoolProp output.
+fn ees_function(k: Key) -> Option<&'static str> {
+    PROP_FUNCS.iter().find(|(df, _)| props::property_function(df) == Some(k)).map(|p| p.1)
+}
+
+/// AirH2O function for a `HAPropsSI` output key: (DeltaF Studio name, EES name).
+fn ha_output(key: &str) -> Option<(&'static str, &'static str)> {
+    Some(match key.to_ascii_lowercase().as_str() {
+        "h" | "hda" | "enthalpy" => ("enthalpy", "Enthalpy"),
+        "s" | "sda" | "entropy" => ("entropy", "Entropy"),
+        "v" | "vda" => ("volume", "Volume"),
+        "t" | "tdb" | "t_db" => ("temperature", "Temperature"),
+        "c" | "cp" => ("cp", "Cp"),
+        "w" | "omega" | "humrat" => ("humrat", "HumRat"),
+        "r" | "rh" | "relhum" => ("relhum", "RelHum"),
+        "b" | "twb" | "t_wb" | "wetbulb" => ("wetbulb", "WetBulb"),
+        "d" | "tdp" | "t_dp" | "dewpoint" => ("dewpoint", "DewPoint"),
+        "m" | "visc" | "mu" => ("viscosity", "Viscosity"),
+        "k" | "conductivity" => ("conductivity", "Conductivity"),
+        _ => return None,
+    })
+}
+
+/// AirH2O input name for a `HAPropsSI` input key.
+fn ha_input(key: &str) -> Option<&'static str> {
+    Some(match key.to_ascii_lowercase().as_str() {
+        "t" | "tdb" | "t_db" => "T",
+        "p" => "P",
+        "w" | "omega" | "humrat" => "w",
+        "r" | "rh" | "relhum" => "R",
+        "b" | "twb" | "t_wb" | "wetbulb" => "B",
+        "d" | "tdp" | "t_dp" | "dewpoint" => "D",
+        "h" | "hda" | "enthalpy" => "h",
+        _ => return None,
+    })
+}
+
+/// Variables a function body assigns (loop variables and call outputs too).
+fn assigned_vars(body: &[FStmt], out: &mut Vec<String>) {
+    for s in body {
+        match s {
+            FStmt::Assign { target, .. } => out.push(target.clone()),
+            FStmt::If { then, els, .. } => {
+                assigned_vars(then, out);
+                assigned_vars(els, out);
+            }
+            FStmt::Repeat { body, .. } | FStmt::While { body, .. } => assigned_vars(body, out),
+            FStmt::For { var, body, .. } => {
+                out.push(var.clone());
+                assigned_vars(body, out);
+            }
+            FStmt::Call { outputs, .. } => out.extend(outputs.iter().map(|o| o.0.clone())),
+            FStmt::Return { .. } => {}
+        }
+    }
+}
+
+/// Variables an expression reads.
+fn used_vars(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::Var { name, idx, .. } => {
+            out.push(name.clone());
+            idx.iter().for_each(|i| used_vars(i, out));
+        }
+        Expr::Neg(a, _) | Expr::Not(a, _) => used_vars(a, out),
+        Expr::Bin(_, a, b, _) | Expr::Cmp(_, a, b, _) => {
+            used_vars(a, out);
+            used_vars(b, out);
+        }
+        Expr::Call { args, .. } => args.iter().for_each(|a| used_vars(&a.value, out)),
+        Expr::Num { .. } | Expr::Str { .. } => {}
+    }
+}
+
+/// Four-quadrant arc tangent for EES, which has none: written once at the
+/// top of the export when the script uses `atan2`. In radians, as `atan2`
+/// of DeltaF Studio in either angle mode (`deg`: EES `arctan` in degrees).
+fn atan2_helper(deg: bool) -> String {
+    let a = if deg { "arctan(y/x)*pi/180" } else { "arctan(y/x)" };
+    format!(
+        "Function atan2_df(y, x)\n  {{four-quadrant arc tangent in radians: atan2(y, x) of DeltaF Studio}}\n  atan2_df := 0\n  If (x <> 0) Then a := {a}\n  \
+         If (x > 0) Then atan2_df := a\n  If (x < 0) and (y >= 0) Then atan2_df := a + pi\n  If (x < 0) and (y < 0) Then atan2_df := a - pi\n  \
+         If (x = 0) and (y > 0) Then atan2_df := pi/2\n  If (x = 0) and (y < 0) Then atan2_df := -pi/2\nEnd\n"
+    )
 }
 
 #[cfg(test)]
@@ -832,12 +1365,15 @@ mod tests {
         assert!(e.limitations.iter().any(|l| l.0 == 1 && l.1.contains("$Guess")), "{:?}", e.limitations);
         assert!(e.limitations.iter().any(|l| l.0 == 5 && l.1.contains("MEG")), "{:?}", e.limitations);
         assert!(e.limitations.iter().any(|l| l.1.contains("Quality")), "{:?}", e.limitations);
-        assert!(e.limitations.iter().any(|l| l.0 == 7 && l.1.contains("PropsSI")), "{:?}", e.limitations);
+        assert!(t.contains("w = (Enthalpy(Water, T=26.85, P=1)*1000)"), "{t}");
         assert!(t.contains("line 5 of the original"), "{t}");
-        let e = ex("h = enthalpy(D2O, T=20, P=1)\nz = atan2(1, 2)\nc = ceil(2.3) + step(1)\n");
+        let e = ex("h = enthalpy(D2O, T=20, P=1)\nz = atan2(1, 2)\nc = ceil(2.3) + step(1)\nph = PropsSI('Phase', 'T', 300, 'P', 1e5, 'Water')\n");
         assert!(e.text.contains("Enthalpy(DeuteriumOxide,"), "{}", e.text);
-        assert!(e.limitations.iter().any(|l| l.0 == 2 && l.1.contains("atan2")), "{:?}", e.limitations);
+        assert!(e.text.contains("z = atan2_df(1, 2)") && e.text.contains("\nFunction atan2_df(y, x)\n"), "{}", e.text);
+        assert!(e.limitations.iter().any(|l| l.0 == 4 && l.1.contains("Phase")), "{:?}", e.limitations);
         assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).count(), 1, "{:?}", e.limitations);
+        let e = ex("T1 = 20; T2 = 40\nh = enthalpy(Water, T=(T1 + T2)/2, P=1)\n");
+        assert!(e.text.contains("h = Enthalpy(Water, T=(T1 + T2)/2, P=1)"), "{}", e.text);
         let e = ex("a = enthalpy(R1234yf, T=20, P=1)\nb = enthalpy(Novec649, T=20, P=1)\nc = enthalpy(MD3M, T=20, P=1)\n");
         assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).map(|l| l.0).collect::<Vec<_>>(), [3], "{:?}", e.limitations);
     }
@@ -848,6 +1384,57 @@ mod tests {
         let t = &e.text;
         assert!(t.contains("Function f(a, b)\n  y := a*1.5 + b\n  If (y > 1) Then f := y Else f := 0\nEnd"), "{t}");
         assert!(t.contains("x = f(1, 2)"), "{t}");
+    }
+
+    #[test]
+    fn coolprop_calls_become_property_functions() {
+        let e = ex("P[1] = 1.2; T[1] = 25; RH = 0.5\n\
+                    w = HAPropsSI('W', 'T', T[1] + 273.15, 'P', P[1]*1e5, 'R', RH)\n\
+                    h = HAPropsSI('H', 'T', T[1] + 273.15, 'P', P[1]*1e5, 'R', RH)/1000\n\
+                    Td = HAPropsSI('Tdp', 'T', T[1] + 273.15, 'P', 101325, 'R', RH) - 273.15\n\
+                    hw = PropsSI('H', 'T', T[1] + 273.15, 'Q', 0, 'Water')\n\
+                    Tc = Props1SI('CO2', 'Tcrit')\n\
+                    k = 2/HAPropsSI('V', 'T', T[1] + 273.15, 'P', P[1]*1e5, 'W', w)\n");
+        let t = &e.text;
+        assert!(t.contains("\nw = HumRat(AirH2O, T=T[1], P=P[1], R=RH)\n"), "{t}");
+        assert!(t.contains("\nh = Enthalpy(AirH2O, T=T[1], P=P[1], R=RH)\n"), "{t}");
+        assert!(t.contains("\nTd = DewPoint(AirH2O, T=T[1], P=1.01325, R=RH)\n"), "{t}");
+        assert!(t.contains("\nhw = (Enthalpy(Water, T=T[1], x=0)*1000)\n"), "{t}");
+        assert!(t.contains("\nTc = (T_crit(CarbonDioxide) + 273.15)\n"), "{t}");
+        assert!(t.contains("\nk = 2/Volume(AirH2O, T=T[1], P=P[1], w=w)"), "{t}");
+        assert!(e.limitations.iter().all(|l| l.0 == 0), "{:?}", e.limitations);
+        // aliases of humid air are written AirH2O
+        let e = ex("w = humrat(HumidAir, T=30, P=1, R=0.6)\nh = enthalpy(Moist_Air, T=30, P=1, w=w)\n");
+        assert!(e.text.contains("w = humrat(AirH2O, T=30, P=1, R=0.6)") && e.text.contains("h = Enthalpy(AirH2O, T=30, P=1, w=w)"), "{}", e.text);
+        // the conversion cancels only what it should
+        let e = ex("h = 2*HAPropsSI('H', 'T', 300, 'P', 1e5, 'R', 0.5)/1000\n");
+        assert!(e.text.contains("h = 2*(Enthalpy(AirH2O, T=26.85, P=1, R=0.5)*1000)/1000"), "{}", e.text);
+    }
+
+    #[test]
+    fn loops_and_conditions_become_ees() {
+        let src = concat!(
+            "y = f(3)\nFunction f(N)\n  s = 0\n  For i = 1 To N\n    s = s + i\n  End\n  For j = N To 1 Step -2\n    s = s + j\n  End\n",
+            "  k = 0\n  While k < 3 and not (s = 2) Do\n    k = k + 1\n  End\n",
+            "  If s = 1 Then\n    f := 1\n  ElseIf s > 9 or s < 0 and k > 1 Then\n    f := 2\n  Else\n    f := s\n  End If\nEnd\n"
+        );
+        let e = ex(src);
+        let t = &e.text;
+        // functions go first in EES
+        assert!(t.find("Function f(N)").unwrap() < t.find("y = f(3)").unwrap(), "{t}");
+        assert!(t.contains("  i := 1\n  If (i <= N) Then\n  Repeat\n    s := s + i\n    i := i + 1\n  Until (i > N)\n  EndIf\n"), "{t}");
+        assert!(t.contains("  j := N\n  If (j >= 1) Then\n  Repeat\n    s := s + j\n    j := j - 2\n  Until (j < 1)\n  EndIf\n"), "{t}");
+        assert!(t.contains("  If ((k < 3) and (s <> 2)) Then\n  Repeat\n    k := k + 1\n  Until ((k >= 3) or (s = 2))\n  EndIf\n"), "{t}");
+        // and binds tighter than or here, not in EES: the parentheses say so
+        assert!(t.contains("  If (s = 1) Then\n    f := 1\n  Else\n  If ((s > 9) or ((s < 0) and (k > 1))) Then\n    f := 2\n  Else\n    f := s\n  EndIf\n  EndIf\nEnd"), "{t}");
+        assert!(!t.contains("For") && !t.contains("While") && !t.contains("ElseIf") && !t.contains("not"), "{t}");
+        assert!(e.limitations.is_empty(), "{:?}", e.limitations);
+        // the same results here
+        let m = crate::compile(src, &crate::CompileOptions::default());
+        assert!(!m.has_errors());
+        // a bound the body changes is kept in a variable
+        let e = ex("Function g(N)\n  g := 0\n  For i = 1 To N Step N/2\n    N = N - 1\n    g := g + 1\n  End\nEnd\nz = g(4)\n");
+        assert!(e.text.contains("i_end := N\n  i_step := N/2\n  i := 1\n  If ((i - i_end)*i_step <= 0) Then"), "{}", e.text);
     }
 
     #[test]

@@ -71,7 +71,9 @@ The EES header lines are directives. DeltaF Studio understands `$UnitSystem`
 the subset of the language EES reads: one equation per line, numbers in
 model units, a `$UnitSystem` line, ideal-gas calls with the formula names
 (`CO2`, `H2O`) and real-fluid calls with the full names (`CarbonDioxide`,
-`Water`), and a header listing what could not be translated (USER_GUIDE.md
+`Water`), `For` / `While` / `ElseIf` rewritten with `Repeat ... Until` and
+nested `If`, `PropsSI` / `HAPropsSI` rewritten as property and `AirH2O`
+functions, and a header listing what could not be translated (USER_GUIDE.md
 §12).
 
 ## 2. Syntax that carries over unchanged
@@ -218,7 +220,9 @@ while DeltaF Studio returns −1, the CoolProp convention. Rewrite tests such as
 
 ### 4.5 Humid air
 
-EES `AirH2O` calls work unchanged, in model units: `enthalpy`, `entropy`,
+EES `AirH2O` calls work unchanged, in model units (`HumidAir`, `Humid_Air`,
+`MoistAir`, `Moist_Air`, `AirWater` and `Air_H2O` are accepted as other
+names of `AirH2O`, in any case): `enthalpy`, `entropy`,
 `volume`, `temperature`, `cp`, `humrat`, `relhum`, `wetbulb` and
 `dewpoint`, with the EES inputs `T`, `P`, `w` (humidity ratio), `R`
 (relative humidity, 0–1), `B` (wet bulb), `D` (dew point) and `h`; `P` and
@@ -270,7 +274,8 @@ Call split(m[1], 0.3 : m[2], m[3])
 ```
 
 Inside them: `If ... Then ... ElseIf ... Else ... EndIf` (also on one
-line), `Repeat ... Until`, `While ... End`, `For i = a To b [Step s] ...
+line), with `=` as the equality test in a condition as in EES
+(`If (x = 1) Then`), `Repeat ... Until`, `While ... End`, `For i = a To b [Step s] ...
 End`, `Return`. Two limitations: arrays cannot be used inside function
 bodies yet, and `Module`/`Subprogram` (equation-based sub-models) are not
 supported; inline their equations, or use `Duplicate` for repeated units.

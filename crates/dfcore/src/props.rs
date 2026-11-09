@@ -644,6 +644,8 @@ pub struct PropCall {
     pub inputs: Vec<Key>,
     pub conv_out: Conv,
     pub conv_in: Vec<Conv>,
+    /// `PropsSI`: SI in and out, so no model dimensions
+    pub si: bool,
 }
 
 impl PropCall {
@@ -655,7 +657,7 @@ impl PropCall {
             backend::pair_name(inputs[0], inputs[1]).ok_or_else(|| format!("{label}: unsupported input pair {:?}/{:?}", inputs[0], inputs[1]))?;
         }
         let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
-        Ok(PropCall { label, fluid: coolprop_fluid(fluid), out, inputs, conv_out: Conv::new(out, us), conv_in })
+        Ok(PropCall { label, fluid: coolprop_fluid(fluid), out, inputs, conv_out: Conv::new(out, us), conv_in, si: us.is_none() })
     }
 }
 
@@ -667,6 +669,9 @@ impl ExtFn for PropCall {
         self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
+        if self.si {
+            return None;
+        }
         Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
@@ -693,6 +698,15 @@ impl ExtFn for PropCall {
             }
         }
     }
+}
+
+/// Names of humid air (EES `AirH2O` and plain-language aliases), compared
+/// without case.
+pub const HUMID_AIR_NAMES: &[&str] = &["AirH2O", "HumidAir", "Humid_Air", "MoistAir", "Moist_Air", "AirWater", "Air_H2O"];
+
+/// Whether a fluid name (without `::Ideal` / `::Real`) is humid air.
+pub fn is_humid_air(name: &str) -> bool {
+    HUMID_AIR_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name.trim()))
 }
 
 /// EES-style humid-air call (`enthalpy(AirH2O, T=, P=, w=)`, `humrat`,

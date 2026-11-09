@@ -1115,7 +1115,7 @@ impl Lower<'_, '_> {
     fn property_call(&mut self, name: &str, display: &str, args: &[Arg], span: Span, t: &mut Tape) -> Result<Option<u32>, Diagnostic> {
         let us = self.b.m.unit_system.clone();
         // ---- EES humid air: enthalpy(AirH2O, T=, P=, w=), humrat(AirH2O, ...), ...
-        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| props::split_model(&f).0.eq_ignore_ascii_case("airh2o"));
+        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| props::is_humid_air(props::split_model(&f).0));
         // `Fluid::Ideal` has no saturation states
         let no_ideal = |fluid: &str| -> Result<(), Diagnostic> {
             if props::split_model(fluid).1 == props::Model::Ideal {

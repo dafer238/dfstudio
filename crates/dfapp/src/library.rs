@@ -197,7 +197,7 @@ pub fn fluid_catalogue(coolprop: &[String]) -> Vec<FluidInfo> {
     for (f, _) in crate::completion::EXTRA_FLUIDS {
         out.push(FluidInfo { name: f.to_string(), group: "Liquids and heat-transfer fluids", data: None, aliases: other_names(f) });
     }
-    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None, aliases: Vec::new() });
+    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None, aliases: props::HUMID_AIR_NAMES[1..].iter().map(|s| s.to_string()).collect() });
     out
 }
 

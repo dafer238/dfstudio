@@ -6,6 +6,27 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Humid air under other names: `HumidAir`, `Humid_Air`, `MoistAir`,
+  `Moist_Air`, `AirWater` and `Air_H2O` are the same as `AirH2O` in the
+  humid-air functions (`humrat(HumidAir, T=T, P=P, R=0.5)`), in any case.
+- Export simplified script: `PropsSI`, `Props1SI` and `HAPropsSI` are
+  written as the named property and `AirH2O` functions, with their SI
+  arguments converted to model units (`T + 273.15`, `P*1e5` and a trailing
+  `/1000` simplify away). `For` and `While` loops become a guarded
+  `Repeat ... Until`, `ElseIf` a nested `If`, `not` a flipped comparison,
+  and the operands of `and` / `or` get parentheses, since EES evaluates
+  them left to right. `atan2` becomes a helper function written at the top,
+  and functions and procedures are moved before the first equation.
+
+### Fixed
+- `=` compares in the condition of `If`, `ElseIf`, `While` and `Until`
+  (`If x = 1 Then`), as in EES; it was a syntax error.
+- `PropsSI` results no longer take the model unit of their property: they
+  are SI (J/kg, Pa, K), and were shown as kJ/kg, bar or °C.
+- Export simplified script: an argument written in parentheses, such as
+  `T=(T1 + T2)/2`, lost its opening parenthesis.
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

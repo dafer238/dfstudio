@@ -48,6 +48,8 @@ struct Parser<'a> {
     pos: usize,
     diags: Vec<Diagnostic>,
     comments: &'a [Comment],
+    /// Inside the condition of If / While / Until: `=` compares.
+    cond: bool,
 }
 
 type PResult<T> = Result<T, Diagnostic>;
@@ -86,7 +88,7 @@ const RESERVED: &[&str] = &[
 
 pub fn parse(src: &str) -> ParseResult {
     let lexed = lex(src);
-    let mut p = Parser { toks: &lexed.tokens, pos: 0, diags: Vec::new(), comments: &lexed.comments };
+    let mut p = Parser { toks: &lexed.tokens, pos: 0, diags: Vec::new(), comments: &lexed.comments, cond: false };
     for e in lexed.errors {
         p.diags.push(Diagnostic { msg: e.msg, span: e.span, severity: Severity::Error });
     }
@@ -360,7 +362,7 @@ impl<'a> Parser<'a> {
         let start = self.span();
         if self.at_kw("if") {
             self.bump();
-            let cond = self.expr()?;
+            let cond = self.cond_expr()?;
             self.expect_kw("then")?;
             if !matches!(self.peek(), Tok::Newline | Tok::Semicolon) {
                 // single-line if: If c Then stmt [Else stmt]
@@ -381,12 +383,12 @@ impl<'a> Parser<'a> {
             self.bump();
             let body = self.fblock(&["until"])?;
             self.bump();
-            let until = self.expr()?;
+            let until = self.cond_expr()?;
             return Ok(FStmt::Repeat { body, until, span: start.to(self.prev_span()) });
         }
         if self.at_kw("while") {
             self.bump();
-            let cond = self.expr()?;
+            let cond = self.cond_expr()?;
             if self.at_kw("do") {
                 self.bump();
             }
@@ -434,7 +436,7 @@ impl<'a> Parser<'a> {
         if self.at_kw("elseif") {
             let start = self.span();
             self.bump();
-            let cond = self.expr()?;
+            let cond = self.cond_expr()?;
             self.expect_kw("then")?;
             let then = self.fblock(&["endif", "else", "elseif", "end"])?;
             let els = self.if_tail()?;
@@ -446,7 +448,7 @@ impl<'a> Parser<'a> {
             // "Else If" written as two words
             let start = self.span();
             self.bump();
-            let cond = self.expr()?;
+            let cond = self.cond_expr()?;
             self.expect_kw("then")?;
             let then = self.fblock(&["endif", "else", "elseif", "end"])?;
             let els = self.if_tail()?;
@@ -501,6 +503,13 @@ impl<'a> Parser<'a> {
     pub fn expr(&mut self) -> PResult<Expr> {
         self.or_expr()
     }
+    /// Condition of If / ElseIf / While / Until, where `=` is a comparison (EES).
+    fn cond_expr(&mut self) -> PResult<Expr> {
+        let was = std::mem::replace(&mut self.cond, true);
+        let r = self.expr();
+        self.cond = was;
+        r
+    }
     fn or_expr(&mut self) -> PResult<Expr> {
         let mut a = self.and_expr()?;
         while self.at_kw("or") {
@@ -538,6 +547,7 @@ impl<'a> Parser<'a> {
             Tok::Gt => CmpOp::Gt,
             Tok::Ge => CmpOp::Ge,
             Tok::Ne => CmpOp::Ne,
+            Tok::Eq if self.cond => CmpOp::Eq,
             _ => return Ok(a),
         };
         self.bump();
@@ -694,6 +704,13 @@ mod tests {
         } else {
             panic!()
         }
+    }
+    #[test]
+    fn equals_compares_in_conditions() {
+        let r = parse("Function f(x)\n  If x = 1 Then\n    f := 2\n  Else\n    f := 3\n  EndIf\n  Repeat\n    x := x + 1\n  Until (x = 5) or not (x <> 9)\nEnd\ny = f(1)\n");
+        assert!(r.diagnostics.is_empty(), "{:?}", r.diagnostics);
+        let FStmt::If { cond, .. } = &r.program.funcs[0].body[0] else { panic!() };
+        assert!(matches!(cond, Expr::Cmp(CmpOp::Eq, ..)));
     }
     #[test]
     fn parse_duplicate_and_function() {

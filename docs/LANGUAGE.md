@@ -162,7 +162,8 @@ Call split(m[1], 0.3 : m[2], m[3])
 ```
 
 Statements inside functions: assignment (`:=` or `=`), `If/Then/ElseIf/Else/EndIf`
-(also single-line), `Repeat ... Until cond`, `While cond ... End`,
+(also single-line; in a condition `=` compares, as `<>` and the other
+operators do: `If (x = 1) Then`), `Repeat ... Until cond`, `While cond ... End`,
 `For i = a To b [Step s] ... End`, `Call`, `Return`.
 
 ## Directives

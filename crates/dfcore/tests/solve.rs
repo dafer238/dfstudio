@@ -109,7 +109,7 @@ fn convert_and_converttemp() {
 #[test]
 fn humid_air_liquids_and_latent_heat() {
     // ASHRAE psychrometric chart, 30 C, 1 atm, 50 % RH: w = 0.0134, Twb = 22.0 C
-    let (m, s) = run("T = 30; P = 1.01325\nw = humrat(AirH2O, T=T, P=P, R=0.5)\nTwb = wetbulb(AirH2O, T=T, P=P, w=w)\nphi = relhum(AirH2O, T=T, P=P, B=Twb)\n\
+    let (m, s) = run("T = 30; P = 1.01325\nw = humrat(AirH2O, T=T, P=P, R=0.5)\nTwb = wetbulb(HumidAir, T=T, P=P, w=w)\nphi = relhum(moist_air, T=T, P=P, B=Twb)\n\
          hfg = enthalpy_vaporization(Water, T=100)\n\
          h1 = enthalpy(Sodium, T=400, P=2); h2 = h1 + 100; T2 = temperature(Sodium, P=2, h=h2)\n\
          rho_pb = density(Lead, T=426.85, P=1)\nT_salt = temperature(SolarSalt, P=1, h=enthalpy(SolarSalt, T=400, P=1))");
