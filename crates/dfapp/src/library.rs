@@ -363,7 +363,7 @@ fn is_literal(v: &str) -> bool {
 pub fn evaluate(call: &str, script: &str, us: &UnitSystem, standalone: bool) -> Result<String, String> {
     const NAME: &str = "zz_library_preview";
     let src = if standalone { format!("{NAME} = {call}\n") } else { format!("{script}\n{NAME} = {call}\n") };
-    let opts = dfcore::CompileOptions { unit_system: Some(us.clone()), check_fluids: true };
+    let opts = dfcore::CompileOptions { unit_system: Some(us.clone()), check_fluids: true, files: Default::default() };
     let m = dfcore::compile(&src, &opts);
     if let Some(d) = m.diagnostics.iter().find(|d| d.severity == dfcore::Severity::Error) {
         return Err(d.msg.clone());

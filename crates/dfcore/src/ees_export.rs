@@ -928,6 +928,11 @@ impl<'a> Ctx<'a> {
     fn property(&mut self, name: &str, ees: &str, args: &[Arg], start: usize, end: usize, stmt_end: usize) {
         let Some(first) = args.first() else { return };
         let written = match &first.value {
+            // `enthalpy(F$, ...)`: the fluid it holds
+            Expr::Var { name, idx, .. } if idx.is_empty() && first.name.is_none() && name.ends_with('$') => match self.model.and_then(|m| m.strings.get(name)) {
+                Some(v) => v.clone(),
+                None => return,
+            },
             Expr::Var { display, idx, .. } if idx.is_empty() && first.name.is_none() => display.clone(),
             Expr::Str { value, .. } => value.clone(),
             _ => return,
@@ -1029,6 +1034,9 @@ impl<'a> Ctx<'a> {
             Stmt::Directive { name, args, span } => {
                 let line_end = self.src[span.start..].find('\n').map(|k| span.start + k).unwrap_or(self.src.len());
                 let text = self.src[span.start..line_end].trim_end().to_string();
+                if matches!(name.as_str(), "include" | "constant") {
+                    return; // the same in EES
+                }
                 if name == "unitsystem" {
                     self.replace(span.start, line_end, brace(&format!("{text}: see the $UnitSystem line at the top")));
                     return;
@@ -1104,7 +1112,7 @@ impl<'a> Ctx<'a> {
 pub fn export(src: &str, us: &UnitSystem) -> Export {
     let norm = crate::locale::normalize(src);
     let src: &str = &norm;
-    let opts = crate::CompileOptions { unit_system: Some(us.clone()), check_fluids: false };
+    let opts = crate::CompileOptions { unit_system: Some(us.clone()), check_fluids: false, files: Default::default() };
     let model = crate::compile(src, &opts);
     let pr = crate::parser::parse(src);
     let mut c = Ctx {

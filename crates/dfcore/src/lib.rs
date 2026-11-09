@@ -21,6 +21,7 @@ pub mod funcs;
 pub mod lexer;
 pub mod liquids;
 pub mod locale;
+pub mod lookup;
 pub mod parser;
 pub mod props;
 pub mod solver;

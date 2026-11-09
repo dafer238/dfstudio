@@ -58,6 +58,8 @@ pub struct Equation {
 
 #[derive(Debug, Clone, Default)]
 pub struct Model {
+    /// String variables and constants by canonical name (`f$` → `R134a`).
+    pub strings: HashMap<String, String>,
     pub vars: Vec<VarInfo>,
     pub var_index: HashMap<String, VarId>,
     pub eqs: Vec<Equation>,
@@ -124,11 +126,40 @@ pub struct CompileOptions {
     pub unit_system: Option<UnitSystem>,
     /// Validate fluid names against CoolProp at compile time.
     pub check_fluids: bool,
+    /// Files the script names (`$Include`, lookup tables).
+    pub files: Files,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        CompileOptions { unit_system: None, check_fluids: true }
+        CompileOptions { unit_system: None, check_fluids: true, files: Files::default() }
+    }
+}
+
+/// Text of the files a script names (`$Include lib.dfs`, `interpolate('data.csv', ...)`),
+/// by name: the files attached to a project, or the files next to the script.
+#[derive(Clone, Default)]
+pub struct Files(pub Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>);
+
+impl Files {
+    pub fn new(f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Files {
+        Files(Some(Arc::new(f)))
+    }
+    /// Files in a directory (and its parent's names relative to it).
+    pub fn dir(dir: std::path::PathBuf) -> Files {
+        Files::new(move |name| std::fs::read_to_string(dir.join(name)).ok())
+    }
+    /// Text of a file, trying `name` as written, then with `.csv`, `.txt`, `.dfs`.
+    pub fn read(&self, name: &str) -> Option<String> {
+        let f = self.0.as_ref()?;
+        let name = name.trim().trim_matches(['\'', '"']);
+        f(name).or_else(|| [".csv", ".txt", ".dfs", ".lib"].iter().find_map(|e| f(&format!("{name}{e}"))))
+    }
+}
+
+impl std::fmt::Debug for Files {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Files({})", if self.0.is_some() { "set" } else { "none" })
     }
 }
 
@@ -140,6 +171,12 @@ struct Builder<'s> {
     consts: HashMap<String, f64>,
     func_map: HashMap<String, Arc<FuncCell>>,
     opts: CompileOptions,
+    /// String variables and constants (`F$ = 'R134a'`, `$Constant F#$ = 'Air'`), by canonical name
+    strings: HashMap<String, String>,
+    /// Lookup tables read so far, by name
+    tables: HashMap<String, Arc<crate::lookup::Table>>,
+    /// `$Constant N# = 12 [kg]`: value in model units and its dimension
+    user_consts: HashMap<String, (f64, Option<Dim>)>,
     /// `a = b - c/d [bar]`: (equation index, unit, span)
     eq_units: Vec<(usize, String, Span)>,
 }
@@ -150,12 +187,76 @@ fn err(msg: impl Into<String>, span: Span) -> Diagnostic {
 
 /// Parse and compile a script.
 pub fn compile(src: &str, opts: &CompileOptions) -> Model {
-    let pr = parse(src);
-    compile_program(src, &pr.program, pr.diagnostics, opts)
+    let (full, included, mut extra) = with_includes(src, &opts.files);
+    if included.is_empty() {
+        let pr = parse(src);
+        let mut m = compile_program(src, &pr.program, pr.diagnostics, opts);
+        m.diagnostics.extend(extra);
+        return m;
+    }
+    let pr = parse(&full);
+    let mut m = compile_program(&full, &pr.program, pr.diagnostics, opts);
+    // messages about an included file point at its `$Include` line
+    for d in m.diagnostics.iter_mut() {
+        if d.span.start >= src.len() {
+            if let Some((name, at, r)) = included.iter().find(|(_, _, r)| r.contains(&d.span.start)) {
+                let line = full[r.start..d.span.start].bytes().filter(|b| *b == b'\n').count() + 1;
+                d.msg = format!("{name}, line {line}: {}", d.msg);
+                d.span = *at;
+            }
+        }
+    }
+    m.diagnostics.append(&mut extra);
+    m
+}
+
+/// The script with the files of its `$Include` lines appended (one level,
+/// as in EES), the included ranges, and messages about missing files.
+#[allow(clippy::type_complexity)]
+fn with_includes(src: &str, files: &Files) -> (String, Vec<(String, Span, std::ops::Range<usize>)>, Vec<Diagnostic>) {
+    let mut full = src.to_string();
+    let mut inc = Vec::new();
+    let mut diags = Vec::new();
+    let mut at = 0;
+    for (k, line) in src.split_inclusive('\n').enumerate() {
+        let start = at;
+        at += line.len();
+        let t = line.trim();
+        if !t.get(..8).is_some_and(|h| h.eq_ignore_ascii_case("$include")) {
+            continue;
+        }
+        let name = t[8..].split(['{', '"']).next().unwrap_or("").split("//").next().unwrap_or("").trim().to_string();
+        let off = line.len() - line.trim_start().len();
+        let span = Span { start: start + off, end: start + off + t.len(), line: k as u32 + 1 };
+        match files.read(&name) {
+            Some(text) if text.lines().any(|l| l.trim_start().to_ascii_lowercase().starts_with("$include")) => {
+                diags.push(err(format!("{name}: an included file cannot include other files"), span));
+            }
+            Some(text) => {
+                full.push('\n');
+                let s = full.len();
+                full.push_str(&text);
+                full.push('\n');
+                inc.push((name, span, s..full.len()));
+            }
+            None => diags.push(err(format!("cannot find the file '{name}' (attach it to the project, or put it next to the script)"), span)),
+        }
+    }
+    (full, inc, diags)
 }
 
 pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: &CompileOptions) -> Model {
-    let mut b = Builder { src, m: Model::default(), consts: HashMap::new(), func_map: HashMap::new(), opts: opts.clone(), eq_units: Vec::new() };
+    let mut b = Builder {
+        src,
+        m: Model::default(),
+        consts: HashMap::new(),
+        func_map: HashMap::new(),
+        opts: opts.clone(),
+        strings: HashMap::new(),
+        user_consts: HashMap::new(),
+        tables: HashMap::new(),
+        eq_units: Vec::new(),
+    };
     b.m.diagnostics = diags;
     b.m.unit_system = opts.unit_system.clone().unwrap_or_default();
     // 1. unit system directive (affects literal conversion)
@@ -167,6 +268,20 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
                     Err(e) => b.m.diagnostics.push(err(e, *span)),
                 }
             }
+        }
+    }
+    // 1b. string variables and $Constant: known before functions and equations
+    for s in &prog.stmts {
+        match s {
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Str { value, .. }, span, .. } if idx.is_empty() => {
+                if name.ends_with('$') {
+                    b.strings.insert(name.clone(), value.clone());
+                } else {
+                    b.m.diagnostics.push(err(format!("'{name}' holds text: a string variable name ends with $ (e.g. {name}$)"), *span));
+                }
+            }
+            Stmt::Directive { name, args, span } if name == "constant" => b.constant(args, *span),
+            _ => {}
         }
     }
     // 2. register functions (late-bound so they may call each other)
@@ -213,6 +328,7 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
             }
         }
     }
+    b.m.strings = std::mem::take(&mut b.strings);
     // 6. unit inference
     let (dims, conflicts) = crate::dims::infer(&b.m);
     b.m.var_dims = dims;
@@ -286,6 +402,54 @@ impl<'s> Builder<'s> {
         }
     }
 
+    /// `$Constant Name# = value [unit]` or `$Constant Name#$ = 'text'`.
+    fn constant(&mut self, args: &str, span: Span) {
+        let Some((lhs, text)) = args.split_once('=') else {
+            self.m.diagnostics.push(err("expected `$Constant Name# = value`", span));
+            return;
+        };
+        let name = canon(lhs.trim());
+        if !name.ends_with('#') && !name.ends_with("#$") {
+            self.m.diagnostics.push(err(format!("a constant name ends with # (e.g. {}#)", lhs.trim()), span));
+            return;
+        }
+        let pr = parse(&format!("__x = {}", text.trim()));
+        match pr.program.stmts.first() {
+            Some(Stmt::Equation { rhs: Expr::Str { value, .. }, .. }) if name.ends_with('$') => {
+                self.strings.insert(name, value.clone());
+            }
+            Some(Stmt::Equation { rhs, .. }) if !name.ends_with('$') && pr.diagnostics.is_empty() => match self.const_eval(rhs, &HashMap::new()) {
+                Some(v) => {
+                    let dim = match rhs {
+                        Expr::Num { unit: Some(u), .. } => parse_unit(u).ok().map(|u| u.dim),
+                        _ => None,
+                    };
+                    self.user_consts.insert(name, (v, dim));
+                }
+                None => self.m.diagnostics.push(err(format!("$Constant {}: '{}' is not a constant", lhs.trim(), text.trim()), span)),
+            },
+            _ => self.m.diagnostics.push(err(format!("$Constant {}: cannot read '{}'", lhs.trim(), text.trim()), span)),
+        }
+    }
+
+    /// A lookup table by file name, read once.
+    fn table(&mut self, name: &str, span: Span) -> Result<Arc<crate::lookup::Table>, Diagnostic> {
+        let key = name.to_ascii_lowercase();
+        if let Some(t) = self.tables.get(&key) {
+            return Ok(t.clone());
+        }
+        let text =
+            self.opts.files.read(name).ok_or_else(|| err(format!("cannot find the table '{name}' (attach the CSV file to the project, or put it next to the script)"), span))?;
+        let t = Arc::new(crate::lookup::Table::parse(name, &text, &self.m.unit_system).map_err(|e| err(e, span))?);
+        self.tables.insert(key, t.clone());
+        Ok(t)
+    }
+
+    /// Text of a string variable or constant (`F$`, `F#$`).
+    fn string_var(&self, name: &str, span: Span) -> Result<String, Diagnostic> {
+        self.strings.get(&canon(name)).cloned().ok_or_else(|| err(format!("string variable {name} is not set (write {name} = 'text')"), span))
+    }
+
     fn literal(&self, value: f64, unit: &Option<String>, span: Span) -> Result<f64, Diagnostic> {
         match unit {
             None => Ok(value),
@@ -309,6 +473,8 @@ impl<'s> Builder<'s> {
                     *v
                 } else if let Some(c) = builtin_const(name, &self.m.unit_system) {
                     c
+                } else if let Some((c, _)) = self.user_consts.get(name) {
+                    *c
                 } else {
                     *self.consts.get(name)?
                 }
@@ -385,6 +551,8 @@ impl<'s> Builder<'s> {
     fn stmt(&mut self, s: &Stmt, env: &HashMap<String, f64>) {
         match s {
             Stmt::Directive { .. } => {}
+            // a string variable: no equation
+            Stmt::Equation { lhs: Expr::Var { idx, .. }, rhs: Expr::Str { .. }, .. } if idx.is_empty() => {}
             Stmt::Equation { lhs, rhs, span, trailing_comment, unit } => {
                 let n = self.m.eqs.len();
                 if let Err(d) = self.equation(lhs, rhs, *span, env, trailing_comment.as_deref()) {
@@ -627,7 +795,8 @@ impl<'s> Builder<'s> {
                 let target = args[t0 + 9..].trim().to_string();
                 self.m.controls.push(ControlSpec { vary, target, span });
             }
-            "include" | "tabstops" | "arrays" | "warnings" | "checkunits" | "complex" | "uniterrors" | "ifnot" | "endif" | "if" | "common" | "reference" | "private" | "local" => {
+            "include" | "constant" => {}
+            "tabstops" | "arrays" | "warnings" | "checkunits" | "complex" | "uniterrors" | "ifnot" | "endif" | "if" | "common" | "reference" | "private" | "local" => {
                 self.m.diagnostics.push(Diagnostic { msg: format!("${name} is ignored"), span, severity: Severity::Info });
             }
             other => self.m.diagnostics.push(Diagnostic { msg: format!("unknown directive ${other}"), span, severity: Severity::Warning }),
@@ -942,6 +1111,16 @@ impl Lower<'_, '_> {
                         }
                         return Ok(n);
                     }
+                    if let Some((c, d)) = self.b.user_consts.get(name).copied() {
+                        let n = t.constant(c);
+                        if let Some(d) = d {
+                            self.const_dims.push((n, d));
+                        }
+                        return Ok(n);
+                    }
+                    if name.ends_with('$') {
+                        return Err(err(format!("{name} is a string variable: it can only name a fluid, a table or a column"), *span));
+                    }
                 }
                 if self.slots.is_some() {
                     if !idx.is_empty() {
@@ -1118,6 +1297,10 @@ impl Lower<'_, '_> {
             }
             _ => {}
         }
+        // ---- lookup tables
+        if matches!(name, "lookup" | "interpolate" | "interpolate1" | "interpolate2" | "interpolate3" | "interpolate2dm") {
+            return self.table_call(name, display, args, span, t);
+        }
         // ---- thermophysical properties
         if let Some(r) = self.property_call(name, display, args, span, t)? {
             return Ok(r);
@@ -1135,8 +1318,82 @@ impl Lower<'_, '_> {
         Err(err(format!("unknown function '{display}'"), span))
     }
 
+    /// `lookup`, `interpolate`, `interpolate1/2/3`, `interpolate2dm`.
+    fn table_call(&mut self, name: &str, display: &str, args: &[Arg], span: Span, t: &mut Tape) -> Result<u32, Diagnostic> {
+        use crate::lookup::{Kind, TableCall};
+        let Some(first) = args.first() else {
+            return Err(err(format!("{display}('table', ...): give the table (a CSV file) first"), span));
+        };
+        let tname = self.str_arg(first)?;
+        let table = self.b.table(&tname, first.value.span())?;
+        let label = format!("{display}('{tname}')");
+        let is_text = |a: &Arg| matches!(&a.value, Expr::Str { .. }) || matches!(&a.value, Expr::Var { name, idx, .. } if idx.is_empty() && name.ends_with('$'));
+        let (kind, nodes) = match name {
+            "lookup" => {
+                if args.len() != 3 || args.iter().any(|a| a.name.is_some()) {
+                    return Err(err(format!("{display}('table', row, column) takes three arguments"), span));
+                }
+                let row = self.expr(&args[1].value, t)?;
+                if is_text(&args[2]) {
+                    let c = table.col(&self.str_arg(&args[2])?).map_err(|e| err(e, args[2].value.span()))?;
+                    (Kind::Lookup(Some(c)), vec![row])
+                } else {
+                    let col = self.expr(&args[2].value, t)?;
+                    (Kind::Lookup(None), vec![row, col])
+                }
+            }
+            "interpolate2dm" => {
+                if args.len() != 3 || args.iter().any(|a| a.name.is_some()) {
+                    return Err(err(format!("{display}('table', x, y) takes three arguments"), span));
+                }
+                (Kind::Grid, vec![self.expr(&args[1].value, t)?, self.expr(&args[2].value, t)?])
+            }
+            _ => {
+                let order = match name {
+                    "interpolate1" => 1,
+                    "interpolate2" => 2,
+                    _ => 3,
+                };
+                let usage = format!("{display}('table', 'ColA', 'ColB', ColB=value [, first row, last row])");
+                if !(4..=6).contains(&args.len()) || args[1].name.is_some() || args[2].name.is_some() {
+                    return Err(err(usage, span));
+                }
+                let c1 = table.col(&self.str_arg(&args[1])?).map_err(|e| err(e, args[1].value.span()))?;
+                let c2 = table.col(&self.str_arg(&args[2])?).map_err(|e| err(e, args[2].value.span()))?;
+                let known = args[3].name.as_deref().ok_or_else(|| err(usage.clone(), args[3].value.span()))?;
+                let k = table.col(known).map_err(|e| err(e, args[3].value.span()))?;
+                let out = if k == c1 {
+                    c2
+                } else if k == c2 {
+                    c1
+                } else {
+                    return Err(err(format!("{display}: '{known}' must be one of the two columns named before"), args[3].value.span()));
+                };
+                let n = table.rows();
+                let row = |a: Option<&Arg>, default: usize| -> Result<usize, Diagnostic> {
+                    match a {
+                        None => Ok(default),
+                        Some(a) => {
+                            let v = self.b.const_eval(&a.value, &self.env).ok_or_else(|| err("first and last row must be constants", a.value.span()))?;
+                            Ok(v.round().max(0.0) as usize)
+                        }
+                    }
+                };
+                let lo = row(args.get(4), 1)?.max(1);
+                let hi = row(args.get(5), n)?;
+                let hi = if hi == 0 || hi > n { n } else { hi };
+                if hi < lo + 1 {
+                    return Err(err(format!("{display}: rows {lo}..{hi} hold fewer than two points"), span));
+                }
+                (Kind::Interp(k, out, order, lo - 1, hi), vec![self.expr(&args[3].value, t)?])
+            }
+        };
+        Ok(ext(t, Arc::new(TableCall { label, table, kind }), &nodes))
+    }
+
     fn fluid_arg(&self, a: &Arg) -> Result<String, Diagnostic> {
         match &a.value {
+            Expr::Var { display, idx, span, .. } if idx.is_empty() && a.name.is_none() && display.ends_with('$') => self.b.string_var(display, *span),
             Expr::Var { display, idx, .. } if idx.is_empty() && a.name.is_none() => Ok(display.clone()),
             Expr::Str { value, .. } => Ok(value.clone()),
             other => Err(err("expected a fluid name (e.g. CO2, Water, R134a, CO2::Ideal or 'IF97::Water')", other.span())),
@@ -1146,6 +1403,7 @@ impl Lower<'_, '_> {
     fn str_arg(&self, a: &Arg) -> Result<String, Diagnostic> {
         match &a.value {
             Expr::Str { value, .. } => Ok(value.clone()),
+            Expr::Var { display, idx, span, .. } if idx.is_empty() && display.ends_with('$') => self.b.string_var(display, *span),
             Expr::Var { display, idx, .. } if idx.is_empty() => Ok(display.clone()),
             other => Err(err("expected a string", other.span())),
         }

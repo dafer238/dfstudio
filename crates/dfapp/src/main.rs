@@ -41,7 +41,7 @@ fn report(args: &[String]) -> std::process::ExitCode {
     let a = analysis::run(analysis::Request {
         gen: 1,
         text: s.text.clone(),
-        opts: dfcore::CompileOptions { unit_system: Some(s.unit_system.clone()), check_fluids: true },
+        opts: dfcore::CompileOptions { unit_system: Some(s.unit_system.clone()), check_fluids: true, files: Default::default() },
         solve: true,
         solve_opts: Default::default(),
         warm: None,
@@ -82,7 +82,7 @@ fn write_examples(args: &[String]) -> i32 {
         let a = analysis::run(analysis::Request {
             gen: 1,
             text: s.text.clone(),
-            opts: dfcore::CompileOptions { unit_system: Some(s.unit_system.clone()), check_fluids: true },
+            opts: dfcore::CompileOptions { unit_system: Some(s.unit_system.clone()), check_fluids: true, files: Default::default() },
             solve: true,
             solve_opts: Default::default(),
             warm: None,

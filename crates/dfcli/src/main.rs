@@ -34,6 +34,8 @@ fn main() -> ExitCode {
         }
     };
     let mut opts = CompileOptions::default();
+    let dir = std::path::Path::new(path).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    opts.files = dfcore::compile::Files::dir(dir.clone());
     let mut project: Option<DfFile> = None;
     let src = if is_df(&raw) {
         match DfFile::from_bytes(&raw) {
@@ -42,6 +44,16 @@ fn main() -> ExitCode {
                 opts.unit_system =
                     f.project.as_deref().and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()).and_then(|v| serde_json::from_value(v.get("unit_system")?.clone()).ok());
                 let s = f.script.clone();
+                // files attached to the project first, then the files next to it
+                let attached: Vec<(String, Vec<u8>)> = f.files.iter().map(|a| (a.name.clone(), a.data.clone())).collect();
+                let dir2 = dir.clone();
+                opts.files = dfcore::compile::Files::new(move |name| {
+                    let base = |n: &str| n.rsplit(['/', '\\']).next().unwrap_or(n).to_ascii_lowercase();
+                    match attached.iter().find(|(n, _)| base(n) == base(name)) {
+                        Some((_, d)) => Some(String::from_utf8_lossy(d).into_owned()),
+                        None => std::fs::read_to_string(dir2.join(name)).ok(),
+                    }
+                });
                 project = Some(f);
                 s
             }
