@@ -13,6 +13,7 @@ mod format;
 mod icons;
 mod library;
 mod markdown;
+mod mixture_ui;
 mod pdf;
 mod plots;
 mod project;

@@ -84,6 +84,11 @@ fn species(name: &str) -> Result<Molar, String> {
     Ok(Molar { m, hf: *hf, lhv: hf - prod_gas, hhv: hf - prod_liq })
 }
 
+/// Atoms C, H, O, N, S of a species by its CoolProp name.
+pub fn atoms(coolprop_name: &str) -> Option<[u32; 5]> {
+    SPECIES.iter().find(|s| s.0.eq_ignore_ascii_case(coolprop_name)).map(|s| s.2)
+}
+
 /// Standard enthalpy of formation (kJ/mol, ideal gas, 298.15 K) of a
 /// species by its CoolProp name.
 pub fn formation_enthalpy(coolprop_name: &str) -> Option<f64> {
@@ -92,7 +97,7 @@ pub fn formation_enthalpy(coolprop_name: &str) -> Option<f64> {
 
 /// Data of a fluid or a mixture `'A[x1]&B[x2]'` (mole fractions, normalised).
 pub fn molar(fluid: &str) -> Result<Molar, String> {
-    let f = fluid.trim().trim_matches(['\'', '"']);
+    let f = crate::props::split_model(fluid.trim().trim_matches(['\'', '"'])).0;
     let f = f.split_once("::").filter(|(b, _)| b.eq_ignore_ascii_case("HEOS")).map_or(f, |(_, r)| r);
     if !f.contains('&') && !f.contains('[') {
         return species(f);

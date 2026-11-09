@@ -58,6 +58,12 @@ sign floor ceil round trunc step min max mod pow`, `ifelse(cond, a, b)`,
 `if(a, b, x, y, z)` (x if a<b, y if a=b, z if a>b), `sum`, `product`,
 `average(a, b, ...)`.
 
+Integral: `integral(f, x, a, b)` is ∫ f dx from a to b by 20-point
+Gauss–Legendre quadrature (exact for polynomials up to degree 39; Press et
+al., *Numerical Recipes*, §4.6). `f` is any expression of `x`, property
+calls included, and `a`, `b` may be unknowns:
+`ds = integral(cp(Air, T=T)/T, T, 300, 600)`.
+
 Special functions: `erf`, `erfc`, `gamma_` (Γ(x); Γ(n + 1) = n!),
 `factorial` (n! of round(n), 1 for n ≤ 0), and the Bessel functions of order
 0 and 1: `bessel_j0`, `bessel_j1`, `bessel_y0`, `bessel_y1` (first and second
@@ -151,6 +157,51 @@ h(25 °C) = enthalpy of formation and s = absolute entropy at 1 atm
 reference, and the real fluid always does, so do not mix the two models in
 one energy balance.
 
+Mixtures. `'Methane[0.9]&Ethane[0.1]'` is CoolProp's real mixture, mole
+fractions in brackets (GERG-2008-type Helmholtz mixture models; Kunz &
+Wagner, 2012), with condensation where CoolProp has the binary interaction
+parameters of every pair. From P and h, s, u or v, CoolProp's flash fails
+above about the highest temperature of a component's equation (methane:
+625 K), which is where gas turbines and furnaces work; there the state is
+found by a search in T on P–T states (Newton, then a bracket narrowed by
+regula falsi), to machine precision.
+
+`'Nitrogen[0.75]&CO2[0.1]&Water[0.15]::Ideal'` is the ideal-gas mixture
+(Gibbs–Dalton; Çengel & Boles, ch. 13): h, cp and s° are the mass-fraction
+averages of the components' ideal-gas values (above), R = R_u/M with
+M = Σ x_i M_i, and s(T, P) = s°(T) − R ln(P / 1 atm) − R Σ x_i ln x_i. It
+uses the thermochemical reference of each species, h(25 °C) = enthalpy of
+formation, so that the enthalpies of reactants and products balance:
+
+```
+$UnitSystem SI MOLAR K kPa kJ
+{ CH4 + 2 (O2 + 3.76 N2) -> CO2 + 2 H2O + 7.52 N2, per kmol of fuel }
+h_R = enthalpy(CH4, T=298.15) + 2*enthalpy(O2, T=298.15) + 7.52*enthalpy(N2, T=298.15)
+h_R = 10.52*enthalpy('CO2[1]&Water[2]&Nitrogen[7.52]::Ideal', T=T_ad)
+$Guess T_ad = 2000          { T_ad = 2327 K, frozen composition }
+```
+
+Use the ideal-gas mixture for flue and combustion gases at low pressure (at
+1 atm and 800 °C it is within 0.05 % of the real mixture for h, cp and
+density), and when CoolProp has no interaction parameters for a pair (SO2
+with N2, H2O or Ar). It does not condense: below the dew point of its water
+it is a supersaturated vapour, so check the dew point. The fractions need
+not add up to 1; they are normalised. The mixture editor of the property
+call builder (*Insert ▸ Property call…*, model *Mixture*, *Edit…*) writes
+these strings from mol %, mass % or vol % (vol % = mol % for gases, by
+Amagat's law), has presets (natural gas with and without H2S, air, biogas,
+syngas, LPG, refrigerant blends) and turns a fuel into its combustion
+products for an excess-air ratio λ.
+
+Heating values (25 °C, complete combustion to CO2, H2O, SO2 and N2):
+`lhv(Fluid)` leaves the water as vapour, `hhv(Fluid)` condenses it, per kg
+of fuel (per kmol in a molar unit system); `enthalpy_formation(Fluid)` is
+Δh_f° of the ideal gas. Fluids and mixtures of hydrocarbons C1–C10,
+ethylene, propylene, benzene, toluene, methanol, ethanol, DME, H2, CO, H2S,
+NH3, COS with inerts: `q = lhv('Methane[0.9]&Ethane[0.05]&Nitrogen[0.05]')`.
+Formation enthalpies: NIST-JANAF (Chase, 1998) and the NIST Chemistry
+WebBook.
+
 Latent heat: `enthalpy_vaporization(Water, T=100)` (or `P=`).
 
 Unit conversion: `convert(bar, kPa)` (= 100, a factor) and
@@ -182,17 +233,71 @@ Call split(m[1], 0.3 : m[2], m[3])
 procedure stops the calculation with that message; `XXX` is replaced by the
 value (`XXXF2`: two decimals, `XXXE3`: exponent form, as in EES).
 
+`Call Warning('x = XXXF2 is out of range', x)` lists the message after the
+solve and goes on.
+
+Arrays are local to a function or procedure: `T[i] := 10 + i^2` creates
+them, and reading an element never assigned is an error. A procedure can
+return into an element: `Call sq(3 : a[1, 2])`.
+
+Modules (`Module` or `Subprogram`) hold equations, not assignments, and are
+instantiated at each `Call` with their own local variables, named after the
+module and the use (`pump1.h1`, `pump2.h1`):
+
+```
+Module pump(P_in, P_out, T_in : W)
+  s1 = entropy(Water, P=P_in, T=T_in)
+  W = (enthalpy(Water, P=P_out, s=s1) - enthalpy(Water, P=P_in, T=T_in))/0.8
+End
+Call pump(1, 50, 30 : W1)
+Call pump(2, 100, 40 : W2)
+```
+
 Statements inside functions: assignment (`:=` or `=`), `If/Then/ElseIf/Else/EndIf`
 (also single-line; in a condition `=` compares, as `<>` and the other
 operators do: `If (x = 1) Then`), `Repeat ... Until cond`, `While cond ... End`,
 `For i = a To b [Step s] ... End`, `Call`, `Return`.
 
+## Strings, constants and include files
+
+String variables end with `$` and hold a fluid, table or column name:
+`F$ = 'R134a'`, `G$ = F$`, `h = enthalpy(F$, T=T, x=1)`. `$Constant Name# =
+value [unit]` defines a constant and `$Constant Name#$ = 'text'` a string
+constant; built-in constants cannot be redefined. `$Include file.dfs`
+(one level: an included file includes nothing) adds the functions,
+procedures, modules and equations of a file attached to the project or next
+to the script.
+
+## Lookup tables
+
+A table is a CSV or text file attached to the project (or next to the
+script), one value per cell, separated by commas, semicolons or tabs (with
+`;` or tabs a decimal comma is accepted). The first line may name the
+columns, with a unit in brackets (`T [K]`); values of a column with a unit
+are converted to the model units. As in EES:
+
+```
+k = interpolate('copper', 'T', 'k', T=T1)      { cubic; interpolate1: linear, interpolate2: quadratic }
+T = interpolate1('copper', T, k, k=390)        { the known column must be monotonic }
+r = lookup('copper', 2.5, 'k')                 { row 2.5: halfway between rows 2 and 3 }
+e = interpolate2dm('eps', x, y)                { x in the first row, y in the first column }
+```
+
+The table name may omit `.csv` or `.txt`, and may be a string variable.
+
 ## Directives
 
 ```
-$UnitSystem Eng            // or SI | Imperial | custom: SI C bar kJ  (also K kPa MPa psia atm J Btu, deg/rad)
+$UnitSystem Eng            // or SI | Imperial | custom: SI C bar kJ  (also K kPa MPa psia atm J Btu, deg/rad, mass/molar)
 $Guess h[2] = 300, T[5] = 400
 $Bounds x = 0 .. 1
 $Units T[*] = C, P[*] = bar, W_net = MW
 $Control vary P[7] to make T_gas[2] = 333       // control loop (phase 4)
 ```
+
+`MOLAR` in `$UnitSystem` gives the specific properties of the property
+functions per amount of substance, as in EES: h, u in kJ/kmol (J/mol in J
+units), s, cp, cv in kJ/kmol-K, v in m³/kmol and density in kmol/m³;
+`lhv`, `hhv` and `enthalpy_formation` per kmol too. Inputs of the same
+quantities are taken per kmol. The amount is counted in kmol, so that
+`h*molarmass(F)` of a value per kg is the value per kmol.

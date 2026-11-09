@@ -312,6 +312,7 @@ impl Builder {
             Backend::Default => self.fluid.clone(),
             Backend::If97 => "'IF97::Water'".into(),
             Backend::Incomp => format!("'INCOMP::{}'", self.fluid),
+            Backend::Mixture if self.ideal => format!("'{}::Ideal'", dfcore::props::split_model(&self.mixture).0),
             Backend::Mixture => format!("'{}'", self.mixture),
             Backend::HumidAir => "AirH2O".into(),
         }
@@ -393,6 +394,7 @@ pub struct Library {
     fluids: Option<Vec<FluidInfo>>,
     incomp: Option<(Vec<String>, Vec<String>)>,
     fluid_filter: String,
+    mix: crate::mixture_ui::MixtureEditor,
 }
 
 /// What the window asks the application to do.
@@ -450,6 +452,11 @@ impl Library {
             });
         });
         self.open = open;
+        if let Some((m, ideal)) = self.mix.show(ctx) {
+            self.b.mixture = m;
+            self.b.ideal = ideal;
+            self.b.preview = None;
+        }
         act
     }
 
@@ -515,7 +522,12 @@ impl Library {
                 }
                 Backend::Mixture => {
                     ui.vertical(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut self.b.mixture).desired_width(300.0));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.b.mixture).desired_width(300.0));
+                            if ui.button("Edit…").on_hover_text("Define the mixture: components in mol %, mass % or vol %, natural gases, air, combustion products").clicked() {
+                                self.mix.load(&self.b.mixture, self.b.ideal);
+                            }
+                        });
                         ui.label(RichText::new("Components with mole fractions, joined by &: CO2[0.9]&Argon[0.1]").small().weak());
                     });
                 }
@@ -538,14 +550,15 @@ impl Library {
             });
             ui.end_row();
 
-            let can_ideal = self.b.backend == Backend::Default
+            let can_ideal = matches!(self.b.backend, Backend::Default | Backend::Mixture)
                 && matches!(
                     self.b.func.as_str(),
                     "enthalpy" | "entropy" | "intenergy" | "cp" | "cv" | "temperature" | "pressure" | "density" | "volume" | "soundspeed" | "compressibilityfactor"
                 );
             if can_ideal {
                 ui.label("");
-                ui.checkbox(&mut self.b.ideal, "Ideal gas (Fluid::Ideal)").on_hover_text(
+                let label = if self.b.backend == Backend::Mixture { "Ideal-gas mixture (::Ideal)" } else { "Ideal gas (Fluid::Ideal)" };
+                ui.checkbox(&mut self.b.ideal, label).on_hover_text(
                     "Writes Fluid::Ideal: the ideal-gas model, P v = R T with the fluid's own cp0(T). enthalpy, intenergy, cp, cv from T; entropy, density, ... from T and P. \
                      Without it, one input selects the ideal gas and two the real fluid; Fluid::Real forces the real fluid.",
                 );

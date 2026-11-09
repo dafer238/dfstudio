@@ -160,3 +160,23 @@ fn adiabatic_flame_temperature_of_methane() {
     // the heat of reaction is the LHV
     assert!((val(&m, &s, "q") - 802_301.0).abs() < 1.0);
 }
+
+#[cfg(feature = "coolprop")]
+#[test]
+fn mixture_presets_are_valid_coolprop_mixtures() {
+    use dfcore::mixtures::{coolprop_string, molar_mass, products, to_mole, PRESETS};
+    for p in PRESETS {
+        let names: Vec<String> = p.comps.iter().map(|c| dfcore::props::coolprop_fluid(c.0)).collect();
+        let m: Vec<f64> = names.iter().map(|n| molar_mass(n).unwrap()).collect();
+        let x = to_mole(&p.comps.iter().map(|c| c.1).collect::<Vec<_>>(), &m, p.basis).unwrap();
+        let s = coolprop_string(&names, &x);
+        dfcore::props::backend::check_fluid(&s).unwrap_or_else(|e| panic!("{}: {e}", p.name));
+        // fuels: their combustion products, as an ideal-gas mixture
+        if let Ok(pr) = products(&names.iter().cloned().zip(x.iter().copied()).collect::<Vec<_>>(), 1.2) {
+            let (n, y): (Vec<String>, Vec<f64>) = pr.comps.into_iter().unzip();
+            let src = format!("h = enthalpy('{}::Ideal', T=1200, P=1)\n", coolprop_string(&n, &y));
+            let (m, s) = run_with(&src, &CompileOptions::default());
+            assert!(val(&m, &s, "h").is_finite(), "{}", p.name);
+        }
+    }
+}

@@ -191,6 +191,16 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
     call is shown as it will be written (with `;` in decimal-comma
     scripts); *Evaluate* computes it, with the numbers given or with the
     model's current values, before it is inserted.
+  * **Mixture editor** (model *Mixture*, *Edit…* next to the mixture):
+    components with their fractions in mol % (default), mass % or vol %
+    (equal to mol % for gases), with the other basis and the molar masses
+    alongside; presets (natural gas without sulfur, with sulfur as H2S,
+    lean; dry air; biogas; syngas; LPG; R407C, R410A, R404A); the molar
+    mass, LHV and HHV of the mixture; and *Combustion products of this
+    fuel*: complete combustion with dry air at an excess-air ratio λ, with
+    the air/fuel ratio, which replaces the mixture by its products. The
+    *Ideal-gas mixture* option writes `'...::Ideal'`, for hot gases and for
+    components CoolProp has no interaction parameters for (it warns when so).
   * **Property functions**, **math functions**, **constants**, **keywords
     and directives** (inserted as a template, e.g. a `Duplicate ... End`
     block), **state inputs** with their unit in the model, and **units** by

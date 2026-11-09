@@ -30,6 +30,36 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   and the operands of `and` / `or` get parentheses, since EES evaluates
   them left to right. `atan2` becomes a helper function written at the top,
   and functions and procedures are moved before the first equation.
+- Lookup tables from CSV or text files attached to the project (or next to
+  the script): `lookup`, `interpolate` (cubic), `interpolate1` (linear),
+  `interpolate2` (quadratic), `interpolate3` and `interpolate2dm`, as in
+  EES. A header `T [K]` gives a column a unit, converted to the model units;
+  `;` or tab separators accept a decimal comma.
+- `integral(f, x, a, b)`: 20-point Gauss–Legendre quadrature of an
+  expression, also of property calls (`integral(cp(Air, T=T)/T, T, 300, 600)`).
+- String variables (`F$ = 'R134a'`, `G$ = F$`) for fluid, table and column
+  names; `$Constant Name# = value [unit]` and `$Constant Name#$ = 'text'`;
+  `$Include file` (one level) for shared functions and equations.
+- Arrays inside functions and procedures (`T[i] := ...`), and procedure
+  outputs into array elements.
+- `Module` / `Subprogram`: a block of equations instantiated at each
+  `Call` with its own local variables (`pump1.h1`, `pump2.h1`).
+- `enthalpy_formation`, `lhv` and `hhv` of fuels and of mixtures
+  (`lhv('Methane[0.9]&Ethane[0.1]')`), from NIST-JANAF formation enthalpies.
+- `Call Warning('text XXXF2', x)` in functions and procedures: the solve
+  goes on and the message is listed after it.
+- Molar unit system (`$UnitSystem SI MOLAR C kPa kJ`): h, u, s, cp, cv, v
+  and density per kmol, as in EES.
+- Ideal-gas mixtures: `enthalpy('Nitrogen[0.75]&CO2[0.1]&Water[0.15]::Ideal', T=T, P=P)`,
+  the Gibbs–Dalton mixture of the components' ideal-gas properties with
+  thermochemical reference states, so that the enthalpies of reactants and
+  products balance (adiabatic flame temperature of methane in air: 2327 K).
+  It needs no binary interaction parameters (flue gas with SO2).
+- Property call builder: a mixture editor with fractions in mol % (default),
+  mass % or vol % (= mol % for gases), presets (natural gas with and
+  without sulfur as H2S, lean natural gas, dry air, biogas, syngas, LPG,
+  R407C, R410A, R404A), the products of complete combustion of the mixture
+  with an excess-air ratio λ, and its heating values.
 
 ### Fixed
 - `=` compares in the condition of `If`, `ElseIf`, `While` and `Until`
@@ -38,6 +68,12 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   are SI (J/kg, Pa, K), and were shown as kJ/kg, bar or °C.
 - Export simplified script: an argument written in parentheses, such as
   `T=(T1 + T2)/2`, lost its opening parenthesis.
+- Mixtures at high temperature: CoolProp's flash from P with h, s, u or
+  density fails above about the highest temperature of a component's
+  equation (natural gas from 300–500 °C, syngas from 700 °C), so expansions
+  of hot gases had no solution. The state is now found by a search in T on
+  P–T states, to machine precision.
+- A `$Constant` cannot redefine a built-in constant (`c#`, `g#`, ...).
 
 ## [1.1.0] - 2026-11-09
 
