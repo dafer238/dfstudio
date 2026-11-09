@@ -6,6 +6,17 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Fluid aliases: every fluid can be written under its usual names, in any
+  case. `CO2`, `CarbonDioxide` and `R744` are the same fluid; so are
+  `Water`, `H2O` and `Steam`, `Propane`, `C3H8` and `R290`, `N2` and
+  `Nitrogen`, and so on (chemical formulas, ASHRAE refrigerant numbers and
+  EES names for about 40 common fluids, plus all of CoolProp's own
+  aliases). Mixture components and backend-prefixed names are mapped too
+  (`'CarbonDioxide[0.9]&Ar[0.1]'`, `'IF97::Steam'`). The fluid table of the
+  Library shows the other names of each fluid and finds a fluid by any of
+  them, and completion offers them.
+
 ## [1.0.3] - 2026-11-06
 
 ### Fixed

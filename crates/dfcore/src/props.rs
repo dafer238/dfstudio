@@ -172,43 +172,151 @@ pub const PROPERTY_FUNCTIONS: &[(&str, &str)] = &[
     ("hapropssi", "CoolProp humid air HAPropsSI('Out','In1',v1,'In2',v2,'In3',v3) in SI units"),
 ];
 
-/// Map EES fluid names onto CoolProp names. Unknown names are passed through
-/// (CoolProp accepts many aliases, backends `IF97::Water`, `INCOMP::MEG-30%`
-/// and mixtures `CO2[0.9]&Argon[0.1]`).
+/// Fluid names and their aliases: (name passed to CoolProp, other names).
+///
+/// Every name is matched without regard to case, so `CO2`, `co2`,
+/// `CarbonDioxide` and `R744` are the same fluid, and `Water`, `H2O` and
+/// `Steam` another. The aliases cover chemical formulas, ASHRAE refrigerant
+/// numbers (ANSI/ASHRAE Standard 34) and the names used by EES (Klein &
+/// Nellis, 2012). Names not listed here are looked up among CoolProp's own
+/// fluid names and aliases, also without regard to case, and otherwise passed
+/// through unchanged (backends `IF97::Water`, `INCOMP::MEG-30%`).
+pub const FLUID_ALIASES: &[(&str, &[&str])] = &[
+    // EES Steam, Steam_IAPWS and Water are IAPWS-95 (EES help, "Steam_IAPWS");
+    // Steam_NBS is the older Haar-Gallagher-Kell formulation, mapped to IAPWS-95
+    ("Water", &["H2O", "Steam", "Steam_IAPWS", "Steam_NBS", "R718"]),
+    ("CO2", &["CarbonDioxide", "Carbon_Dioxide", "R744"]),
+    ("Air", &["Air_ha", "R729"]),
+    ("Nitrogen", &["N2", "R728"]),
+    ("Oxygen", &["O2", "R732"]),
+    ("Argon", &["Ar", "R740"]),
+    ("Hydrogen", &["H2", "R702"]),
+    ("Helium", &["He", "R704"]),
+    ("Neon", &["Ne", "R720"]),
+    ("Krypton", &["Kr"]),
+    ("Xenon", &["Xe"]),
+    ("CarbonMonoxide", &["CO", "Carbon_Monoxide"]),
+    ("SulfurDioxide", &["SO2", "SulphurDioxide", "R764"]),
+    ("HydrogenSulfide", &["H2S", "HydrogenSulphide"]),
+    ("NitrousOxide", &["N2O"]),
+    ("Ammonia", &["NH3", "R717"]),
+    ("HydrogenChloride", &["HCl"]),
+    ("Chlorine", &["Cl2"]),
+    ("SulfurHexafluoride", &["SF6", "SulphurHexafluoride"]),
+    ("HeavyWater", &["D2O"]),
+    ("Deuterium", &["D2"]),
+    ("Methane", &["CH4", "R50"]),
+    ("Ethane", &["C2H6", "R170"]),
+    ("n-Propane", &["Propane", "C3H8", "R290"]),
+    ("n-Butane", &["Butane", "nButane", "C4H10", "R600"]),
+    ("IsoButane", &["i-Butane", "iButane", "R600a"]),
+    ("n-Pentane", &["Pentane", "nPentane", "C5H12", "R601"]),
+    ("Isopentane", &["i-Pentane", "iPentane", "R601a"]),
+    ("n-Hexane", &["Hexane", "nHexane", "C6H14"]),
+    ("n-Heptane", &["Heptane", "nHeptane", "C7H16"]),
+    ("n-Octane", &["Octane", "nOctane", "C8H18"]),
+    ("n-Decane", &["Decane", "nDecane", "C10H22"]),
+    ("Ethylene", &["Ethene", "C2H4", "R1150"]),
+    ("Propylene", &["Propene", "C3H6", "R1270"]),
+    ("CycloHexane", &["C6H12"]),
+    ("Methanol", &["CH3OH", "MethylAlcohol"]),
+    ("Ethanol", &["C2H5OH", "EthylAlcohol"]),
+    ("Benzene", &["C6H6"]),
+    ("Toluene", &["C7H8", "MethylBenzene"]),
+    ("Acetone", &["Propanone"]),
+    ("DimethylEther", &["DME", "RE170"]),
+    // liquid metals and heat-transfer fluids (EES names): CoolProp's
+    // incompressible fluids, or DeltaF Studio's own liquids (`liquids.rs`)
+    ("INCOMP::LiqNa", &["Sodium", "Na", "LiqNa"]),
+    ("INCOMP::NaK", &["NaK", "Sodium-Potassium"]),
+    ("LIQ::Lead", &["Lead", "Pb"]),
+    ("LIQ::LBE", &["LBE", "LeadBismuth", "Lead-Bismuth", "PbBi"]),
+    ("LIQ::SolarSalt", &["SolarSalt", "Solar_Salt", "NitrateSalt", "Salt(60NaNO3-40KNO3)", "Salt_60NaNO3_40KNO3"]),
+    ("INCOMP::T66", &["Therminol66", "Therminol_66", "T66"]),
+    ("INCOMP::T72", &["Therminol72", "Therminol_72", "T72"]),
+    ("INCOMP::TVP1", &["TherminolVP1", "Therminol_VP1", "TherminolVP-1", "TVP1", "DowthermA", "Dowtherm_A"]),
+    ("INCOMP::TD12", &["TherminolD12", "Therminol_D12", "TD12"]),
+    ("INCOMP::DowJ", &["DowthermJ", "Dowtherm_J", "DowJ"]),
+    ("INCOMP::DowQ", &["DowthermQ", "Dowtherm_Q", "DowQ"]),
+    ("INCOMP::S800", &["Syltherm800", "Syltherm_800", "S800"]),
+    ("INCOMP::XLT", &["SylthermXLT", "Syltherm_XLT", "XLT"]),
+];
+
+/// The entry of [`FLUID_ALIASES`] a name belongs to (its name or an alias).
+fn alias_entry(name: &str) -> Option<&'static (&'static str, &'static [&'static str])> {
+    FLUID_ALIASES.iter().find(|(c, a)| c.eq_ignore_ascii_case(name) || a.iter().any(|x| x.eq_ignore_ascii_case(name)))
+}
+
+/// Map a fluid name, in any of its aliases and in any case, onto the name
+/// CoolProp (or [`crate::liquids`]) is called with.
+///
+/// * a name or alias of [`FLUID_ALIASES`] gives its first column;
+/// * any other name is matched without regard to case against CoolProp's
+///   fluids and their aliases (`toluene` → `Toluene`);
+/// * a CoolProp backend prefix keeps the prefix and maps the fluid
+///   (`IF97::Steam` → `IF97::Water`); `INCOMP::` and `LIQ::` names are kept;
+/// * in a mixture every component is mapped
+///   (`CarbonDioxide[0.9]&Ar[0.1]` → `CO2[0.9]&Argon[0.1]`).
+///
+/// Unknown names are passed through, so CoolProp reports them.
 pub fn coolprop_fluid(name: &str) -> String {
-    let l = name.to_lowercase();
-    match l.as_str() {
-        "carbondioxide" | "co2" | "r744" => "CO2".into(),
-        "steam" | "steam_nbs" | "water" | "h2o" | "r718" => "Water".into(),
-        // EES Steam_IAPWS is IAPWS-95, like Water and Steam (EES help, "Steam_IAPWS")
-        "steam_iapws" => "Water".into(),
-        "air" | "air_ha" => "Air".into(),
-        "nitrogen" | "n2" => "Nitrogen".into(),
-        "oxygen" | "o2" => "Oxygen".into(),
-        "argon" | "ar" => "Argon".into(),
-        "hydrogen" | "h2" => "Hydrogen".into(),
-        "helium" | "he" => "Helium".into(),
-        "methane" | "ch4" => "Methane".into(),
-        "carbonmonoxide" | "co" => "CarbonMonoxide".into(),
-        "sulfurdioxide" | "so2" => "SulfurDioxide".into(),
-        "ammonia" | "nh3" | "r717" => "Ammonia".into(),
-        // liquid metals and heat-transfer fluids (EES names): CoolProp's
-        // incompressible fluids, or DeltaF Studio's own liquids (`liquids.rs`)
-        "sodium" | "na" | "liqna" => "INCOMP::LiqNa".into(),
-        "nak" | "sodium-potassium" => "INCOMP::NaK".into(),
-        "lead" | "pb" => "LIQ::Lead".into(),
-        "lbe" | "leadbismuth" | "lead-bismuth" | "pbbi" => "LIQ::LBE".into(),
-        "solarsalt" | "solar_salt" | "nitratesalt" | "salt(60nano3-40kno3)" | "salt_60nano3_40kno3" => "LIQ::SolarSalt".into(),
-        "therminol66" | "therminol_66" | "t66" => "INCOMP::T66".into(),
-        "therminol72" | "therminol_72" | "t72" => "INCOMP::T72".into(),
-        "therminolvp1" | "therminol_vp1" | "therminolvp-1" | "tvp1" | "dowtherma" | "dowtherm_a" => "INCOMP::TVP1".into(),
-        "therminold12" | "therminol_d12" | "td12" => "INCOMP::TD12".into(),
-        "dowthermj" | "dowtherm_j" | "dowj" => "INCOMP::DowJ".into(),
-        "dowthermq" | "dowtherm_q" | "dowq" => "INCOMP::DowQ".into(),
-        "syltherm800" | "syltherm_800" | "s800" => "INCOMP::S800".into(),
-        "sylthermxlt" | "syltherm_xlt" | "xlt" => "INCOMP::XLT".into(),
-        _ => name.to_string(),
+    let name = name.trim();
+    if let Some((c, _)) = alias_entry(name) {
+        return c.to_string();
     }
+    if let Some((b, f)) = name.split_once("::") {
+        if b.eq_ignore_ascii_case("INCOMP") || b.eq_ignore_ascii_case("LIQ") {
+            return name.to_string();
+        }
+        return format!("{b}::{}", coolprop_fluid(f));
+    }
+    if name.contains('&') || name.contains('[') {
+        return name
+            .split('&')
+            .map(|part| match part.split_once('[') {
+                Some((n, rest)) => format!("{}[{rest}", pure_name(n)),
+                None => pure_name(part),
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+    }
+    pure_name(name)
+}
+
+/// A pure fluid name: alias table, then CoolProp's names without regard to case.
+fn pure_name(name: &str) -> String {
+    let name = name.trim();
+    if let Some((c, _)) = alias_entry(name) {
+        if !c.contains("::") {
+            return c.to_string();
+        }
+    }
+    backend::canonical_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Every name a fluid is known by: the entry of [`FLUID_ALIASES`] and
+/// CoolProp's aliases, without the duplicates that only differ in case.
+/// The first item is the name CoolProp is called with.
+pub fn fluid_aliases(name: &str) -> Vec<String> {
+    let c = coolprop_fluid(name);
+    let mut out: Vec<String> = vec![c.clone()];
+    let mut push = |s: &str| {
+        if !s.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(s)) {
+            out.push(s.to_string());
+        }
+    };
+    if let Some((_, a)) = alias_entry(&c) {
+        a.iter().for_each(|x| push(x));
+    }
+    for a in backend::coolprop_aliases(&c) {
+        // CoolProp lists upper-case and truncated legacy spellings too: keep
+        // the ones in mixed or lower case, or written as a formula / number
+        let shouty = a.len() > 4 && a.chars().all(|ch| !ch.is_ascii_lowercase());
+        if !shouty {
+            push(&a);
+        }
+    }
+    out
 }
 
 /// Conversion of a property between the model unit system and SI.
@@ -1077,6 +1185,37 @@ pub mod backend {
         }
     }
 
+    /// CoolProp's aliases of a pure fluid (`CarbonDioxide` → `R744, co2, CO2, ...`).
+    pub fn coolprop_aliases(fluid: &str) -> Vec<String> {
+        let Ok(f) = CString::new(fluid) else { return Vec::new() };
+        let k = cs("aliases");
+        let mut buf = vec![0u8; 4096];
+        let cp = COOLPROP.shared_access();
+        let ok = unsafe { cp.get_fluid_param_string(f.as_ptr(), k.as_ptr(), buf.as_mut_ptr() as *mut c_char, 4096) };
+        if ok == 0 {
+            return Vec::new();
+        }
+        msg(&buf).split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    }
+
+    /// CoolProp's spelling of a pure fluid name or alias written in any case
+    /// (`toluene`, `TOLUENE`, `ToLuEnE` → `Toluene`). `None` if CoolProp has no
+    /// fluid of that name.
+    pub fn canonical_name(name: &str) -> Option<String> {
+        static MAP: OnceLock<HashMap<String, String>> = OnceLock::new();
+        let map = MAP.get_or_init(|| {
+            let mut m = HashMap::new();
+            for f in fluid_list() {
+                for a in coolprop_aliases(&f) {
+                    m.entry(a.to_lowercase()).or_insert_with(|| f.clone());
+                }
+                m.insert(f.to_lowercase(), f);
+            }
+            m
+        });
+        map.get(&name.trim().to_lowercase()).cloned()
+    }
+
     /// Names of the pure fluids available in CoolProp (for completion).
     pub fn fluid_list() -> Vec<String> {
         let cp = COOLPROP.exclusive_access();
@@ -1135,6 +1274,12 @@ pub mod backend {
     }
     pub fn fluid_list() -> Vec<String> {
         vec![]
+    }
+    pub fn coolprop_aliases(_: &str) -> Vec<String> {
+        Vec::new()
+    }
+    pub fn canonical_name(_: &str) -> Option<String> {
+        None
     }
     pub fn incompressible_list() -> (Vec<String>, Vec<String>) {
         (vec![], vec![])
