@@ -29,7 +29,7 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   equation per line, numbers converted to model units with the original in
   a comment, a `$UnitSystem` line, the unit of each computed variable as a
   comment, fluid names by property model (formula for the ideal gas, full
-  name for the real fluid), and `ifelse`, `pow`, `**`, `d=` and `//`
+  name for the real fluid), and `ifelse`, `pow`, `**` and `d=`
   translated. Whatever has no equivalent is marked *NOT TRANSLATED* on its
   line and listed in a header. Also `dfs export model.dfs`.
 

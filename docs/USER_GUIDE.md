@@ -684,7 +684,7 @@ clipboard* or *Save as…* a text file:
   ideal-gas h, u, cp and cv keep only T, and an ideal-gas entropy from T
   alone gets P = 1 atm;
 * `ifelse(a < b, x, y)` becomes `IF(a, b, x, y, y)`, `pow` and `**` become
-  `^`, `d=` inputs become `v=1/(...)`, `//` comments become `{...}`, and `=`
+  `^`, `d=` inputs become `v=1/(...)`, and `=`
   in a function body becomes `:=`.
 
 Anything without an equivalent (`$Guess`, `$Bounds`, `$Units`, `$Control`,

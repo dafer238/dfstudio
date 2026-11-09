@@ -18,8 +18,8 @@
 //! * ideal-gas h, u, cp, cv take T only; an ideal-gas entropy from T alone
 //!   gets `P = 1 atm` (DeltaF Studio's standard state);
 //! * density inputs `d=` become `v=1/(...)`, `ifelse(a<b, x, y)` becomes
-//!   `IF(a, b, x, y, y)`, `pow(a, b)` and `**` become `^`, `//` comments
-//!   become `{...}`, and `=` in a function body becomes `:=`;
+//!   `IF(a, b, x, y, y)`, `pow(a, b)` and `**` become `^`, and `=` in a
+//!   function body becomes `:=` (`//` comments are kept: EES reads them);
 //! * the unit of the variable each equation computes is added as a
 //!   `{unit}` comment when the line has none;
 //! * whatever cannot be translated (`$Guess`, `$Bounds`, `$Units`,
@@ -72,10 +72,12 @@ const EES_NAMES: &[(&str, &str, Option<&str>)] = &[
     ("n-Heptane", "n-Heptane", None),
     ("n-Decane", "n-Decane", None),
     ("Deuterium", "Deuterium", None),
-    ("HeavyWater", "HeavyWater", None),
     ("SulfurHexafluoride", "SulfurHexafluoride", None),
     ("Isopentane", "Isopentane", None),
 ];
+
+/// Fluids EES does not have (checked in EES 10: "not a recognized substance").
+const NOT_IN_EES: &[&str] = &["HeavyWater"];
 
 /// Property functions: canonical DeltaF Studio name → EES name.
 const PROP_FUNCS: &[(&str, &str)] = &[
@@ -110,9 +112,7 @@ const HUMID_FUNCS: &[&str] = &["humrat", "relhum", "wetbulb", "dewpoint"];
 /// Built-in functions of DeltaF Studio that EES may not have under the same
 /// name or meaning.
 const UNSURE_FUNCS: &[(&str, &str)] = &[
-    ("step", "step(x) has no direct equivalent; write it with IF(x, 0, 0, 1, 1)"),
-    ("atan2", "atan2(y, x): check the name and argument order of the two-argument arctangent in the target program"),
-    ("ceil", "ceil(x): check that the target program has it"),
+    ("atan2", "atan2(y, x) is not available; write it with arctan(y/x) and IF on the sign of x"),
     ("product", "product(expr, i=1, N): check that the target program has it, or expand the product"),
     ("propssi", "PropsSI (CoolProp, SI units) is not available; write it with the property functions"),
     ("props1si", "Props1SI (CoolProp) is not available; write it with the property functions"),
@@ -328,6 +328,9 @@ impl<'a> Ctx<'a> {
         if base.eq_ignore_ascii_case("airh2o") {
             return ("AirH2O".into(), None);
         }
+        if NOT_IN_EES.contains(&cp.as_str()) {
+            return (cp.clone(), Some(format!("fluid {base} is not available; replace it")));
+        }
         if let Some((_, real, ig)) = EES_NAMES.iter().find(|n| n.0 == cp) {
             return match (ideal, ig) {
                 (false, _) => (real.to_string(), None),
@@ -380,9 +383,6 @@ impl<'a> Ctx<'a> {
         }
         if name == "quality" {
             self.quality_used = true;
-        }
-        if name == "compressibilityfactor" {
-            self.limit(start, stmt_end, "CompressibilityFactor: check that the target program has it, or write Z = P*v/(R*T)".into());
         }
         if ideal {
             let has_t = inputs.iter().any(|i| i.1 == Some(Key::T));
@@ -569,12 +569,6 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
             c.edits.push(Edit { start: t.span.start, end: t.span.end, text: "^".into() });
         }
     }
-    // `//` comments → `{...}`
-    for cm in &lexed.comments {
-        if src[cm.span.start..].starts_with("//") {
-            c.edits.push(Edit { start: cm.span.start, end: cm.span.end, text: brace(cm.text.trim_end()) });
-        }
-    }
     // notes: one `{...}` comment per statement, after it
     let mut by_pos: Vec<(usize, Vec<String>)> = Vec::new();
     for (p, n) in std::mem::take(&mut c.notes) {
@@ -662,7 +656,7 @@ mod tests {
         assert!(e.text.contains("\nP = 100 [bar]   {10 [MPa] = 100 bar"), "{}", e.text);
         assert!(e.text.contains("\nT = 226.85 [C]   {500 [K] = 226.85 C"), "{}", e.text);
         assert!(e.text.contains("\nT2 = 25 [C]\ndT = 5   {5 [dK] = 5 K (difference)}"), "{}", e.text);
-        assert!(e.text.contains("\n  a = 1\n  b = 2 { two}"), "{}", e.text);
+        assert!(e.text.contains("\n  a = 1\n  b = 2 // two"), "{}", e.text);
         assert!(!e.text.contains(';'), "{}", e.text);
     }
 
@@ -695,6 +689,10 @@ mod tests {
         assert!(e.limitations.iter().any(|l| l.1.contains("Quality")), "{:?}", e.limitations);
         assert!(e.limitations.iter().any(|l| l.0 == 7 && l.1.contains("PropsSI")), "{:?}", e.limitations);
         assert!(t.contains("line 5 of the original"), "{t}");
+        let e = ex("h = enthalpy(D2O, T=20, P=1)\nz = atan2(1, 2)\nc = ceil(2.3) + step(1)\n");
+        assert!(e.limitations.iter().any(|l| l.0 == 1 && l.1.contains("HeavyWater is not available") || l.1.contains("D2O is not available")), "{:?}", e.limitations);
+        assert!(e.limitations.iter().any(|l| l.0 == 2 && l.1.contains("atan2")), "{:?}", e.limitations);
+        assert_eq!(e.limitations.iter().filter(|l| l.0 > 0).count(), 2, "{:?}", e.limitations);
     }
 
     #[test]
