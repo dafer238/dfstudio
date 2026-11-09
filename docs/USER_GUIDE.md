@@ -447,6 +447,20 @@ The Plots tab holds any number of plots, saved with the project.
 * **Property diagram**: T-s, P-h, P-v, h-s and T-h with saturation dome,
   isobars through the states and the cycle path; map the arrays holding
   T, P, h, s, v and give the state order (`1,2,3,4,1; 5,6`).
+  Without further options, consecutive states at equal pressure are joined
+  along the isobar and the others by a straight line. **Compute
+  processes** joins every pair of consecutive states by the process the two
+  states describe, classified from the ratio r of the actual to the
+  isentropic enthalpy change, r = (h_b − h_a)/(h_s(P_b, s_a) − h_a):
+  * *compression* (pressure rise, 1 ≤ r ≤ 5) and *expansion* (pressure
+    drop, 0.05 ≤ r ≤ 1): the path at the constant polytropic (small-stage)
+    efficiency that ends at the outlet state (Dixon & Hall, 2014, ch. 2),
+    labelled with the isentropic efficiency η_s = 1/r or r;
+  * *throttling* (pressure drop, |r| < 0.05): h constant;
+  * *heating* and *cooling* (anything else, including equal pressures):
+    along the isobar, or, with a pressure loss, with P varying linearly with
+    h between the inlet and outlet isobars; phase-change points are
+    included, so the path is flat across the dome.
 * **3D**: x, y, z from a parametric table (surface for a full grid,
   scatter otherwise).
 

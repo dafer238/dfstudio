@@ -278,6 +278,10 @@ pub struct PlotDef {
     pub order: String,
     pub isobars: bool,
     pub labels: bool,
+    /// Join consecutive states by the physical process (heat transfer,
+    /// compression, expansion, throttling) instead of straight lines.
+    #[serde(default)]
+    pub processes: bool,
     // 3D
     pub y3: String,
     pub z3: String,
@@ -309,6 +313,7 @@ impl PlotDef {
             order: String::new(),
             isobars: true,
             labels: true,
+            processes: false,
             y3: String::new(),
             z3: String::new(),
             yaw: 0.6,
@@ -462,6 +467,8 @@ pub struct PropData {
     critical: Option<[f64; 2]>,
     isobars: Vec<(String, Vec<[f64; 2]>)>,
     paths: Vec<Vec<[f64; 2]>>,
+    /// With computed processes: a label at the middle of each segment.
+    process_labels: Vec<([f64; 2], String)>,
     states: Vec<(i64, [f64; 2])>,
     warnings: Vec<String>,
 }
@@ -599,6 +606,21 @@ fn compute_property(def: &PlotDef, inp: &PlotInputs) -> PropData {
                 out.warnings.push(format!("Path {}→{}: state not available.", w[0], w[1]));
                 continue;
             };
+            if def.processes {
+                // the physical process between the two states (components.rs)
+                let st = |k: i64, x: &[f64; 5]| crate::components::St { k, fluid: Some(fluid.clone()), m: f64::NAN, t: x[0], p: x[1], h: x[2], s: x[3], h_off: 0.0 };
+                let (sa, sb) = (st(w[0], a), st(w[1], b));
+                let kind = crate::components::classify(&sa, &sb);
+                let mut c = crate::components::path(&sa, &sb, xk, yk, kind.proc_(), 60);
+                if c.len() < 2 {
+                    out.warnings.push(format!("Process {}→{}: could not be computed; drawn as a straight line.", w[0], w[1]));
+                    c = vec![xy(a), xy(b)];
+                }
+                let mid = to_disp(&c[c.len() / 2]);
+                out.process_labels.push((mid, format!("{}-{} {}", w[0], w[1], kind.label(b[2] - a[2]))));
+                path.extend(c.iter().map(to_disp));
+                continue;
+            }
             let seg: Vec<[f64; 2]> = if (a[1] - b[1]).abs() <= 0.005 * a[1].abs().max(b[1].abs()) {
                 let mut c = diagrams::isobaric_path(&fluid, 0.5 * (a[1] + b[1]), a[3], b[3], xk, yk, 50);
                 if c.len() < 2 {
@@ -1154,14 +1176,27 @@ impl PlotsUi {
             ui.label("Order");
             ui.add(egui::TextEdit::singleline(&mut def.order).hint_text("1,2,3,4,1; 5,6").desired_width(150.0));
         });
-        ui.label(RichText::new("Consecutive states at equal pressure are joined along the isobar; others by a straight line.").small().weak());
+        ui.checkbox(&mut def.processes, "Compute processes").on_hover_text(
+            "Join consecutive states by the process they describe, found from the two states: heat transfer along the isobar \
+             (or with the pressure varying linearly with h between the inlet and outlet isobars when there is a pressure loss), \
+             compression and expansion at the constant polytropic efficiency that ends at the outlet state (its isentropic \
+             efficiency is shown), and throttling at constant h.",
+        );
+        let hint = if def.processes {
+            "Each segment follows its process: heat transfer, compression, expansion or throttling (labelled with its isentropic efficiency)."
+        } else {
+            "Consecutive states at equal pressure are joined along the isobar; others by a straight line."
+        };
+        ui.label(RichText::new(hint).small().weak());
         ui.checkbox(&mut def.isobars, "Isobars through the states");
         ui.checkbox(&mut def.labels, "State numbers");
     }
 
     fn prop_data(&mut self, def: &PlotDef, inp: &PlotInputs) -> Arc<PropData> {
-        let key =
-            format!("{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}", inp.analysis.gen, def.fluid, def.diagram, def.map.t, def.map.p, def.map.h, def.map.s, def.map.v, def.order, def.isobars);
+        let key = format!(
+            "{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
+            inp.analysis.gen, def.fluid, def.diagram, def.map.t, def.map.p, def.map.h, def.map.s, def.map.v, def.order, def.isobars, def.processes
+        );
         if let Some(d) = self.cache.get(&key) {
             return d.clone();
         }
@@ -1215,6 +1250,14 @@ impl PlotsUi {
             let cyc = Color32::from_rgb(213, 94, 0);
             for (k, p) in data.paths.iter().enumerate() {
                 pu.line(Line::new(if k == 0 { "Cycle".to_string() } else { format!("Path {}", k + 1) }, pts(p, lx, ly)).color(cyc).width(2.2));
+            }
+            if labels {
+                for (m, t) in &data.process_labels {
+                    let p = [tx(m[0], lx), tx(m[1], ly)];
+                    if p[0].is_finite() && p[1].is_finite() {
+                        pu.text(Text::new("", PlotPoint::new(p[0], p[1]), RichText::new(t).small()).color(cyc).anchor(egui::Align2::LEFT_TOP));
+                    }
+                }
             }
             let sp: Vec<[f64; 2]> = pts(&data.states.iter().map(|s| s.1).collect::<Vec<_>>(), lx, ly);
             pu.points(Points::new("States", sp).shape(MarkerShape::Circle).radius(4.0).color(cyc).filled(true));
@@ -1832,6 +1875,20 @@ mod tests {
         assert!((s3[1] - 550.0).abs() < 1e-6 && (s3[0] - 6.523).abs() < 1e-2, "{s3:?}");
         let c = d.critical.unwrap();
         assert!((c[1] - 373.946).abs() < 0.05, "critical {c:?}");
+
+        // computed processes: pump and turbine with the model's efficiencies,
+        // boiler and condenser along their isobars
+        let mut tp = ts.clone();
+        tp.processes = true;
+        let d = compute_property(&tp, &inp);
+        assert!(d.warnings.is_empty(), "{:?}", d.warnings);
+        let labels: Vec<&str> = d.process_labels.iter().map(|l| l.1.as_str()).collect();
+        assert_eq!(labels, ["1-2 compression, eta_s = 0.850", "2-3 heating", "3-4 expansion, eta_s = 0.880", "4-1 cooling"]);
+        assert!(d.paths[0].len() > 200);
+        // the boiler path is the isobar: T rises monotonically from T2 to 550 C
+        let s2 = d.states.iter().find(|s| s.0 == 2).unwrap().1;
+        let boiler: Vec<&[f64; 2]> = d.paths[0].iter().filter(|p| p[0] >= s2[0] - 1e-9 && p[0] <= s3[0] + 1e-9 && p[1] >= s2[1] - 1e-6).collect();
+        assert!(boiler.windows(2).all(|w| w[1][1] >= w[0][1] - 1e-6));
 
         let mut ph = ts.clone();
         ph.name = "ph".into();
