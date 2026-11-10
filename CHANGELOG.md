@@ -6,6 +6,11 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Fixed
+- Hiding a left sidebar now slides it smoothly into its thin strip, as on
+  the right; before, the sidebar vanished halfway and the strip popped in
+  at the end.
+
 ## [1.4.0] - 2026-11-10
 
 ### Added
