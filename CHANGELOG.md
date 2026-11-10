@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-10
+
 ### Added
 - Humid air under other names: `HumidAir`, `Humid_Air`, `MoistAir`,
   `Moist_Air`, `AirWater` and `Air_H2O` are the same as `AirH2O` in the
@@ -400,7 +402,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/dafer238/dfstudio/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dafer238/dfstudio/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/dafer238/dfstudio/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/dafer238/dfstudio/compare/v1.0.1...v1.0.2
