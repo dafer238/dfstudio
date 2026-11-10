@@ -6,12 +6,22 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Cycle diagram (Diagram and Components sub-tabs) and Plots: the sidebars
+  can be hidden for a larger view, with `Ctrl+B` (left), `Ctrl+Shift+B`
+  (right) or the small arrow at the top of each sidebar; the choice is
+  remembered.
+
 ### Changed
 - Cycle diagram, Components tab: the selected sub-tab (for example the T-Q
   diagram) stays selected when another component is picked in the list.
   Each component kind always shows all its sub-tabs; one that cannot be
   computed yet says what it needs (solve the model, connect the streams,
   set the stream fluid).
+
+### Fixed
+- Cycle diagram, Components tab: the scroll bar of the component list sits
+  at the edge of the sidebar instead of next to the names.
 
 ## [1.3.0] - 2026-11-10
 

@@ -606,6 +606,11 @@ title, *Export PDF report…*, *Fit view*).
   typing in that field. The history is cleared when another project is
   opened.
 * Double-click an empty part of the canvas to fit the drawing to the view.
+* **Hide the sidebars** for a larger view: `Ctrl+B` hides or shows the left
+  sidebar and `Ctrl+Shift+B` the right one, or click the small arrow at the
+  top of a sidebar (and on the thin strip left in its place to bring it
+  back). This works in the Diagram and Components sub-tabs and in the Plots
+  tab (left sidebar), and the choice is remembered.
 * **KPIs** (KPI tab): label + variable; *Suggest* proposes powers, heats and
   efficiencies. The KPI box can be hidden from the canvas.
 * **States** tab: one row per state number. The columns are the stream
@@ -801,6 +806,7 @@ p.results["eta_th"]; p.results.array("T"); p.tables["Parametric"].to_pandas()
 | R, M, Del (cycle diagram) | rotate, mirror, delete |
 | Ctrl+Z, Ctrl+Y (cycle diagram) | undo, redo diagram edits |
 | Ctrl+scroll | zoom (dependency graph, diagram) |
+| Ctrl+B, Ctrl+Shift+B | hide / show the left, right sidebar (cycle diagram, plots) |
 
 ## 15. Troubleshooting
 

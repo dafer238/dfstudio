@@ -1392,10 +1392,17 @@ impl CycleUi {
         d.migrate();
         self.history_keys(ui, d);
         self.track(ui.ctx(), d);
-        egui::Panel::left("cycle_side").resizable(true).default_size(300.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.side(ui, d, inp));
+        let (left, right) = crate::sidebar::keys(ui);
+        if left {
+            crate::sidebar::toggle(ui, "cycle_side");
+        }
+        if right {
+            crate::sidebar::toggle(ui, "cycle_kpi");
+        }
+        crate::sidebar::panel(ui, "cycle_side", crate::sidebar::Side::Left, 300.0, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| self.side(ui, d, inp));
         });
-        egui::Panel::right("cycle_kpi").resizable(true).default_size(330.0).show(ui, |ui| self.right(ui, d, inp));
+        crate::sidebar::panel(ui, "cycle_kpi", crate::sidebar::Side::Right, 330.0, |ui| self.right(ui, d, inp));
         self.canvas_ui(ui, d, inp);
         if let Some(id) = self.popup {
             let mut open = true;
@@ -1447,13 +1454,16 @@ impl CycleUi {
         if self.tab_sel.is_none_or(|s| !items.iter().any(|i| i.2 == s)) {
             self.tab_sel = Some(items[0].2);
         }
-        egui::Panel::left("comp_list").resizable(true).default_size(230.0).show(ui, |ui| {
+        if crate::sidebar::keys(ui).0 {
+            crate::sidebar::toggle(ui, "comp_list");
+        }
+        crate::sidebar::panel(ui, "comp_list", crate::sidebar::Side::Left, 230.0, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
                 ui.text_edit_singleline(&mut self.tab_filter);
             });
             ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 let f = self.tab_filter.to_lowercase();
                 let mut last: Option<&str> = None;
                 for (k, label, id) in &items {
