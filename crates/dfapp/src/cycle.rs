@@ -1203,9 +1203,11 @@ pub struct CycleUi {
     message: String,
     /// Component whose results window is open.
     pub popup: Option<u32>,
-    /// Component selected in the Components tab, and the view shown there.
+    /// Component selected in the Components tab, and the view shown there,
+    /// by name so that it stays when another component is selected (empty:
+    /// Summary).
     pub tab_sel: Option<u32>,
-    pub tab_view: usize,
+    pub tab_view: String,
     tab_filter: String,
     cache: Option<(u64, u32, std::sync::Arc<crate::components::Report>)>,
     /// Screen rectangles of the stream labels drawn in the last frame, with
@@ -1390,10 +1392,20 @@ impl CycleUi {
         d.migrate();
         self.history_keys(ui, d);
         self.track(ui.ctx(), d);
-        egui::Panel::left("cycle_side").resizable(true).default_size(300.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.side(ui, d, inp));
+        let (left, right) = crate::sidebar::keys(ui);
+        if left {
+            crate::sidebar::toggle(ui, "cycle_side");
+        }
+        if right {
+            crate::sidebar::toggle(ui, "cycle_kpi");
+        }
+        crate::sidebar::panel(ui, "cycle_side", crate::sidebar::Side::Left, 300.0, |ui| {
+            crate::sidebar::header(ui, "cycle_side", crate::sidebar::Side::Left, |ui| {
+                ui.strong("Components");
+            });
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| self.side(ui, d, inp));
         });
-        egui::Panel::right("cycle_kpi").resizable(true).default_size(330.0).show(ui, |ui| self.right(ui, d, inp));
+        crate::sidebar::panel(ui, "cycle_kpi", crate::sidebar::Side::Right, 330.0, |ui| self.right(ui, d, inp));
         self.canvas_ui(ui, d, inp);
         if let Some(id) = self.popup {
             let mut open = true;
@@ -1445,13 +1457,16 @@ impl CycleUi {
         if self.tab_sel.is_none_or(|s| !items.iter().any(|i| i.2 == s)) {
             self.tab_sel = Some(items[0].2);
         }
-        egui::Panel::left("comp_list").resizable(true).default_size(230.0).show(ui, |ui| {
-            ui.horizontal(|ui| {
+        if crate::sidebar::keys(ui).0 {
+            crate::sidebar::toggle(ui, "comp_list");
+        }
+        crate::sidebar::panel(ui, "comp_list", crate::sidebar::Side::Left, 230.0, |ui| {
+            crate::sidebar::header(ui, "comp_list", crate::sidebar::Side::Left, |ui| {
                 ui.label("Filter");
-                ui.text_edit_singleline(&mut self.tab_filter);
+                ui.add(egui::TextEdit::singleline(&mut self.tab_filter).desired_width(ui.available_size_before_wrap().x));
             });
             ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 let f = self.tab_filter.to_lowercase();
                 let mut last: Option<&str> = None;
                 for (k, label, id) in &items {
@@ -1486,30 +1501,38 @@ impl CycleUi {
         let Some(id) = self.tab_sel else { return };
         egui::CentralPanel::default().show(ui, |ui| {
             let r = self.report(d, inp, id);
+            // (key, label) of each view; a chart's key is stable across
+            // components (its title may name the fluid)
+            let mut views: Vec<(String, String)> = vec![("Summary".into(), "Summary".into()), ("Streams".into(), "Streams".into())];
+            views.extend(r.sections.iter().map(|s| (s.title.clone(), s.title.clone())));
+            views.extend(r.charts.iter().map(|c| {
+                let label = c.title.split(" —").next().unwrap_or("").to_string();
+                (if c.key.is_empty() { label.clone() } else { c.key.to_string() }, label)
+            }));
+            views.push(("Parameters".into(), "Parameters".into()));
+            // the remembered view, or Summary for a kind that does not have it
+            // (the name is kept, so going back to such a kind restores it)
+            let mut cur = views.iter().position(|v| v.0 == self.tab_view).unwrap_or(0);
             ui.horizontal_wrapped(|ui| {
-                let mut views = vec!["Summary".to_string(), "Streams".to_string()];
-                views.extend(r.sections.iter().map(|s| s.title.clone()));
-                views.extend(r.charts.iter().map(|c| c.title.split(" —").next().unwrap_or("").to_string()));
-                views.push("Parameters".into());
-                if self.tab_view >= views.len() {
-                    self.tab_view = 0;
-                }
                 for (k, v) in views.iter().enumerate() {
-                    ui.selectable_value(&mut self.tab_view, k, v);
+                    if ui.selectable_label(cur == k, &v.1).clicked() {
+                        cur = k;
+                        self.tab_view = v.0.clone();
+                    }
                 }
             });
             ui.separator();
             let n_tables = 2 + r.sections.len();
             let n_all = n_tables + r.charts.len();
             let mut body = |ui: &mut egui::Ui| {
-                if self.tab_view == n_all {
+                if cur == n_all {
                     crate::components::params_ui(ui, d, id, inp);
-                } else if crate::components::show_report(ui, &r, if self.tab_view == 0 { None } else { Some(self.tab_view - 1) }, &mut d.path_diagram, ("tab", id)) {
+                } else if crate::components::show_report(ui, &r, if cur == 0 { None } else { Some(cur - 1) }, &mut d.path_diagram, ("tab", id)) {
                     self.cache = None;
                 }
             };
             // a chart on its own fills the panel; tables scroll
-            if self.tab_view >= n_tables && self.tab_view < n_all {
+            if cur >= n_tables && cur < n_all {
                 body(ui);
             } else {
                 egui::ScrollArea::vertical().show(ui, body);
@@ -1518,7 +1541,6 @@ impl CycleUi {
     }
 
     fn side(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
-        ui.strong("Components");
         ui.label(RichText::new("Drag onto the canvas. Drag from a port (dot) to another port to connect.").small().weak());
         for (gi, g) in GROUPS.iter().enumerate() {
             // all groups start collapsed for a compact palette ("v2" drops
@@ -1752,7 +1774,7 @@ impl CycleUi {
 
     /// Right sidebar: KPI and States tabs, then the diagram settings.
     fn right(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
-        ui.horizontal(|ui| {
+        crate::sidebar::header(ui, "cycle_kpi", crate::sidebar::Side::Right, |ui| {
             ui.selectable_value(&mut self.side_tab, SideTab::Kpi, RichText::new("KPI").strong()).on_hover_text("Key performance indicators");
             ui.selectable_value(&mut self.side_tab, SideTab::States, RichText::new("States").strong()).on_hover_text("State table of the streams");
         });

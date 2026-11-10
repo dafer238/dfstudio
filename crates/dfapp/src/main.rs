@@ -17,6 +17,7 @@ mod mixture_ui;
 mod pdf;
 mod plots;
 mod project;
+mod sidebar;
 mod studies_ui;
 mod support;
 mod templates;

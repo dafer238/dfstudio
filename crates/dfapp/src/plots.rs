@@ -812,8 +812,13 @@ fn combo(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, value: &
 
 impl PlotsUi {
     pub fn show(&mut self, ui: &mut egui::Ui, st: &mut PlotsState, inp: &PlotInputs) {
-        egui::Panel::left("plots_side").resizable(true).default_size(320.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| self.side(ui, st, inp));
+        if crate::sidebar::keys(ui).0 {
+            crate::sidebar::toggle(ui, "plots_side");
+        }
+        crate::sidebar::panel(ui, "plots_side", crate::sidebar::Side::Left, 320.0, |ui| {
+            crate::sidebar::header(ui, "plots_side", crate::sidebar::Side::Left, |ui| Self::add_buttons(ui, st, inp));
+            ui.separator();
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| self.side(ui, st, inp));
         });
         let Some(def) = st.plots.get_mut(st.sel) else {
             ui.centered_and_justified(|ui| ui.label("Add a plot with the buttons on the left."));
@@ -837,8 +842,9 @@ impl PlotsUi {
         });
     }
 
-    fn side(&mut self, ui: &mut egui::Ui, st: &mut PlotsState, inp: &PlotInputs) {
-        ui.horizontal_wrapped(|ui| {
+    /// New-plot buttons (first row of the sidebar).
+    fn add_buttons(ui: &mut egui::Ui, st: &mut PlotsState, inp: &PlotInputs) {
+        {
             let n = st.plots.len() + 1;
             if ui.button("+ XY plot").clicked() {
                 let mut d = PlotDef::new(format!("Plot {n}"), PlotKind::XY);
@@ -859,8 +865,10 @@ impl PlotsUi {
                 st.plots.push(PlotDef::new(format!("Surface {n}"), PlotKind::Surface));
                 st.sel = st.plots.len() - 1;
             }
-        });
-        ui.separator();
+        }
+    }
+
+    fn side(&mut self, ui: &mut egui::Ui, st: &mut PlotsState, inp: &PlotInputs) {
         let mut remove = None;
         let mut dup = None;
         for (i, p) in st.plots.iter().enumerate() {
