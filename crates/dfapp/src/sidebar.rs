@@ -50,8 +50,28 @@ pub fn panel(ui: &mut Ui, id: &'static str, side: Side, default: f32, add: impl 
     Panel::show_switched(ui, &mut open, collapsed.resizable(false).exact_size(STRIP).frame(thin), expanded.resizable(true).default_size(default), |ui, expanded| {
         if expanded {
             add(ui);
-        } else if chevron(ui, side == Side::Right, &format!("Show the panel ({shortcut})")) {
-            flip = true;
+        } else {
+            // In the second half of the closing slide this runs in the
+            // expanded panel, which slides towards its fixed edge: only its
+            // inner edge stays visible. Put the chevron where the strip will
+            // have it, measured from that inner edge, so it does not vanish
+            // off-screen (left panel) and jump back when the strip appears.
+            let r = ui.max_rect();
+            // Fill the panel: egui sizes the slide from the contents, and
+            // contents at the far end of a left panel would leave nothing
+            // visible, letting the canvas jump under it.
+            ui.expand_to_include_rect(r);
+            let m = if r.width() > STRIP { egui::Frame::side_top_panel(ui.style()).inner_margin } else { egui::Margin::symmetric(1, 6) };
+            let x = match side {
+                Side::Left => r.right() + m.right as f32 - 0.5 * STRIP,
+                Side::Right => r.left() - m.left as f32 + 0.5 * STRIP,
+            };
+            let y = r.top() - m.top as f32 + 6.0 + 7.0;
+            let rect = egui::Rect::from_center_size(Pos2::new(x, y), Vec2::splat(14.0));
+            let resp = ui.interact(rect, Id::NULL.with(("sidebar_show", id)), Sense::click());
+            if chevron_paint(ui, resp, side == Side::Right, &format!("Show the panel ({shortcut})")) {
+                flip = true;
+            }
         }
     });
     if flip {
