@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-10
+
 ### Added
 - Mixture editor: properties at a reference state chosen by the user
   (15 °C and 101.325 kPa by default, ISO 13443): molar mass in kg/kmol,
@@ -419,7 +421,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/dafer238/dfstudio/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/dafer238/dfstudio/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dafer238/dfstudio/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/dafer238/dfstudio/compare/v1.0.2...v1.0.3
