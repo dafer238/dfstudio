@@ -663,7 +663,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "dfapp"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "dfcore",
  "eframe",
@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "dfcli"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "dfcore",
  "serde_json",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "dfcore"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "coolprop-sys",
  "crc32fast",
