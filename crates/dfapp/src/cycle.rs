@@ -1400,6 +1400,9 @@ impl CycleUi {
             crate::sidebar::toggle(ui, "cycle_kpi");
         }
         crate::sidebar::panel(ui, "cycle_side", crate::sidebar::Side::Left, 300.0, |ui| {
+            crate::sidebar::header(ui, "cycle_side", crate::sidebar::Side::Left, |ui| {
+                ui.strong("Components");
+            });
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| self.side(ui, d, inp));
         });
         crate::sidebar::panel(ui, "cycle_kpi", crate::sidebar::Side::Right, 330.0, |ui| self.right(ui, d, inp));
@@ -1458,9 +1461,9 @@ impl CycleUi {
             crate::sidebar::toggle(ui, "comp_list");
         }
         crate::sidebar::panel(ui, "comp_list", crate::sidebar::Side::Left, 230.0, |ui| {
-            ui.horizontal(|ui| {
+            crate::sidebar::header(ui, "comp_list", crate::sidebar::Side::Left, |ui| {
                 ui.label("Filter");
-                ui.text_edit_singleline(&mut self.tab_filter);
+                ui.add(egui::TextEdit::singleline(&mut self.tab_filter).desired_width(ui.available_size_before_wrap().x));
             });
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
@@ -1538,7 +1541,6 @@ impl CycleUi {
     }
 
     fn side(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
-        ui.strong("Components");
         ui.label(RichText::new("Drag onto the canvas. Drag from a port (dot) to another port to connect.").small().weak());
         for (gi, g) in GROUPS.iter().enumerate() {
             // all groups start collapsed for a compact palette ("v2" drops
@@ -1772,7 +1774,7 @@ impl CycleUi {
 
     /// Right sidebar: KPI and States tabs, then the diagram settings.
     fn right(&mut self, ui: &mut egui::Ui, d: &mut CycleDiagram, inp: &CycleInputs) {
-        ui.horizontal(|ui| {
+        crate::sidebar::header(ui, "cycle_kpi", crate::sidebar::Side::Right, |ui| {
             ui.selectable_value(&mut self.side_tab, SideTab::Kpi, RichText::new("KPI").strong()).on_hover_text("Key performance indicators");
             ui.selectable_value(&mut self.side_tab, SideTab::States, RichText::new("States").strong()).on_hover_text("State table of the streams");
         });

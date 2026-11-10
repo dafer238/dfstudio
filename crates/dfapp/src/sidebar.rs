@@ -34,8 +34,9 @@ pub fn toggle(ui: &Ui, id: &str) {
     });
 }
 
-/// A resizable side panel `id` that can be hidden: a small chevron at its
-/// top hides it, and the thin strip left in its place shows it again.
+/// A resizable side panel `id` that can be hidden: the chevron of its
+/// [`header`] row hides it, and the thin strip left in its place shows it
+/// again.
 pub fn panel(ui: &mut Ui, id: &'static str, side: Side, default: f32, add: impl FnOnce(&mut Ui)) {
     let mut open = is_open(ui, id);
     let was = open;
@@ -48,16 +49,6 @@ pub fn panel(ui: &mut Ui, id: &'static str, side: Side, default: f32, add: impl 
     let thin = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(1, 6));
     Panel::show_switched(ui, &mut open, collapsed.resizable(false).exact_size(STRIP).frame(thin), expanded.resizable(true).default_size(default), |ui, expanded| {
         if expanded {
-            // header strip with the hide button at the panel's outer edge
-            ui.horizontal(|ui| {
-                ui.set_height(14.0);
-                let layout = if side == Side::Left { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
-                ui.with_layout(layout, |ui| {
-                    if chevron(ui, side == Side::Left, &format!("Hide this panel ({shortcut})")) {
-                        flip = true;
-                    }
-                });
-            });
             add(ui);
         } else if chevron(ui, side == Side::Right, &format!("Show the panel ({shortcut})")) {
             flip = true;
@@ -71,9 +62,47 @@ pub fn panel(ui: &mut Ui, id: &'static str, side: Side, default: f32, add: impl 
     }
 }
 
+/// First row of the panel `id`: `add` with the hide chevron at the panel's
+/// inner edge (right of the content for a left panel, left of it for a
+/// right panel).
+pub fn header(ui: &mut Ui, id: &'static str, side: Side, add: impl FnOnce(&mut Ui)) {
+    let tip = format!("Hide this panel ({})", if side == Side::Left { "Ctrl+B" } else { "Ctrl+Shift+B" });
+    match side {
+        Side::Left => {
+            // content wraps short of the chevron, which sits at the right
+            // edge, centred on the first row
+            const W: f32 = 14.0;
+            let (top, w) = (ui.cursor().min, ui.available_width());
+            ui.scope(|ui| {
+                ui.set_max_width(w - W - ui.spacing().item_spacing.x);
+                ui.horizontal_wrapped(add);
+            });
+            let row = ui.spacing().interact_size.y;
+            let rect = egui::Rect::from_min_size(Pos2::new(top.x + w - W, top.y + 0.5 * (row - W)), Vec2::splat(W));
+            let r = ui.interact(rect, Id::NULL.with(("sidebar_hide", id)), Sense::click());
+            if chevron_paint(ui, r, true, &tip) {
+                toggle(ui, id);
+            }
+        }
+        Side::Right => {
+            ui.horizontal(|ui| {
+                if chevron(ui, false, &tip) {
+                    toggle(ui, id);
+                }
+                add(ui);
+            });
+        }
+    }
+}
+
 /// A small, discreet chevron button pointing left or right.
 fn chevron(ui: &mut Ui, left: bool, tip: &str) -> bool {
-    let (rect, r) = ui.allocate_exact_size(Vec2::new(14.0, 14.0), Sense::click());
+    let (_, r) = ui.allocate_exact_size(Vec2::new(14.0, 14.0), Sense::click());
+    chevron_paint(ui, r, left, tip)
+}
+
+fn chevron_paint(ui: &Ui, r: egui::Response, left: bool, tip: &str) -> bool {
+    let rect = r.rect;
     let r = r.on_hover_text(tip);
     let vis = ui.visuals();
     let col = if r.hovered() { vis.strong_text_color() } else { vis.weak_text_color() };

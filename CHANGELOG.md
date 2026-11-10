@@ -9,7 +9,7 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ### Added
 - Cycle diagram (Diagram and Components sub-tabs) and Plots: the sidebars
   can be hidden for a larger view, with `Ctrl+B` (left), `Ctrl+Shift+B`
-  (right) or the small arrow at the top of each sidebar; the choice is
+  (right) or the small arrow in the first row of each sidebar; the choice is
   remembered.
 
 ### Changed
