@@ -16,6 +16,18 @@
 //!   H → H2O, S → SO2, N → N2; O2 needed = C + H/4 + S − O/2 per mole of
 //!   fuel. Dry air: U.S. Standard Atmosphere (1976), N2 78.084 %, O2
 //!   20.9476 %, Ar 0.934 %, CO2 0.0314 % (mole), normalised.
+//! * Heating values at a reference temperature T (Kirchhoff's law): the
+//!   values at 25 °C of [`combustion`] plus the sensible enthalpies of the
+//!   ideal-gas reactants (fuel and O2) minus those of the products (CO2,
+//!   H2O vapour, SO2, N2) from 25 °C to T, with CoolProp's ideal-gas
+//!   enthalpies; the HHV adds the enthalpy of vaporisation of the water at T
+//!   (44.004 kJ/mol at 25 °C, varied with CoolProp's water). This is the
+//!   method of ISO 6976 (2016), which gives the values at 0, 15, 20 and 25 °C.
+//! * Normal and standard volumes count amounts of substance: 1 Nm³ is the
+//!   amount of an ideal gas in 1 m³ at 0 °C and 101.325 kPa (DIN 1343),
+//!   P/(R T) = 44.61503 mol with R = 8.314462618 J/(mol K) (CODATA 2018),
+//!   i.e. 22.41397 m³/kmol, whatever the gas; 1 Sm³ the same at 15 °C
+//!   (ISO 13443), 23.64451 m³/kmol.
 
 use crate::combustion;
 
@@ -184,7 +196,7 @@ pub const PRESETS: &[Preset] = &[
 ];
 
 /// Dry air (mole fractions, normalised): N2, O2, Ar, CO2.
-fn air() -> [(&'static str, f64); 4] {
+pub fn dry_air() -> [(&'static str, f64); 4] {
     let a = [("Nitrogen", 78.084), ("Oxygen", 20.9476), ("Argon", 0.934), ("CO2", 0.0314)];
     let t: f64 = a.iter().map(|c| c.1).sum();
     a.map(|(n, v)| (n, v / t))
@@ -246,7 +258,7 @@ pub fn products(fuel: &[(String, f64)], lambda: f64) -> Result<Products, String>
     if o2_need <= 0.0 {
         return Err("this mixture needs no oxygen: it is not a fuel".into());
     }
-    let air = air();
+    let air = dry_air();
     let o2_air = air.iter().find(|a| a.0 == "Oxygen").map(|a| a.1).unwrap_or(0.21);
     let n_air = lambda * o2_need / o2_air;
     for (n, v) in air {
@@ -259,6 +271,130 @@ pub fn products(fuel: &[(String, f64)], lambda: f64) -> Result<Products, String>
     let n_prod: f64 = acc.iter().map(|a| a.1).sum();
     let comps = acc.into_iter().map(|(n, v)| (n, v / n_prod)).collect();
     Ok(Products { comps, air_per_fuel_mol: n_air, air_per_fuel_mass: n_air * m_air / m_fuel, afr_stoich: n_air / lambda * m_air / m_fuel, products_per_fuel_mol: n_prod })
+}
+
+/// Ideal-gas sensible enthalpy h(T) − h(298.15 K) of a species, J/mol.
+pub fn sensible_h(name: &str, t: f64) -> Result<f64, String> {
+    let cp = crate::props::coolprop_fluid(name);
+    let m = molar_mass(&cp)?;
+    // the equation of state at 1 Pa: the ideal gas
+    let h = |t: f64| crate::props::backend::props(&cp, crate::props::Key::H, &[crate::props::Key::T, crate::props::Key::P], &[t, 1.0], None);
+    Ok((h(t)? - h(298.15)?) * m / 1e3)
+}
+
+/// Enthalpy of vaporisation of water at T, J/mol: 44.004 kJ/mol at 25 °C
+/// (from the formation enthalpies of [`combustion`]), varied with T as
+/// CoolProp's saturated water.
+fn h_vap_water(t: f64) -> Result<f64, String> {
+    use crate::props::{backend::props, Key};
+    let fg = |t: f64| -> Result<f64, String> { Ok(props("Water", Key::H, &[Key::T, Key::Q], &[t, 1.0], None)? - props("Water", Key::H, &[Key::T, Key::Q], &[t, 0.0], None)?) };
+    Ok(44_004.0 + (fg(t)? - fg(298.15)?) * 18.015 / 1e3)
+}
+
+/// Lower and higher heating values (kJ/mol of the mixture) of a fuel
+/// (names, mole fractions) at the reference temperature `t` (K), for
+/// reactants and products at `t`.
+pub fn heating_values(fuel: &[(String, f64)], t: f64) -> Result<(f64, f64), String> {
+    let total: f64 = fuel.iter().map(|c| c.1).sum();
+    if !(total > 0.0) {
+        return Err("the fractions add up to zero".into());
+    }
+    let at = (t - 298.15).abs() > 1e-9;
+    let dh = |n: &str| if at { sensible_h(n, t) } else { Ok(0.0) };
+    let (dh_o2, dh_co2, dh_h2o, dh_so2, dh_n2) = (dh("Oxygen")?, dh("CO2")?, dh("Water")?, dh("SulfurDioxide")?, dh("Nitrogen")?);
+    let (mut lhv, mut hhv) = (0.0, 0.0);
+    let mut water = 0.0;
+    for (n, x) in fuel {
+        let x = x / total;
+        let cp = crate::props::coolprop_fluid(n);
+        let a = combustion::atoms(&cp).ok_or_else(|| format!("{n}: no heating value (not in the species table)"))?;
+        let m = combustion::molar(&cp)?;
+        let [c, h, o, nn, s] = a.map(|v| v as f64);
+        let o2 = c + h / 4.0 - o / 2.0 + s;
+        // Kirchhoff: reactants minus products, sensible parts from 25 C to t, J/mol
+        let shift = if a == [0; 5] { 0.0 } else { dh(&cp)? + o2 * dh_o2 - c * dh_co2 - h / 2.0 * dh_h2o - s * dh_so2 - nn / 2.0 * dh_n2 };
+        lhv += x * (m.lhv + shift / 1e3);
+        water += x * h / 2.0;
+        hhv += x * (m.lhv + shift / 1e3);
+    }
+    if water > 0.0 {
+        hhv += water * if at { h_vap_water(t)? } else { 44_004.0 } / 1e3;
+    }
+    Ok((lhv, hhv))
+}
+
+/// Density (kg/m³) and cp (J/kg-K) of a mixture (CoolProp string, mole
+/// fractions) at T (K) and P (Pa): the real mixture, or the ideal-gas one
+/// when `ideal` or when CoolProp cannot evaluate the real one. The flag
+/// says which was used.
+pub fn density_cp(mix: &str, ideal: bool, t: f64, p: f64) -> Result<(f64, f64, bool), String> {
+    use crate::props::{backend::props, IdealGasCall, Key};
+    if !ideal {
+        if let (Ok(d), Ok(c)) = (props(mix, Key::D, &[Key::T, Key::P], &[t, p], None), props(mix, Key::Cp, &[Key::T, Key::P], &[t, p], None)) {
+            if d.is_finite() && c.is_finite() {
+                return Ok((d, c, false));
+            }
+        }
+    }
+    let get = |k: Key| -> Result<f64, String> { IdealGasCall::new("mixture".into(), mix, k, vec![Key::T, Key::P], None)?.eval_si(&[t, p]) };
+    Ok((get(Key::D)?, get(Key::Cp)?, true))
+}
+
+/// Molar volume of a normal cubic metre: ideal gas at 0 °C and 101.325
+/// kPa, m³/kmol.
+pub const V_NORMAL: f64 = 8.314462618 * 273.15 / 101.325;
+/// Molar volume of a standard cubic metre: ideal gas at 15 °C and 101.325
+/// kPa, m³/kmol.
+pub const V_STANDARD: f64 = 8.314462618 * 288.15 / 101.325;
+
+/// Units of a flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowUnit {
+    KgS,
+    KgH,
+    TH,
+    KmolS,
+    KmolH,
+    Nm3S,
+    Nm3H,
+    Nm3D,
+    Sm3H,
+}
+
+impl FlowUnit {
+    pub const ALL: [FlowUnit; 9] = [FlowUnit::KgS, FlowUnit::KgH, FlowUnit::TH, FlowUnit::KmolS, FlowUnit::KmolH, FlowUnit::Nm3S, FlowUnit::Nm3H, FlowUnit::Nm3D, FlowUnit::Sm3H];
+    pub fn label(self) -> &'static str {
+        match self {
+            FlowUnit::KgS => "kg/s",
+            FlowUnit::KgH => "kg/h",
+            FlowUnit::TH => "t/h",
+            FlowUnit::KmolS => "kmol/s",
+            FlowUnit::KmolH => "kmol/h",
+            FlowUnit::Nm3S => "Nm³/s",
+            FlowUnit::Nm3H => "Nm³/h",
+            FlowUnit::Nm3D => "Nm³/day",
+            FlowUnit::Sm3H => "Sm³/h",
+        }
+    }
+    /// kmol/s of a flow `v` in this unit, for a molar mass `m` (kg/kmol).
+    pub fn to_kmol_s(self, v: f64, m: f64) -> f64 {
+        let (v_n, v_s) = (V_NORMAL, V_STANDARD);
+        match self {
+            FlowUnit::KgS => v / m,
+            FlowUnit::KgH => v / 3600.0 / m,
+            FlowUnit::TH => v * 1e3 / 3600.0 / m,
+            FlowUnit::KmolS => v,
+            FlowUnit::KmolH => v / 3600.0,
+            FlowUnit::Nm3S => v / v_n,
+            FlowUnit::Nm3H => v / 3600.0 / v_n,
+            FlowUnit::Nm3D => v / 86400.0 / v_n,
+            FlowUnit::Sm3H => v / 3600.0 / v_s,
+        }
+    }
+    /// The flow in this unit from kmol/s.
+    pub fn from_kmol_s(self, n: f64, m: f64) -> f64 {
+        n / self.to_kmol_s(1.0, m)
+    }
 }
 
 #[cfg(test)]
@@ -283,6 +419,30 @@ mod tests {
         let s = products(&[("Methane".into(), 0.98), ("H2S".into(), 0.02)], 1.1).unwrap();
         assert!(s.comps.iter().any(|c| c.0 == "SulfurDioxide" && c.1 > 0.0));
         assert!(products(&[("Nitrogen".into(), 1.0)], 1.2).is_err());
+    }
+
+    #[cfg(feature = "coolprop")]
+    #[test]
+    fn heating_values_at_15_c() {
+        // ISO 6976 (2016), methane: Hs rises by 0.93 kJ/mol from 25 to 15 C
+        // (890.58 -> 891.51), Hi by about 0.09 (802.60 -> 802.69)
+        let f = [("Methane".to_string(), 1.0)];
+        let (l25, h25) = heating_values(&f, 298.15).unwrap();
+        let (l15, h15) = heating_values(&f, 288.15).unwrap();
+        assert!((h25 - 890.309).abs() < 1e-3 && (l25 - 802.301).abs() < 1e-3);
+        assert!((h15 - h25 - 0.93).abs() < 0.03, "{}", h15 - h25);
+        assert!((l15 - l25 - 0.09).abs() < 0.03, "{}", l15 - l25);
+        // inerts change nothing per mole of fuel
+        let (l, _) = heating_values(&[("Methane".to_string(), 0.5), ("Nitrogen".to_string(), 0.5)], 288.15).unwrap();
+        assert!((l - 0.5 * l15).abs() < 1e-9);
+        // 1 Nm3 = 44.61503 mol (ideal gas, 0 C, 1 atm); flows
+        assert!((1e3 / V_NORMAL - 44.61503).abs() < 1e-5);
+        let n = FlowUnit::Nm3H.to_kmol_s(3600.0 * V_NORMAL, 16.0);
+        assert!((n - 1.0).abs() < 1e-12 && (FlowUnit::KgH.from_kmol_s(n, 16.0) - 57_600.0).abs() < 1e-9);
+        assert!((FlowUnit::Nm3D.from_kmol_s(1.0, 16.0) - 86_400.0 * V_NORMAL).abs() < 1e-6);
+        let (d, cp, ideal) = density_cp("Methane[1]", false, 273.15, 101_325.0).unwrap();
+        // methane at 0 C, 1 atm: 0.7175 kg/m3 (ISO 6976), cp 2.18 kJ/kg-K
+        assert!(!ideal && (d - 0.7175).abs() < 1e-3 && (cp - 2181.0).abs() < 10.0, "{d} {cp}");
     }
 
     #[test]

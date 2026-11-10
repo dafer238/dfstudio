@@ -201,6 +201,16 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
     the air/fuel ratio, which replaces the mixture by its products. The
     *Ideal-gas mixture* option writes `'...::Ideal'`, for hot gases and for
     components CoolProp has no interaction parameters for (it warns when so).
+    The editor gives the properties of the mixture at a reference
+    temperature and pressure (15 °C and 101.325 kPa by default, ISO 13443):
+    M (kg/kmol), density (kg/m³), cp (kJ/kg-K), and LHV and HHV (kJ/kg,
+    kJ/kmol, MJ/Nm³) with reactants and products at the reference
+    temperature (Kirchhoff's law, as ISO 6976). A *Flow* of the mixture or
+    of its flue gas, in mass, molar or normal-volume units (Nm³/s, Nm³/h,
+    Nm³/day, Sm³/h; 1 Nm³ = 44.61503 mol, ideal gas at 0 °C and 1 atm), is
+    shown in the other units with its thermal input, and gives the flows of
+    fuel, air and every combustion product (mol %, dry mol %, mass %, kmol,
+    kg and Nm³ per second, hour or day).
   * **Property functions**, **math functions**, **constants**, **keywords
     and directives** (inserted as a template, e.g. a `Duplicate ... End`
     block), **state inputs** with their unit in the model, and **units** by

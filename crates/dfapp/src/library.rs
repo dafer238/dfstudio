@@ -420,7 +420,7 @@ impl Library {
             ui.horizontal(|ui| {
                 ui.label("Search");
                 ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("name or description").desired_width(260.0));
-                if !self.search.is_empty() && ui.small_button("✕").clicked() {
+                if !self.search.is_empty() && ui.small_button("×").clicked() {
                     self.search.clear();
                 }
             });
