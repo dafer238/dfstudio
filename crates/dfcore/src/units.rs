@@ -41,6 +41,12 @@ impl Dim {
     /// Entropy or heat capacity per amount of substance (kJ/kmol-K).
     pub const MOLAR_ENTROPY: Dim = Dim([1, 2, -2, -1, -1, 0, 0]);
     pub const MOLAR_FLOW: Dim = Dim([0, 0, -1, 0, 1, 0, 0]);
+    /// Kinematic viscosity, thermal diffusivity (m^2/s).
+    pub const DIFFUSIVITY: Dim = Dim([0, 2, -1, 0, 0, 0, 0]);
+    /// Isothermal compressibility (1/Pa).
+    pub const INV_PRESSURE: Dim = Dim([-1, 1, 2, 0, 0, 0, 0]);
+    /// Volumetric expansion coefficient (1/K).
+    pub const INV_TEMP: Dim = Dim([0, 0, 0, -1, 0, 0, 0]);
 
     pub fn mul(self, o: Dim) -> Dim {
         let mut r = [0i8; 7];
@@ -390,6 +396,9 @@ pub struct UnitSystem {
     pub energy: EnergyUnit,
     /// Trigonometric functions take degrees instead of radians.
     pub degrees: bool,
+    /// EES `$UnitSystem MOLAR`: the property functions give h, u, s, cp, cv,
+    /// v and rho per kmol (per lbmol) instead of per kg (per lbm).
+    pub molar: bool,
 }
 
 impl Default for UnitSystem {
@@ -401,19 +410,19 @@ impl Default for UnitSystem {
 impl UnitSystem {
     /// Pure SI: K, Pa, J.
     pub fn si() -> Self {
-        UnitSystem { name: "SI".into(), temperature: TempUnit::K, pressure: PressUnit::Pa, energy: EnergyUnit::J, degrees: false }
+        UnitSystem { name: "SI".into(), temperature: TempUnit::K, pressure: PressUnit::Pa, energy: EnergyUnit::J, degrees: false, molar: false }
     }
     /// Engineering: °C, bar, kJ (kJ/kg, kW, kJ/kg-K).
     pub fn engineering() -> Self {
-        UnitSystem { name: "Engineering (C, bar, kJ)".into(), temperature: TempUnit::C, pressure: PressUnit::Bar, energy: EnergyUnit::KJ, degrees: false }
+        UnitSystem { name: "Engineering (C, bar, kJ)".into(), temperature: TempUnit::C, pressure: PressUnit::Bar, energy: EnergyUnit::KJ, degrees: false, molar: false }
     }
     /// SI with kPa and kJ: K, kPa, kJ.
     pub fn si_kpa() -> Self {
-        UnitSystem { name: "SI kPa (K, kPa, kJ)".into(), temperature: TempUnit::K, pressure: PressUnit::KPa, energy: EnergyUnit::KJ, degrees: false }
+        UnitSystem { name: "SI kPa (K, kPa, kJ)".into(), temperature: TempUnit::K, pressure: PressUnit::KPa, energy: EnergyUnit::KJ, degrees: false, molar: false }
     }
     /// Imperial / English engineering: °F, psia, Btu (Btu/lbm, Btu/lbm-R).
     pub fn imperial() -> Self {
-        UnitSystem { name: "Imperial (F, psia, Btu)".into(), temperature: TempUnit::F, pressure: PressUnit::Psia, energy: EnergyUnit::Btu, degrees: false }
+        UnitSystem { name: "Imperial (F, psia, Btu)".into(), temperature: TempUnit::F, pressure: PressUnit::Psia, energy: EnergyUnit::Btu, degrees: false, molar: false }
     }
     pub fn presets() -> Vec<UnitSystem> {
         vec![Self::engineering(), Self::si(), Self::si_kpa(), Self::imperial()]
@@ -425,9 +434,11 @@ impl UnitSystem {
         us.name = format!("Custom ({})", args.trim());
         for w in args.split(|c: char| c.is_whitespace() || c == ',') {
             match w.to_lowercase().as_str() {
-                "" | "mass" | "si" => {}
-                "eng" | "engineering" => us = UnitSystem::engineering(),
-                "imperial" | "english" | "eng_us" => us = UnitSystem::imperial(),
+                "" | "si" => {}
+                "mass" => us.molar = false,
+                "molar" => us.molar = true,
+                "eng" | "engineering" => us = UnitSystem { molar: us.molar, ..UnitSystem::engineering() },
+                "imperial" | "english" | "eng_us" => us = UnitSystem { molar: us.molar, ..UnitSystem::imperial() },
                 "c" => us.temperature = TempUnit::C,
                 "k" => us.temperature = TempUnit::K,
                 "f" => us.temperature = TempUnit::F,
@@ -479,6 +490,18 @@ impl UnitSystem {
         if dim == Dim::PRESSURE {
             return self.press_unit();
         }
+        if dim == Dim::INV_PRESSURE {
+            // per model pressure unit: 1/bar, 1/kPa, 1/psia
+            let p = self.press_unit();
+            return Unit { symbol: format!("1/{}", p.symbol.trim()), factor: 1.0 / p.factor, offset: 0.0, dim };
+        }
+        if dim == Dim::INV_TEMP {
+            // a degree C is a kelvin, a degree F a rankine
+            return match self.temperature {
+                TempUnit::F | TempUnit::R => Unit { symbol: "1/R".into(), factor: 1.8, offset: 0.0, dim },
+                _ => Unit { symbol: "1/K".into(), factor: 1.0, offset: 0.0, dim },
+            };
+        }
         let imperial = self.energy == EnergyUnit::Btu;
         if imperial {
             // English engineering: lbm, ft, s, R, Btu
@@ -496,6 +519,7 @@ impl UnitSystem {
                 Dim::CONDUCTIVITY => parse_unit("Btu/hr-ft-R").unwrap(),
                 Dim::MOLAR_MASS => parse_unit("lbm/lbmol").unwrap(),
                 Dim::VISCOSITY => parse_unit("lbm/ft-s").unwrap(),
+                Dim::DIFFUSIVITY => parse_unit("ft^2/s").unwrap(),
                 Dim::AMOUNT => parse_unit("lbmol").unwrap(),
                 Dim::MOLAR_ENERGY => parse_unit("Btu/lbmol").unwrap(),
                 Dim::MOLAR_ENTROPY => parse_unit("Btu/lbmol-R").unwrap(),

@@ -191,6 +191,16 @@ The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
     call is shown as it will be written (with `;` in decimal-comma
     scripts); *Evaluate* computes it, with the numbers given or with the
     model's current values, before it is inserted.
+  * **Mixture editor** (model *Mixture*, *Edit…* next to the mixture):
+    components with their fractions in mol % (default), mass % or vol %
+    (equal to mol % for gases), with the other basis and the molar masses
+    alongside; presets (natural gas without sulfur, with sulfur as H2S,
+    lean; dry air; biogas; syngas; LPG; R407C, R410A, R404A); the molar
+    mass, LHV and HHV of the mixture; and *Combustion products of this
+    fuel*: complete combustion with dry air at an excess-air ratio λ, with
+    the air/fuel ratio, which replaces the mixture by its products. The
+    *Ideal-gas mixture* option writes `'...::Ideal'`, for hot gases and for
+    components CoolProp has no interaction parameters for (it warns when so).
   * **Property functions**, **math functions**, **constants**, **keywords
     and directives** (inserted as a template, e.g. a `Duplicate ... End`
     block), **state inputs** with their unit in the model, and **units** by
@@ -699,10 +709,45 @@ clipboard* or *Save as…* a text file:
   alone gets P = 1 atm;
 * `ifelse(a < b, x, y)` becomes `IF(a, b, x, y, y)`, `pow` and `**` become
   `^`, `d=` inputs become `v=1/(...)`, and `=`
-  in a function body becomes `:=`.
+  in a function body becomes `:=`;
+* `PropsSI`, `Props1SI` and `HAPropsSI` become the named property and
+  `AirH2O` functions, with their SI arguments converted to model units:
+  `HAPropsSI('H', 'T', T + 273.15, 'P', P*1e5, 'R', RH)/1000` in a °C–bar
+  model becomes `Enthalpy(AirH2O, T=T, P=P, R=RH)`; when no conversion
+  written in the script cancels it, the result is converted back to SI
+  (`(Enthalpy(Water, T=T, x=0)*1000)`), so the equation keeps its meaning;
+* `For` and `While` loops, which EES does not have, become an equivalent
+  `Repeat ... Until` behind an `If` (so that a loop that runs zero times
+  still runs zero times); `ElseIf` becomes `Else` plus a nested `If` with
+  its own `EndIf`; `not` is removed by flipping the comparison
+  (`not (a < b)` → `a >= b`); and every operand of `and` / `or` is put in
+  parentheses, because EES evaluates them from left to right without
+  precedence;
+* `atan2(y, x)` becomes `atan2_df(y, x)`, a short function written at the
+  top of the export; functions and procedures are moved before the first
+  equation, where EES requires them.
+
+A `For` loop is translated as
+
+```
+i := a
+If (i <= b) Then
+Repeat
+  ...
+  i := i + s
+Until (i > b)
+EndIf
+```
+
+with `>=` / `<` for a negative step, and with the bound and the step kept
+in `i_end` / `i_step` when the body changes them (DeltaF Studio evaluates
+them once). After the loop `i` is one step past `b`, where DeltaF Studio
+leaves the last value; the loop variable should not be used after the
+loop.
 
 Anything without an equivalent (`$Guess`, `$Bounds`, `$Units`, `$Control`,
-CoolProp backends and mixtures, `PropsSI`, ...) is commented on its line
+CoolProp backends and mixtures, `PropsSI` outputs without a named function
+such as `Phase`, ...) is commented on its line
 with *NOT TRANSLATED* and listed, with the line of the original script, in
 the header. `dfs export model.dfs` prints the same text.
 

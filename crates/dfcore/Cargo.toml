@@ -16,4 +16,5 @@ serde_json.workspace = true
 rayon.workspace = true
 flate2.workspace = true
 crc32fast.workspace = true
+libm.workspace = true
 coolprop-sys = { workspace = true, optional = true }

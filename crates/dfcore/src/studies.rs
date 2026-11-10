@@ -572,7 +572,10 @@ pub fn solve_with_controls(model: &Model, opts: &SolveOptions, warm: Option<&[f6
         let v = model.var(&c.vary[0]).ok_or_else(|| format!("$Control: unknown variable '{}'", c.vary[0]))?;
         let (lhs, rhs) = c.target.split_once('=').ok_or("$Control: expected `to make y = value`")?;
         let t = model.var(lhs.trim()).ok_or_else(|| format!("$Control: unknown variable '{}'", lhs.trim()))?;
-        let sub = crate::compile(&format!("__target = {}", rhs.trim()), &crate::CompileOptions { unit_system: Some(model.unit_system.clone()), check_fluids: false });
+        let sub = crate::compile(
+            &format!("__target = {}", rhs.trim()),
+            &crate::CompileOptions { unit_system: Some(model.unit_system.clone()), check_fluids: false, files: Default::default() },
+        );
         let (_, ss) = crate::solve(&sub, opts);
         let tv = sub.var("__target").map(|i| ss.x[i as usize]).filter(|v| v.is_finite()).ok_or("$Control: target must be a constant")?;
         vary.push(v);

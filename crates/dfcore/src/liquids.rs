@@ -216,6 +216,13 @@ impl Liquid {
             Key::Visc => (self.mu)(t),
             Key::Cond => (self.k)(t),
             Key::Prandtl => cp * (self.mu)(t) / (self.k)(t),
+            Key::KinVisc => (self.mu)(t) / rho,
+            Key::Diffusivity => (self.k)(t) / (rho * cp),
+            Key::ExpCoef => {
+                // -(1/rho) drho/dT; the density depends on T only
+                let eps = 1e-3;
+                -((self.rho)(t + eps) - (self.rho)(t - eps)) / (2.0 * eps * rho)
+            }
             // subcooled liquid (CoolProp convention)
             Key::Q => -1.0,
             Key::Phase => 0.0,

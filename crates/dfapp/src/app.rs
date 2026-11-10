@@ -377,12 +377,26 @@ impl DfApp {
         self.worker.submit(Request {
             gen: self.gen,
             text: self.s.text.clone(),
-            opts: CompileOptions { unit_system: Some(self.s.unit_system.clone()), check_fluids: true },
+            opts: CompileOptions { unit_system: Some(self.s.unit_system.clone()), check_fluids: true, files: self.script_files() },
             solve,
             solve_opts: SolveOptions::default(),
             warm,
             init: Arc::new(self.s.init.clone()),
         });
+    }
+
+    /// Files a script can name (`$Include`, lookup tables): the files
+    /// attached to the project first, then the files next to it on disk.
+    fn script_files(&self) -> dfcore::compile::Files {
+        let attached: Vec<(String, Vec<u8>)> = self.files.iter().map(|f| (f.name.clone(), f.data.clone())).collect();
+        let dir = self.s.path.as_ref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
+        dfcore::compile::Files::new(move |name| {
+            let base = |n: &str| n.rsplit(['/', '\\']).next().unwrap_or(n).to_ascii_lowercase();
+            if let Some((_, d)) = attached.iter().find(|(n, _)| base(n) == base(name)) {
+                return Some(String::from_utf8_lossy(d).into_owned());
+            }
+            std::fs::read_to_string(dir.as_ref()?.join(name)).ok()
+        })
     }
 
     /// Hash of everything a save writes (script, settings, studies, plots, diagram).

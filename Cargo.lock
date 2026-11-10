@@ -692,6 +692,7 @@ dependencies = [
  "coolprop-sys",
  "crc32fast",
  "flate2",
+ "libm",
  "rayon",
  "serde",
  "serde_json",

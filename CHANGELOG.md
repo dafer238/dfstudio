@@ -6,6 +6,75 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Humid air under other names: `HumidAir`, `Humid_Air`, `MoistAir`,
+  `Moist_Air`, `AirWater` and `Air_H2O` are the same as `AirH2O` in the
+  humid-air functions (`humrat(HumidAir, T=T, P=P, R=0.5)`), in any case.
+- Thermophysical functions, as in EES: `kinematicviscosity`,
+  `thermaldiffusivity`, `isentropicexponent` (the real-fluid exponent
+  −(v/P)(∂P/∂v)ₛ, cp/cv for an ideal gas), `isothermalcompress` (in 1/model
+  pressure unit), `volexpcoef` (1/K), and the fluid constants `v_crit`,
+  `t_triple`, `p_triple`, `acentricfactor` and `normalboilingpt`. The ideal
+  gas gives the isentropic exponent, compressibility and expansion
+  coefficient too, and the liquids of DeltaF Studio the kinematic viscosity,
+  diffusivity and expansion coefficient.
+- Special functions: `erf`, `erfc`, `gamma_`, `factorial`, Bessel functions
+  of order 0 and 1 (`bessel_j0` ... `bessel_k1`), and `average(a, b, ...)`.
+- `Call Error('message XXXF2', x)` in functions and procedures stops the
+  calculation with the message, the value written in place of `XXX`.
+- Export simplified script: `PropsSI`, `Props1SI` and `HAPropsSI` are
+  written as the named property and `AirH2O` functions, with their SI
+  arguments converted to model units (`T + 273.15`, `P*1e5` and a trailing
+  `/1000` simplify away). `For` and `While` loops become a guarded
+  `Repeat ... Until`, `ElseIf` a nested `If`, `not` a flipped comparison,
+  and the operands of `and` / `or` get parentheses, since EES evaluates
+  them left to right. `atan2` becomes a helper function written at the top,
+  and functions and procedures are moved before the first equation.
+- Lookup tables from CSV or text files attached to the project (or next to
+  the script): `lookup`, `interpolate` (cubic), `interpolate1` (linear),
+  `interpolate2` (quadratic), `interpolate3` and `interpolate2dm`, as in
+  EES. A header `T [K]` gives a column a unit, converted to the model units;
+  `;` or tab separators accept a decimal comma.
+- `integral(f, x, a, b)`: 20-point Gauss–Legendre quadrature of an
+  expression, also of property calls (`integral(cp(Air, T=T)/T, T, 300, 600)`).
+- String variables (`F$ = 'R134a'`, `G$ = F$`) for fluid, table and column
+  names; `$Constant Name# = value [unit]` and `$Constant Name#$ = 'text'`;
+  `$Include file` (one level) for shared functions and equations.
+- Arrays inside functions and procedures (`T[i] := ...`), and procedure
+  outputs into array elements.
+- `Module` / `Subprogram`: a block of equations instantiated at each
+  `Call` with its own local variables (`pump1.h1`, `pump2.h1`).
+- `enthalpy_formation`, `lhv` and `hhv` of fuels and of mixtures
+  (`lhv('Methane[0.9]&Ethane[0.1]')`), from NIST-JANAF formation enthalpies.
+- `Call Warning('text XXXF2', x)` in functions and procedures: the solve
+  goes on and the message is listed after it.
+- Molar unit system (`$UnitSystem SI MOLAR C kPa kJ`): h, u, s, cp, cv, v
+  and density per kmol, as in EES.
+- Ideal-gas mixtures: `enthalpy('Nitrogen[0.75]&CO2[0.1]&Water[0.15]::Ideal', T=T, P=P)`,
+  the Gibbs–Dalton mixture of the components' ideal-gas properties with
+  thermochemical reference states, so that the enthalpies of reactants and
+  products balance (adiabatic flame temperature of methane in air: 2327 K).
+  It needs no binary interaction parameters (flue gas with SO2).
+- Property call builder: a mixture editor with fractions in mol % (default),
+  mass % or vol % (= mol % for gases), presets (natural gas with and
+  without sulfur as H2S, lean natural gas, dry air, biogas, syngas, LPG,
+  R407C, R410A, R404A), the products of complete combustion of the mixture
+  with an excess-air ratio λ, and its heating values.
+
+### Fixed
+- `=` compares in the condition of `If`, `ElseIf`, `While` and `Until`
+  (`If x = 1 Then`), as in EES; it was a syntax error.
+- `PropsSI` results no longer take the model unit of their property: they
+  are SI (J/kg, Pa, K), and were shown as kJ/kg, bar or °C.
+- Export simplified script: an argument written in parentheses, such as
+  `T=(T1 + T2)/2`, lost its opening parenthesis.
+- Mixtures at high temperature: CoolProp's flash from P with h, s, u or
+  density fails above about the highest temperature of a component's
+  equation (natural gas from 300–500 °C, syngas from 700 °C), so expansions
+  of hot gases had no solution. The state is now found by a search in T on
+  P–T states, to machine precision.
+- A `$Constant` cannot redefine a built-in constant (`c#`, `g#`, ...).
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

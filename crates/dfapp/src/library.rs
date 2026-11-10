@@ -97,6 +97,11 @@ const PROPS: &[(&str, &str, Arity, Dim)] = &[
     ("soundspeed", "Speed of sound", Arity::Two, Dim::VELOCITY),
     ("prandtl", "Prandtl number", Arity::Two, Dim::NONE),
     ("compressibilityfactor", "Compressibility factor Z", Arity::Two, Dim::NONE),
+    ("kinematicviscosity", "Kinematic viscosity", Arity::Two, Dim::DIFFUSIVITY),
+    ("thermaldiffusivity", "Thermal diffusivity", Arity::Two, Dim::DIFFUSIVITY),
+    ("isentropicexponent", "Isentropic exponent", Arity::Two, Dim::NONE),
+    ("isothermalcompress", "Isothermal compressibility", Arity::Two, Dim::INV_PRESSURE),
+    ("volexpcoef", "Volumetric expansion coefficient", Arity::Two, Dim::INV_TEMP),
     ("surfacetension", "Surface tension", Arity::One(&["T"]), Dim::SURFACE_TENSION),
     ("t_sat", "Saturation temperature", Arity::One(&["P"]), Dim::TEMP),
     ("p_sat", "Saturation pressure", Arity::One(&["T"]), Dim::PRESSURE),
@@ -104,6 +109,14 @@ const PROPS: &[(&str, &str, Arity, Dim)] = &[
     ("molarmass", "Molar mass", Arity::None, Dim::MOLAR_MASS),
     ("t_crit", "Critical temperature", Arity::None, Dim::TEMP),
     ("p_crit", "Critical pressure", Arity::None, Dim::PRESSURE),
+    ("v_crit", "Critical specific volume", Arity::None, Dim::SPEC_VOLUME),
+    ("t_triple", "Triple-point temperature", Arity::None, Dim::TEMP),
+    ("p_triple", "Triple-point pressure", Arity::None, Dim::PRESSURE),
+    ("acentricfactor", "Acentric factor", Arity::None, Dim::NONE),
+    ("normalboilingpt", "Normal boiling point", Arity::None, Dim::TEMP),
+    ("enthalpy_formation", "Enthalpy of formation (25 C)", Arity::None, Dim::SPEC_ENERGY),
+    ("lhv", "Lower heating value (25 C)", Arity::None, Dim::SPEC_ENERGY),
+    ("hhv", "Higher heating value (25 C)", Arity::None, Dim::SPEC_ENERGY),
 ];
 
 /// Humid-air functions (fluid `AirH2O`), three inputs including P.
@@ -197,7 +210,7 @@ pub fn fluid_catalogue(coolprop: &[String]) -> Vec<FluidInfo> {
     for (f, _) in crate::completion::EXTRA_FLUIDS {
         out.push(FluidInfo { name: f.to_string(), group: "Liquids and heat-transfer fluids", data: None, aliases: other_names(f) });
     }
-    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None, aliases: Vec::new() });
+    out.push(FluidInfo { name: "AirH2O".into(), group: "Humid air", data: None, aliases: props::HUMID_AIR_NAMES[1..].iter().map(|s| s.to_string()).collect() });
     out
 }
 
@@ -299,6 +312,7 @@ impl Builder {
             Backend::Default => self.fluid.clone(),
             Backend::If97 => "'IF97::Water'".into(),
             Backend::Incomp => format!("'INCOMP::{}'", self.fluid),
+            Backend::Mixture if self.ideal => format!("'{}::Ideal'", dfcore::props::split_model(&self.mixture).0),
             Backend::Mixture => format!("'{}'", self.mixture),
             Backend::HumidAir => "AirH2O".into(),
         }
@@ -353,7 +367,7 @@ fn is_literal(v: &str) -> bool {
 pub fn evaluate(call: &str, script: &str, us: &UnitSystem, standalone: bool) -> Result<String, String> {
     const NAME: &str = "zz_library_preview";
     let src = if standalone { format!("{NAME} = {call}\n") } else { format!("{script}\n{NAME} = {call}\n") };
-    let opts = dfcore::CompileOptions { unit_system: Some(us.clone()), check_fluids: true };
+    let opts = dfcore::CompileOptions { unit_system: Some(us.clone()), check_fluids: true, files: Default::default() };
     let m = dfcore::compile(&src, &opts);
     if let Some(d) = m.diagnostics.iter().find(|d| d.severity == dfcore::Severity::Error) {
         return Err(d.msg.clone());
@@ -380,6 +394,7 @@ pub struct Library {
     fluids: Option<Vec<FluidInfo>>,
     incomp: Option<(Vec<String>, Vec<String>)>,
     fluid_filter: String,
+    mix: crate::mixture_ui::MixtureEditor,
 }
 
 /// What the window asks the application to do.
@@ -437,6 +452,11 @@ impl Library {
             });
         });
         self.open = open;
+        if let Some((m, ideal)) = self.mix.show(ctx) {
+            self.b.mixture = m;
+            self.b.ideal = ideal;
+            self.b.preview = None;
+        }
         act
     }
 
@@ -502,7 +522,12 @@ impl Library {
                 }
                 Backend::Mixture => {
                     ui.vertical(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut self.b.mixture).desired_width(300.0));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.b.mixture).desired_width(300.0));
+                            if ui.button("Edit…").on_hover_text("Define the mixture: components in mol %, mass % or vol %, natural gases, air, combustion products").clicked() {
+                                self.mix.load(&self.b.mixture, self.b.ideal);
+                            }
+                        });
                         ui.label(RichText::new("Components with mole fractions, joined by &: CO2[0.9]&Argon[0.1]").small().weak());
                     });
                 }
@@ -525,14 +550,15 @@ impl Library {
             });
             ui.end_row();
 
-            let can_ideal = self.b.backend == Backend::Default
+            let can_ideal = matches!(self.b.backend, Backend::Default | Backend::Mixture)
                 && matches!(
                     self.b.func.as_str(),
                     "enthalpy" | "entropy" | "intenergy" | "cp" | "cv" | "temperature" | "pressure" | "density" | "volume" | "soundspeed" | "compressibilityfactor"
                 );
             if can_ideal {
                 ui.label("");
-                ui.checkbox(&mut self.b.ideal, "Ideal gas (Fluid::Ideal)").on_hover_text(
+                let label = if self.b.backend == Backend::Mixture { "Ideal-gas mixture (::Ideal)" } else { "Ideal gas (Fluid::Ideal)" };
+                ui.checkbox(&mut self.b.ideal, label).on_hover_text(
                     "Writes Fluid::Ideal: the ideal-gas model, P v = R T with the fluid's own cp0(T). enthalpy, intenergy, cp, cv from T; entropy, density, ... from T and P. \
                      Without it, one input selects the ideal gas and two the real fluid; Fluid::Real forces the real fluid.",
                 );

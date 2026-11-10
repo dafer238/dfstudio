@@ -71,7 +71,9 @@ The EES header lines are directives. DeltaF Studio understands `$UnitSystem`
 the subset of the language EES reads: one equation per line, numbers in
 model units, a `$UnitSystem` line, ideal-gas calls with the formula names
 (`CO2`, `H2O`) and real-fluid calls with the full names (`CarbonDioxide`,
-`Water`), and a header listing what could not be translated (USER_GUIDE.md
+`Water`), `For` / `While` / `ElseIf` rewritten with `Repeat ... Until` and
+nested `If`, `PropsSI` / `HAPropsSI` rewritten as property and `AirH2O`
+functions, and a header listing what could not be translated (USER_GUIDE.md
 §12).
 
 ## 2. Syntax that carries over unchanged
@@ -119,8 +121,9 @@ What this means in practice:
 1. **Set the same unit system.** Copy the EES unit system into a
    `$UnitSystem` line, for example `$UnitSystem SI MASS DEG BAR KJ C`, or
    pick it in the *Units* menu. Accepted words: `SI`, `Eng`, `Imperial`,
-   `MASS`, `K C F R`, `Pa kPa bar MPa atm psia`, `J kJ Btu`, `DEG RAD`.
-   `MOLAR` is not supported: DeltaF Studio is mass based (see Section 7).
+   `MASS`, `MOLAR`, `K C F R`, `Pa kPa bar MPa atm psia`, `J kJ Btu`,
+   `DEG RAD`. With `MOLAR` the property functions give h, u, s, cp, cv, v
+   and density per kmol, as in EES.
 2. **Literals already in the model units** give the same numbers in both
    programs. A model whose units were consistent in EES (no unit warnings)
    needs no change.
@@ -218,7 +221,9 @@ while DeltaF Studio returns −1, the CoolProp convention. Rewrite tests such as
 
 ### 4.5 Humid air
 
-EES `AirH2O` calls work unchanged, in model units: `enthalpy`, `entropy`,
+EES `AirH2O` calls work unchanged, in model units (`HumidAir`, `Humid_Air`,
+`MoistAir`, `Moist_Air`, `AirWater` and `Air_H2O` are accepted as other
+names of `AirH2O`, in any case): `enthalpy`, `entropy`,
 `volume`, `temperature`, `cp`, `humrat`, `relhum`, `wetbulb` and
 `dewpoint`, with the EES inputs `T`, `P`, `w` (humidity ratio), `R`
 (relative humidity, 0–1), `B` (wet bulb), `D` (dew point) and `h`; `P` and
@@ -270,10 +275,21 @@ Call split(m[1], 0.3 : m[2], m[3])
 ```
 
 Inside them: `If ... Then ... ElseIf ... Else ... EndIf` (also on one
-line), `Repeat ... Until`, `While ... End`, `For i = a To b [Step s] ...
-End`, `Return`. Two limitations: arrays cannot be used inside function
-bodies yet, and `Module`/`Subprogram` (equation-based sub-models) are not
-supported; inline their equations, or use `Duplicate` for repeated units.
+line), with `=` as the equality test in a condition as in EES
+(`If (x = 1) Then`), `Repeat ... Until`, `While ... End`, `For i = a To b [Step s] ...
+End`, `Return`, `Call Error(...)` and `Call Warning(...)`. Arrays can be
+used inside function and procedure bodies (`T[i] := ...`); they are local.
+
+`Module` and `Subprogram` (equation-based sub-models) are copied unchanged
+too: each `Call` instantiates the equations with local variables named
+after the module and the use (`pump1.h1`, `pump2.h1`), which the Solution
+window lists. Unlike EES, a module's local variables are not hidden.
+
+String variables (`F$ = 'R134a'`), `$Constant`, `$Include` (one level),
+lookup tables (`Lookup`, `Interpolate`, `Interpolate1/2/3`,
+`Interpolate2DM` on CSV files attached to the project), `Integral(f, x, a, b)`,
+`Enthalpy_Formation`, `LHV`, `HHV` and the `MOLAR` unit system work as in
+EES (LANGUAGE.md).
 
 Directives:
 
@@ -281,7 +297,8 @@ Directives:
 |---|---|
 | `$UnitSystem ...` | same (Section 3) |
 | Variable Information: guess, bounds, display unit | `$Guess h[2] = 300`, `$Bounds x = 0 .. 1`, `$Units T[*] = C`, or the Variables panel |
-| `$Include`, `$Common`, `$IF`/`$IFNOT`, `$Reference`, `$Private` | ignored (Info message) |
+| `$Include file`, `$Constant` | same (one level of include) |
+| `$Common`, `$IF`/`$IFNOT`, `$Reference`, `$Private` | ignored (Info message) |
 | Min/Max with a varied variable | Optimize tab, or `$Control vary P[7] to make T[2] = 333` for a target |
 
 ## 6. EES windows and their DeltaF Studio equivalents
@@ -298,20 +315,16 @@ Directives:
 | Min/Max | Optimize tab |
 | Plot windows, property plots | Plots tab (x–y, secondary y axis, T-s, P-h, h-s with saturation dome) |
 | Diagram window | Define cycle > Diagram: flowsheet drawn from components, with stream values, component reports (Define cycle > Components) and a PDF report |
-| Lookup Table window | tables can be attached to a `.df` project, but no lookup functions yet (Section 7) |
+| Lookup Table window | CSV tables attached to the project (*File ▸ Project files*), read by `Lookup` and `Interpolate` |
 | hovering a plot | the tooltip lists every series at the hovered x (both branches of a closed cycle) |
 
 ## 7. Features without an equivalent
 
 | EES feature | Workaround |
 |---|---|
-| `Lookup`, `Interpolate`, `TableValue`, `LookupRow` | fit the data (polynomial) and write it as an equation, or a `Function` with `If` branches |
-| `Integral`, integral tables | discretise with `Duplicate` and `sum` (trapezoidal rule) |
-| string variables (`F$ = 'Water'`) | write the fluid name in each call |
-| molar property units (`MOLAR`) | multiply mass-specific values by `molarmass(...)` |
-| `Module`, `Subprogram` | inline the equations |
-| `$Include`, `$Common` | paste the included file |
-| ideal-gas fluids (`CO2`, `N2`, `Air` with one input) | real fluid with two inputs (Section 4.2) |
+| `TableValue`, `LookupRow`, `Interpolate2D` (scattered data) | a CSV table with `Interpolate2DM` (grid), or fit the data |
+| `$Common` | pass the values as arguments: functions are pure |
+| `Phase$`, string functions and string results | test `quality(...)` (−1 in a single phase), or compare T with `t_sat` |
 | uncertainty propagation | not available |
 | complex numbers (`$Complex`) | not available |
 

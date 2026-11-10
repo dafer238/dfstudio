@@ -145,8 +145,21 @@ pub struct FuncDef {
     pub doc: Option<String>,
 }
 
+/// `Module name(in1, in2 : out1)` ... `End`: a block of equations (EES).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleDef {
+    pub name: String,
+    pub display: String,
+    pub params: Vec<String>,
+    pub outputs: Vec<String>,
+    pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
     pub funcs: Vec<FuncDef>,
+    /// `Module` / `Subprogram`: equations instantiated at each `Call`
+    pub modules: Vec<ModuleDef>,
 }

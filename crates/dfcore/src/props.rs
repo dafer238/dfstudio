@@ -35,23 +35,57 @@ pub enum Key {
     Pcrit,
     Z,
     Phase,
+    /// Kinematic viscosity mu/rho
+    KinVisc,
+    /// Thermal diffusivity k/(rho cp)
+    Diffusivity,
+    /// Isentropic exponent -(v/P)(dP/dv)_s (cp/cv for an ideal gas)
+    IsenExp,
+    /// Isothermal compressibility -(1/v)(dv/dP)_T
+    IsoComp,
+    /// Volumetric expansion coefficient (1/v)(dv/dT)_P
+    ExpCoef,
+    Ttriple,
+    Ptriple,
+    Acentric,
+    /// Critical specific volume
+    Vcrit,
 }
 
 impl Key {
+    /// A constant of the fluid (no state inputs): `t_crit(Fluid)`, ...
+    pub fn is_fluid_constant(self) -> bool {
+        matches!(self, Key::MolarMass | Key::Tcrit | Key::Pcrit | Key::Ttriple | Key::Ptriple | Key::Acentric | Key::Vcrit)
+    }
     pub fn dim(self) -> Dim {
         match self {
-            Key::T | Key::Tcrit => Dim::TEMP,
-            Key::P | Key::Pcrit => Dim::PRESSURE,
+            Key::T | Key::Tcrit | Key::Ttriple => Dim::TEMP,
+            Key::P | Key::Pcrit | Key::Ptriple => Dim::PRESSURE,
             Key::H | Key::U => Dim::SPEC_ENERGY,
             Key::S | Key::Cp | Key::Cv => Dim::SPEC_ENTROPY,
             Key::D => Dim::DENSITY,
-            Key::V => Dim::SPEC_VOLUME,
+            Key::V | Key::Vcrit => Dim::SPEC_VOLUME,
+            Key::KinVisc | Key::Diffusivity => Dim::DIFFUSIVITY,
+            Key::IsoComp => Dim::INV_PRESSURE,
+            Key::ExpCoef => Dim::INV_TEMP,
+            Key::IsenExp | Key::Acentric => Dim::NONE,
             Key::Visc => Dim::VISCOSITY,
             Key::Cond => Dim::CONDUCTIVITY,
             Key::Sound => Dim::VELOCITY,
             Key::SurfTension => Dim::SURFACE_TENSION,
             Key::MolarMass => Dim::MOLAR_MASS,
             Key::Q | Key::Prandtl | Key::Z | Key::Phase => Dim::NONE,
+        }
+    }
+    /// Dimension per amount of substance (EES molar unit system): h, u, s,
+    /// cp, cv, v and density per mol; the other properties as `dim`.
+    pub fn molar_dim(self) -> Dim {
+        match self {
+            Key::H | Key::U => Dim::MOLAR_ENERGY,
+            Key::S | Key::Cp | Key::Cv => Dim::MOLAR_ENTROPY,
+            Key::D => Dim([0, -3, 0, 0, 1, 0, 0]),
+            Key::V | Key::Vcrit => Dim([0, 3, 0, 0, -1, 0, 0]),
+            k => k.dim(),
         }
     }
     /// CoolProp parameter name.
@@ -76,6 +110,16 @@ impl Key {
             Key::Pcrit => "p_critical",
             Key::Z => "Z",
             Key::Phase => "Phase",
+            // derived in `backend::props` from these
+            Key::KinVisc => "viscosity",
+            Key::Diffusivity => "conductivity",
+            Key::IsenExp => "isentropic_expansion_coefficient",
+            Key::IsoComp => "isothermal_compressibility",
+            Key::ExpCoef => "isobaric_expansion_coefficient",
+            Key::Ttriple => "T_triple",
+            Key::Ptriple => "p_triple",
+            Key::Acentric => "acentric",
+            Key::Vcrit => "rhomass_critical",
         }
     }
     /// Key for a named input argument (`P=`, `T=`, `h=` ...).
@@ -114,6 +158,12 @@ impl Key {
             "pcrit" | "p_critical" => Key::Pcrit,
             "z" => Key::Z,
             "phase" => Key::Phase,
+            "isentropic_expansion_coefficient" => Key::IsenExp,
+            "isothermal_compressibility" => Key::IsoComp,
+            "isobaric_expansion_coefficient" => Key::ExpCoef,
+            "ttriple" | "t_triple" => Key::Ttriple,
+            "ptriple" | "p_triple" => Key::Ptriple,
+            "acentric" | "acentric_factor" => Key::Acentric,
             _ => return None,
         })
     }
@@ -141,6 +191,15 @@ pub fn property_function(name: &str) -> Option<Key> {
         "molarmass" => Key::MolarMass,
         "t_crit" => Key::Tcrit,
         "p_crit" => Key::Pcrit,
+        "kinematicviscosity" => Key::KinVisc,
+        "thermaldiffusivity" => Key::Diffusivity,
+        "isentropicexponent" => Key::IsenExp,
+        "isothermalcompress" => Key::IsoComp,
+        "volexpcoef" => Key::ExpCoef,
+        "t_triple" => Key::Ttriple,
+        "p_triple" => Key::Ptriple,
+        "acentricfactor" => Key::Acentric,
+        "v_crit" => Key::Vcrit,
         _ => return None,
     })
 }
@@ -165,6 +224,19 @@ pub const PROPERTY_FUNCTIONS: &[(&str, &str)] = &[
     ("molarmass", "Molar mass  molarmass(Fluid)"),
     ("t_crit", "Critical temperature  t_crit(Fluid)"),
     ("p_crit", "Critical pressure  p_crit(Fluid)"),
+    ("v_crit", "Critical specific volume  v_crit(Fluid)"),
+    ("t_triple", "Triple-point temperature  t_triple(Fluid)"),
+    ("p_triple", "Triple-point pressure  p_triple(Fluid)"),
+    ("acentricfactor", "Acentric factor  acentricfactor(Fluid)"),
+    ("normalboilingpt", "Normal boiling point (T_sat at 1 atm)  normalboilingpt(Fluid)"),
+    ("enthalpy_formation", "Enthalpy of formation at 25 C per kg  enthalpy_formation(Fluid or 'A[x]&B[y]')"),
+    ("lhv", "Lower heating value at 25 C per kg (water as vapour)  lhv(Fluid or 'A[x]&B[y]')"),
+    ("hhv", "Higher heating value at 25 C per kg (water condensed)  hhv(Fluid or 'A[x]&B[y]')"),
+    ("kinematicviscosity", "Kinematic viscosity mu/rho  kinematicviscosity(Fluid, P=, T=)"),
+    ("thermaldiffusivity", "Thermal diffusivity k/(rho cp)  thermaldiffusivity(Fluid, P=, T=)"),
+    ("isentropicexponent", "Isentropic exponent -(v/P)(dP/dv)_s (cp/cv for an ideal gas)  isentropicexponent(Fluid, P=, T=)"),
+    ("isothermalcompress", "Isothermal compressibility -(1/v)(dv/dP)_T  isothermalcompress(Fluid, P=, T=)"),
+    ("volexpcoef", "Volumetric expansion coefficient (1/v)(dv/dT)_P  volexpcoef(Fluid, P=, T=)"),
     ("t_sat", "Saturation temperature  t_sat(Fluid, P=)"),
     ("p_sat", "Saturation pressure  p_sat(Fluid, T=)"),
     ("propssi", "CoolProp PropsSI('Out','In1',v1,'In2',v2,'Fluid') in SI units"),
@@ -327,20 +399,36 @@ pub struct Conv {
     unit: Unit,
     /// specific volume: value is 1/density
     reciprocal: bool,
+    /// per-mass SI value = `scale` × SI value of the model unit: 1/M for
+    /// molar h, u, s, cp, cv, v (J/mol → J/kg), M for molar density, else 1
+    scale: f64,
 }
 
 impl Conv {
-    pub fn new(key: Key, us: Option<&UnitSystem>) -> Conv {
+    /// `m`: molar mass (kg/mol) of the fluid, used when the unit system is
+    /// molar (EES `$UnitSystem MOLAR`).
+    pub fn new(key: Key, us: Option<&UnitSystem>, m: Option<f64>) -> Conv {
+        let molar = us.is_some_and(|u| u.molar) && m.is_some() && key.molar_dim() != key.dim();
+        let dim = if molar { key.molar_dim() } else { key.dim() };
         let unit = match us {
-            Some(us) => us.unit_for(key.dim()),
-            None => Unit::si(key.dim()),
+            Some(us) => us.unit_for(dim),
+            None => Unit::si(dim),
         };
-        Conv { unit, reciprocal: key == Key::V }
+        let scale = match (molar, m) {
+            (true, Some(m)) if key == Key::D => m,
+            (true, Some(m)) => 1.0 / m,
+            _ => 1.0,
+        };
+        Conv { unit, reciprocal: matches!(key, Key::V | Key::Vcrit), scale }
+    }
+    /// Dimension of the value in the model.
+    pub fn dim(&self) -> Dim {
+        self.unit.dim
     }
     /// model value -> CoolProp SI value (for V returns density)
     #[inline]
     fn to_cp(&self, v: f64) -> f64 {
-        let si = self.unit.to_si(v);
+        let si = self.unit.to_si(v) * self.scale;
         if self.reciprocal {
             1.0 / si
         } else {
@@ -350,22 +438,23 @@ impl Conv {
     /// d(cp value)/d(model value)
     #[inline]
     fn to_cp_deriv(&self, v: f64) -> f64 {
+        let k = self.unit.factor * self.scale;
         if self.reciprocal {
-            let si = self.unit.to_si(v);
-            -self.unit.factor / (si * si)
+            let si = self.unit.to_si(v) * self.scale;
+            -k / (si * si)
         } else {
-            self.unit.factor
+            k
         }
     }
     #[inline]
     fn from_cp(&self, y: f64) -> f64 {
         let si = if self.reciprocal { 1.0 / y } else { y };
-        self.unit.from_si(si)
+        self.unit.from_si(si / self.scale)
     }
     #[inline]
     fn from_cp_deriv(&self, y: f64) -> f64 {
         let d = if self.reciprocal { -1.0 / (y * y) } else { 1.0 };
-        d / self.unit.factor
+        d / (self.unit.factor * self.scale)
     }
 }
 
@@ -417,31 +506,39 @@ pub fn split_model(name: &str) -> (&str, Model) {
 }
 
 /// Ideal-gas property: `enthalpy(CO2, T=T)`, `entropy(CO2::Ideal, T=T, P=P)`
-/// and the like.
+/// and the like, of a pure gas or of an ideal-gas mixture
+/// (`'Nitrogen[0.75]&CO2[0.1]&Water[0.15]::Ideal'`, mole fractions).
 ///
 /// The ideal-gas state is CoolProp's equation of state at a pressure low
 /// enough (1 Pa) for the residual part to vanish, so cp0(T) is the fluid's
-/// own ideal-gas heat capacity. For the species of [`JANAF`] the reference
-/// is the thermochemical one: h(298.15 K) = enthalpy of formation, s(298.15 K,
-/// 1 atm) = absolute entropy. Other fluids keep CoolProp's reference.
+/// own ideal-gas heat capacity. Reference state: h(298.15 K) = the standard
+/// enthalpy of formation for the species of [`crate::combustion`], so that
+/// the enthalpies of reacting mixtures balance; s(298.15 K, 1 atm) = the
+/// absolute entropy for the species of [`JANAF`]. Other fluids keep
+/// CoolProp's reference.
 ///
 /// Relations (e.g. Çengel & Boles, *Thermodynamics*, ch. 7): h = h(T),
 /// u = h − R T, cv = cp − R, s(T, P) = s°(T) − R ln(P / 1 atm), P v = R T,
 /// Z = 1, speed of sound √(cp/cv · R T). Entropy from T alone is s° (1 atm).
+/// A mixture (Gibbs–Dalton, ch. 13): mass-fraction averages of h, cp and
+/// s° of the components, R = R_u / M with M = Σ x_i M_i, and the entropy of
+/// mixing −R Σ x_i ln x_i added to s°.
 ///
 /// Inputs: one of T, h, u; or two of T, P, h, u, s, v, d that fix T and P
 /// (h and u depend on T only, so T with h or u, or h with u, is not a state).
 pub struct IdealGasCall {
     pub label: String,
-    fluid: String,
+    /// components: CoolProp name, mass fraction, R_i (J/kg-K), (h offset
+    /// J/kg, s offset J/kg-K) added to CoolProp's low-pressure values
+    comps: Vec<(String, f64, f64, (f64, f64))>,
     out: Key,
     inputs: Vec<Key>,
     conv_out: Conv,
     conv_in: Vec<Conv>,
     /// J/kg-K
     r: f64,
-    /// (h offset J/kg, s offset J/kg-K) added to CoolProp's low-pressure values
-    off: (f64, f64),
+    /// entropy of mixing −R Σ x ln x, J/kg-K
+    s_mix: f64,
 }
 
 const P_IG: f64 = 1.0;
@@ -450,23 +547,50 @@ const P_STD: f64 = 101_325.0;
 /// Outputs an ideal gas gives (transport properties, quality and surface
 /// tension need the real fluid).
 fn ideal_output(k: Key) -> bool {
-    matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound)
+    matches!(k, Key::T | Key::P | Key::H | Key::U | Key::S | Key::D | Key::V | Key::Cp | Key::Cv | Key::Z | Key::Sound | Key::IsenExp | Key::IsoComp | Key::ExpCoef)
+}
+
+fn raw_h(fluid: &str, t: f64) -> Result<f64, String> {
+    backend::props(fluid, Key::H, &[Key::T, Key::P], &[t, P_IG], None)
+}
+
+fn raw_s(fluid: &str, t: f64) -> Result<f64, String> {
+    backend::props(fluid, Key::S, &[Key::T, Key::P], &[t, P_IG], None)
 }
 
 impl IdealGasCall {
     pub fn new(label: String, fluid: &str, out: Key, inputs: Vec<Key>, us: Option<&UnitSystem>) -> Result<IdealGasCall, String> {
         let cp = coolprop_fluid(fluid);
-        if cp.contains("::") || cp.contains('[') || cp.contains('&') {
+        let cp = cp.strip_prefix("HEOS::").unwrap_or(&cp).to_string();
+        // components and mole fractions
+        let mut parts = Vec::new();
+        if cp.contains('&') || cp.contains('[') {
+            for c in cp.split('&') {
+                let Some((n, x)) = c.split_once('[') else {
+                    return Err(format!("{label}: give the mole fraction of every component, e.g. {c}[0.5]"));
+                };
+                let x: f64 = x.trim_end_matches(']').trim().parse().map_err(|_| format!("{label}: bad mole fraction in '{c}'"))?;
+                if !(x >= 0.0) {
+                    return Err(format!("{label}: negative mole fraction in '{c}'"));
+                }
+                parts.push((n.trim().to_string(), x));
+            }
+        } else {
+            parts.push((cp.clone(), 1.0));
+        }
+        if parts.iter().any(|(n, _)| n.contains("::")) {
             return Err(format!("{label}: {cp} has no ideal-gas model; use the real fluid with two state inputs"));
         }
         if !ideal_output(out) {
-            return Err(format!("{label}: the ideal gas gives T, P, h, u, s, v, density, cp, cv, Z and the speed of sound; use the real fluid for this property"));
+            return Err(format!(
+                "{label}: the ideal gas gives T, P, h, u, s, v, density, cp, cv, Z, the speed of sound, the isentropic exponent, the compressibility and the expansion coefficient; use the real fluid for this property"
+            ));
         }
         let caloric = |k: &Key| matches!(k, Key::T | Key::H | Key::U);
         let ok = match inputs.as_slice() {
             [k] => match k {
-                Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv | Key::T),
-                Key::H | Key::U => matches!(out, Key::T | Key::H | Key::U | Key::Cp | Key::Cv),
+                Key::T => matches!(out, Key::H | Key::S | Key::U | Key::Cp | Key::Cv | Key::T | Key::IsenExp | Key::ExpCoef | Key::Sound),
+                Key::H | Key::U => matches!(out, Key::T | Key::H | Key::U | Key::Cp | Key::Cv | Key::IsenExp | Key::ExpCoef | Key::Sound),
                 _ => false,
             },
             [a, b] => {
@@ -483,35 +607,53 @@ impl IdealGasCall {
                 "{label}: ideal-gas inputs are T, h or u alone (for h, u, cp, cv, s at 1 atm, T), or two of T, P, h, u, s, v, d that fix T and P (h and u depend on T only)"
             ));
         }
-        let m = backend::props1_si(&cp, "molar_mass").or_else(|_| backend::props1_si(&cp, "M")).map_err(|e| format!("{label}: {e}"))?;
-        let r = 8.314462618 / m;
-        let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
-        let mut g = IdealGasCall { label, fluid: cp.clone(), out, inputs, conv_out: Conv::new(out, us), conv_in, r, off: (0.0, 0.0) };
-        if let Some((_, hf, s0)) = JANAF.iter().find(|j| j.0 == cp) {
-            let t0 = 298.15;
-            let h0 = g.raw_h(t0)?;
-            let s_raw = g.raw_s(t0)?;
-            // CoolProp s at P_IG -> s at 1 atm: - R ln(P_STD / P_IG)
-            g.off = (hf * 1e3 / m - h0, s0 / m - (s_raw - r * (P_STD / P_IG).ln()));
+        let total: f64 = parts.iter().map(|p| p.1).sum();
+        if !(total > 0.0) {
+            return Err(format!("{label}: the mole fractions add up to zero"));
         }
-        Ok(g)
-    }
-    fn raw_h(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::H, &[Key::T, Key::P], &[t, P_IG], None)
-    }
-    fn raw_s(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::S, &[Key::T, Key::P], &[t, P_IG], None)
-    }
-    fn cp0(&self, t: f64) -> Result<f64, String> {
-        backend::props(&self.fluid, Key::Cp, &[Key::T, Key::P], &[t, P_IG], None)
+        const RU: f64 = 8.314462618;
+        let mut comps = Vec::new();
+        let mut m = 0.0;
+        let mut ms = Vec::new();
+        for (n, x) in &parts {
+            let mi = backend::props1_si(n, "molar_mass").or_else(|_| backend::props1_si(n, "M")).map_err(|e| format!("{label}: {n}: {e}"))?;
+            ms.push(mi);
+            m += x / total * mi;
+        }
+        let r = RU / m;
+        let mut s_mix = 0.0;
+        for ((n, x), mi) in parts.iter().zip(&ms) {
+            let x = x / total;
+            if x > 0.0 {
+                s_mix -= r * x * x.ln();
+            }
+            let ri = RU / mi;
+            let t0 = 298.15;
+            let h_off = match crate::combustion::formation_enthalpy(n) {
+                Some(hf) => hf * 1e3 / mi - raw_h(n, t0)?,
+                None => 0.0,
+            };
+            // CoolProp s at P_IG -> s at 1 atm: - R ln(P_STD / P_IG)
+            let s_off = match JANAF.iter().find(|j| j.0 == n) {
+                Some((_, _, s0)) => s0 / mi - (raw_s(n, t0)? - ri * (P_STD / P_IG).ln()),
+                None => 0.0,
+            };
+            comps.push((n.clone(), x * mi / m, ri, (h_off, s_off)));
+        }
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, Some(m))).collect();
+        Ok(IdealGasCall { label, comps, out, inputs, conv_out: Conv::new(out, us, Some(m)), conv_in, r, s_mix })
     }
     /// h (J/kg) at T
     fn h(&self, t: f64) -> Result<f64, String> {
-        Ok(self.raw_h(t)? + self.off.0)
+        self.comps.iter().map(|(n, y, _, off)| Ok(y * (raw_h(n, t)? + off.0))).sum()
     }
     /// s° (J/kg-K) at T and 1 atm
     fn s0(&self, t: f64) -> Result<f64, String> {
-        Ok(self.raw_s(t)? - self.r * (P_STD / P_IG).ln() + self.off.1)
+        let s: f64 = self.comps.iter().map(|(n, y, ri, off)| Ok(y * (raw_s(n, t)? - ri * (P_STD / P_IG).ln() + off.1))).sum::<Result<f64, String>>()?;
+        Ok(s + self.s_mix)
+    }
+    fn cp0(&self, t: f64) -> Result<f64, String> {
+        self.comps.iter().map(|(n, y, _, _)| Ok(y * backend::props(n, Key::Cp, &[Key::T, Key::P], &[t, P_IG], None)?)).sum()
     }
     /// T from g(T) = x by Newton, with dg/dT given; from 300 K.
     fn invert(&self, x: f64, what: &str, f: impl Fn(f64) -> Result<(f64, f64), String>) -> Result<f64, String> {
@@ -601,6 +743,13 @@ impl IdealGasCall {
                 let cp = self.cp0(t)?;
                 (cp / (cp - self.r) * self.r * t).sqrt()
             }
+            Key::IsenExp => {
+                let cp = self.cp0(t)?;
+                cp / (cp - self.r)
+            }
+            // Pv = RT: -(1/v)(dv/dP)_T = 1/P, (1/v)(dv/dT)_P = 1/T
+            Key::IsoComp => 1.0 / need_p()?,
+            Key::ExpCoef => 1.0 / t,
             _ => return Err(format!("{}: unsupported", self.label)),
         })
     }
@@ -628,7 +777,7 @@ impl ExtFn for IdealGasCall {
         self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
-        Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
+        Some((self.conv_out.dim(), self.conv_in.iter().map(|c| c.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
         let si: Vec<f64> = args.iter().zip(&self.conv_in).map(|(a, c)| c.to_cp(*a)).collect();
@@ -644,6 +793,8 @@ pub struct PropCall {
     pub inputs: Vec<Key>,
     pub conv_out: Conv,
     pub conv_in: Vec<Conv>,
+    /// `PropsSI`: SI in and out, so no model dimensions
+    pub si: bool,
 }
 
 impl PropCall {
@@ -654,8 +805,14 @@ impl PropCall {
             }
             backend::pair_name(inputs[0], inputs[1]).ok_or_else(|| format!("{label}: unsupported input pair {:?}/{:?}", inputs[0], inputs[1]))?;
         }
-        let conv_in = inputs.iter().map(|k| Conv::new(*k, us)).collect();
-        Ok(PropCall { label, fluid: coolprop_fluid(fluid), out, inputs, conv_out: Conv::new(out, us), conv_in })
+        let fluid = coolprop_fluid(fluid);
+        // molar mass for a molar unit system (kg/mol)
+        let m = match us {
+            Some(u) if u.molar => Some(backend::props(&fluid, Key::MolarMass, &[], &[], None).map_err(|e| format!("{label}: molar mass: {e}"))?),
+            _ => None,
+        };
+        let conv_in = inputs.iter().map(|k| Conv::new(*k, us, m)).collect();
+        Ok(PropCall { label, fluid, out, inputs, conv_out: Conv::new(out, us, m), conv_in, si: us.is_none() })
     }
 }
 
@@ -667,7 +824,10 @@ impl ExtFn for PropCall {
         self.inputs.iter().map(|k| k.arg_kind()).collect()
     }
     fn dims(&self) -> Option<(Dim, Vec<Dim>)> {
-        Some((self.out.dim(), self.inputs.iter().map(|k| k.dim()).collect()))
+        if self.si {
+            return None;
+        }
+        Some((self.conv_out.dim(), self.conv_in.iter().map(|c| c.dim()).collect()))
     }
     fn eval(&self, args: &[f64]) -> Result<f64, String> {
         let si: Vec<f64> = args.iter().zip(&self.conv_in).map(|(a, c)| c.to_cp(*a)).collect();
@@ -693,6 +853,15 @@ impl ExtFn for PropCall {
             }
         }
     }
+}
+
+/// Names of humid air (EES `AirH2O` and plain-language aliases), compared
+/// without case.
+pub const HUMID_AIR_NAMES: &[&str] = &["AirH2O", "HumidAir", "Humid_Air", "MoistAir", "Moist_Air", "AirWater", "Air_H2O"];
+
+/// Whether a fluid name (without `::Ideal` / `::Real`) is humid air.
+pub fn is_humid_air(name: &str) -> bool {
+    HUMID_AIR_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name.trim()))
 }
 
 /// EES-style humid-air call (`enthalpy(AirH2O, T=, P=, w=)`, `humrat`,
@@ -925,6 +1094,12 @@ pub mod backend {
         "T_max",
         "p_max",
         "T_triple",
+        "isentropic_expansion_coefficient",
+        "isothermal_compressibility",
+        "isobaric_expansion_coefficient",
+        "p_triple",
+        "acentric",
+        "rhomass_critical",
     ];
 
     fn idx() -> &'static Indices {
@@ -1100,6 +1275,17 @@ pub mod backend {
             }
             return l.props(out, inputs, vals);
         }
+        if out == Key::ExpCoef && fluid.starts_with("INCOMP::") && !inputs.is_empty() {
+            // incompressible fluids give no derivatives: -(1/rho) drho/dT at P
+            if let Some(g) = grad {
+                g.iter_mut().for_each(|x| *x = f64::NAN);
+            }
+            let t = props(fluid, Key::T, inputs, vals, None)?;
+            let p = props(fluid, Key::P, inputs, vals, None)?;
+            let rho = |t: f64| props(fluid, Key::D, &[Key::T, Key::P], &[t, p], None);
+            let eps = 1e-2;
+            return Ok(-(rho(t + eps)? - rho(t - eps)?) / (2.0 * eps * rho(t)?));
+        }
         let h = state(fluid)?;
         let ix = idx();
         let mut err: c_long = 0;
@@ -1126,24 +1312,36 @@ pub mod backend {
             let m = msg(&buf);
             // CoolProp has no T-h or T-u flash for HEOS: find the pressure.
             let t_pos = inputs.iter().position(|k| *k == Key::T);
+            let p_pos = inputs.iter().position(|k| *k == Key::P);
             if m.contains("not yet supported") && t_pos.is_some() {
                 let tk = t_pos.unwrap();
                 let other = inputs[1 - tk];
                 let (t, target) = (vals[tk], vals[1 - tk]);
                 t_flash(&cp, fluid, h, other, t, target)?;
                 err = 0;
+            } else if let Some(pk) = p_pos.filter(|_| fluid.contains('&') && matches!(inputs[1 - p_pos.unwrap()], Key::H | Key::S | Key::U | Key::D | Key::V)) {
+                // mixture: CoolProp's HSU_P / DP flash fails above about the
+                // components' T_max; search T on P-T states instead
+                let other = if inputs[1 - pk] == Key::V { Key::D } else { inputs[1 - pk] };
+                p_flash(&cp, h, other, vals[pk], vals[1 - pk]).ok_or_else(|| format!("{fluid}: {m}"))?;
+                err = 0;
             } else {
                 return Err(format!("{fluid}: {m}"));
             }
         }
-        let y = get(out_param, &mut err, &mut buf);
+        let y = match out {
+            // nu = mu/rho, alpha = k/(rho cp)
+            Key::KinVisc => get(out_param, &mut err, &mut buf) / get(ix.params["Dmass"], &mut err, &mut buf),
+            Key::Diffusivity => get(out_param, &mut err, &mut buf) / (get(ix.params["Dmass"], &mut err, &mut buf) * get(ix.params["Cpmass"], &mut err, &mut buf)),
+            _ => get(out_param, &mut err, &mut buf),
+        };
         if err != 0 {
             return Err(format!("{fluid}: {}", msg(&buf)));
         }
         if let Some(g) = grad {
             // Analytic partials only in single-phase states and for keys
             // CoolProp can differentiate.
-            let analytic_ok = !matches!(out, Key::Q | Key::Phase | Key::Visc | Key::Cond | Key::Prandtl | Key::SurfTension) && !inputs.contains(&Key::Q);
+            let analytic_ok = matches!(out, Key::T | Key::P | Key::H | Key::S | Key::U | Key::D | Key::V | Key::Cp | Key::Cv | Key::Sound | Key::Z) && !inputs.contains(&Key::Q);
             let two_phase = if analytic_ok {
                 let ph = get(ix.params["Phase"], &mut err, &mut buf);
                 err != 0 || ph == 6.0
@@ -1265,6 +1463,80 @@ pub mod backend {
                 format!(" (below the saturated liquid, {what}_f = {:.3} kJ/kg; in a liquid {what} hardly depends on P, so T and {what} fix it poorly: give P instead)", yf / 1e3)
             })),
         }
+    }
+
+    /// Mixture state at pressure `p` where the property `other` (h, s, u or
+    /// density) equals `target`, by a search in T on P-T flashes, for when
+    /// CoolProp's own flash fails: it does above about the T_max of a
+    /// component (natural gas fails from 300-500 C, methane T_max = 625 K).
+    /// Newton from 300 K with the analytic (d other/dT)_P; failing that, a
+    /// bracket that grows geometrically from 300 K (h, s and u rise with T at
+    /// constant P, the density falls), narrowed by the Illinois variant of
+    /// regula falsi. Leaves the state at the solution.
+    fn p_flash(cp: &cplib::Shared<'_>, h: c_long, other: Key, p: f64, target: f64) -> Option<()> {
+        let ix = idx();
+        let po = ix.params[other.coolprop()];
+        let f = |t: f64| -> Option<f64> {
+            let mut e: c_long = 0;
+            let mut b = [0u8; BUF];
+            unsafe { cp.AbstractState_update(h, ix.pairs["PT_INPUTS"], p, t, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            if e != 0 {
+                return None;
+            }
+            let y = unsafe { cp.AbstractState_keyed_output(h, po, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            (e == 0 && y.is_finite()).then_some(y - target)
+        };
+        // Newton on T with the analytic (d other/dT)_P of the current state
+        let (pt_, pp_) = (ix.params["T"], ix.params["P"]);
+        let slope = || {
+            let mut e: c_long = 0;
+            let mut b = [0u8; BUF];
+            let d = unsafe { cp.AbstractState_first_partial_deriv(h, po, pt_, pp_, &mut e, b.as_mut_ptr() as *mut c_char, BUF as c_long) };
+            (e == 0 && d.is_finite() && d != 0.0).then_some(d)
+        };
+        let mut t = 300.0;
+        for _ in 0..40 {
+            let (Some(r), Some(d)) = (f(t), slope()) else { break };
+            let step = (r / d).clamp(-0.5 * t, 2.0 * t);
+            t -= step;
+            if step.abs() < 1e-12 * t {
+                return f(t).map(|_| ());
+            }
+        }
+        // the residual rises with T for h, s, u and falls for the density
+        let rising = other != Key::D;
+        let t0 = 300.0;
+        let f0 = f(t0)?;
+        let up = (f0 < 0.0) == rising;
+        let (mut a, mut fa) = (t0, f0);
+        let mut b = None;
+        for k in 1..=40 {
+            let t = if up { t0 * 1.25f64.powi(k) } else { t0 / 1.25f64.powi(k) };
+            if !(20.0..=1e4).contains(&t) {
+                break;
+            }
+            let Some(ft) = f(t) else { break };
+            if ft == 0.0 || ft.signum() != fa.signum() {
+                b = Some((t, ft));
+                break;
+            }
+            (a, fa) = (t, ft);
+        }
+        let (mut b, mut fb) = b?;
+        for _ in 0..200 {
+            if fb == 0.0 || (b - a).abs() < 1e-13 * b {
+                break;
+            }
+            let c = (a * fb - b * fa) / (fb - fa);
+            let fc = f(c)?;
+            if fc.signum() == fb.signum() {
+                fa /= 2.0;
+            } else {
+                (a, fa) = (b, fb);
+            }
+            (b, fb) = (c, fc);
+        }
+        f(b).map(|_| ())
     }
 
     fn cs(s: &str) -> CString {

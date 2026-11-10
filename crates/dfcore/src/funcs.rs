@@ -88,6 +88,40 @@ pub enum IStmt {
     /// Call a procedure: (fn cell, inputs, output slots)
     Call(Arc<FuncCell>, Vec<Expr1>, Vec<u32>),
     Return,
+    /// `Call Error('message XXXF2', x)`: stop with the message
+    Error(String, Option<Expr1>),
+    /// `a[i, j] := value` on a local array
+    AssignIdx(u32, Vec<Expr1>, Expr1),
+    /// `Call Warning('message XXXF2', x)`: note the message and go on
+    Warning(String, Option<Expr1>),
+}
+
+/// Read of a local array element into a slot, done before the expression
+/// that uses it is evaluated.
+#[derive(Debug, Clone)]
+pub struct Load {
+    pub slot: u32,
+    pub array: u32,
+    pub name: String,
+    pub idx: Vec<Expr1>,
+}
+
+/// EES error message: `XXX` (optionally `XXXF2`, `XXXE3`, `XXXA`) is
+/// replaced by the value, with 2 decimals, in exponent form with 3, or as is.
+pub fn error_message(msg: &str, value: Option<f64>) -> String {
+    let Some(v) = value else { return msg.to_string() };
+    let Some(k) = msg.find("XXX") else { return format!("{msg} ({v})") };
+    let rest = &msg[k + 3..];
+    let kind = rest.chars().next().filter(|c| matches!(c.to_ascii_uppercase(), 'F' | 'E' | 'A'));
+    let digits: String = rest.chars().skip(kind.is_some() as usize).take_while(|c| c.is_ascii_digit()).collect();
+    let used = kind.map_or(0, |_| 1 + digits.len());
+    let n: usize = digits.parse().unwrap_or(3);
+    let text = match kind.map(|c| c.to_ascii_uppercase()) {
+        Some('F') => format!("{v:.n$}"),
+        Some('E') => format!("{v:.n$e}"),
+        _ => format!("{v}"),
+    };
+    format!("{}{text}{}", &msg[..k], &rest[used..])
 }
 
 /// A single-root tape.
@@ -95,6 +129,7 @@ pub enum IStmt {
 pub struct Expr1 {
     pub tape: Tape,
     pub root: u32,
+    pub loads: Vec<Load>,
 }
 
 #[derive(Debug)]
@@ -102,6 +137,8 @@ pub struct CompiledFunc {
     pub name: String,
     pub nparams: usize,
     pub nslots: usize,
+    /// Local arrays (`a[i] := ...` in the body)
+    pub narrays: usize,
     /// Slots holding the results (function: its own name; procedure: outputs).
     pub out_slots: Vec<u32>,
     pub body: Vec<IStmt>,
@@ -126,6 +163,16 @@ const MAX_STEPS: usize = 10_000_000;
 struct Interp {
     steps: usize,
     scratch: Scratch,
+    /// Local arrays: element (indices) → value
+    arrays: Vec<HashMap<Vec<i64>, f64>>,
+    warnings: Vec<String>,
+}
+
+fn index_of(v: f64) -> Result<i64, String> {
+    if (v - v.round()).abs() > 1e-9 || !v.is_finite() {
+        return Err(format!("array index {v} is not an integer"));
+    }
+    Ok(v.round() as i64)
 }
 
 enum Flow {
@@ -134,7 +181,16 @@ enum Flow {
 }
 
 impl Interp {
-    fn ev(&mut self, e: &Expr1, locals: &[f64]) -> Result<f64, String> {
+    fn ev(&mut self, e: &Expr1, locals: &mut [f64]) -> Result<f64, String> {
+        for l in &e.loads {
+            let mut key = Vec::with_capacity(l.idx.len());
+            for i in &l.idx {
+                key.push(index_of(self.ev(i, locals)?)?);
+            }
+            let v = self.arrays[l.array as usize].get(&key).copied();
+            let shown = key.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(",");
+            locals[l.slot as usize] = v.ok_or_else(|| format!("{} has no value", l.name.replace("...", &shown)))?;
+        }
         e.tape.eval(e.root, locals, &mut self.scratch).map_err(|e| e.0)
     }
     fn run(&mut self, body: &[IStmt], locals: &mut Vec<f64>) -> Result<Flow, String> {
@@ -196,6 +252,28 @@ impl Interp {
                         i += st;
                     }
                 }
+                IStmt::AssignIdx(a, idx, e) => {
+                    let v = self.ev(e, locals)?;
+                    let mut key = Vec::with_capacity(idx.len());
+                    for i in idx {
+                        key.push(index_of(self.ev(i, locals)?)?);
+                    }
+                    self.arrays[*a as usize].insert(key, v);
+                }
+                IStmt::Warning(msg, x) => {
+                    let v = match x {
+                        Some(e) => Some(self.ev(e, locals)?),
+                        None => None,
+                    };
+                    self.warnings.push(error_message(msg, v));
+                }
+                IStmt::Error(msg, x) => {
+                    let v = match x {
+                        Some(e) => Some(self.ev(e, locals)?),
+                        None => None,
+                    };
+                    return Err(error_message(msg, v));
+                }
                 IStmt::Call(cell, ins, outs) => {
                     let mut args = Vec::with_capacity(ins.len());
                     for e in ins {
@@ -214,7 +292,22 @@ impl Interp {
 }
 
 thread_local! {
-    static PROC_CACHE: RefCell<HashMap<usize, (Vec<f64>, Vec<f64>)>> = RefCell::new(HashMap::new());
+    static PROC_CACHE: RefCell<HashMap<usize, (Vec<f64>, Vec<f64>, Vec<String>)>> = RefCell::new(HashMap::new());
+    static WARNINGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn warn(msg: String) {
+    WARNINGS.with(|w| {
+        let mut w = w.borrow_mut();
+        if !w.contains(&msg) {
+            w.push(msg);
+        }
+    });
+}
+
+/// The `Call Warning` messages since the last call (this thread).
+pub fn take_warnings() -> Vec<String> {
+    WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()))
 }
 
 /// Run a compiled function/procedure and return all its outputs.
@@ -224,18 +317,21 @@ pub fn call_func(cell: &Arc<FuncCell>, args: &[f64]) -> Result<Vec<f64>, String>
         return Err(format!("'{}' expects {} arguments, got {}", f.name, f.nparams, args.len()));
     }
     let key = Arc::as_ptr(cell) as usize;
-    if let Some(hit) = PROC_CACHE.with(|c| c.borrow().get(&key).filter(|(a, _)| a.as_slice() == args).map(|(_, o)| o.clone())) {
+    if let Some((hit, ws)) = PROC_CACHE.with(|c| c.borrow().get(&key).filter(|(a, ..)| a.as_slice() == args).map(|(_, o, w)| (o.clone(), w.clone()))) {
+        ws.into_iter().for_each(warn);
         return Ok(hit);
     }
     let mut locals = vec![f64::NAN; f.nslots];
     locals[..args.len()].copy_from_slice(args);
-    let mut it = Interp { steps: 0, scratch: Scratch::default() };
+    let mut it = Interp { steps: 0, scratch: Scratch::default(), arrays: vec![HashMap::new(); f.narrays], warnings: Vec::new() };
     it.run(&f.body, &mut locals)?;
     let out: Vec<f64> = f.out_slots.iter().map(|s| locals[*s as usize]).collect();
     if let Some(k) = out.iter().position(|v| v.is_nan()) {
         return Err(format!("'{}' did not assign output #{}", f.name, k + 1));
     }
-    PROC_CACHE.with(|c| c.borrow_mut().insert(key, (args.to_vec(), out.clone())));
+    let ws = std::mem::take(&mut it.warnings);
+    ws.iter().cloned().for_each(warn);
+    PROC_CACHE.with(|c| c.borrow_mut().insert(key, (args.to_vec(), out.clone(), ws)));
     Ok(out)
 }
 
@@ -259,5 +355,5 @@ impl ExtFn for UserFn {
 pub fn single(op_root: Op) -> Expr1 {
     let mut t = Tape::default();
     let r = t.push(op_root);
-    Expr1 { tape: t, root: r }
+    Expr1 { tape: t, root: r, loads: Vec::new() }
 }

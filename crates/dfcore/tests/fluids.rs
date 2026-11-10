@@ -156,6 +156,8 @@ fn model_suffix_errors() {
     has("h = enthalpy(CO2::Ideal, T=200, h=10)", "ideal-gas inputs");
     has("T = t_sat(CO2::Ideal, P=10)", "no saturation");
     has("x = CO2::Ideal", "only allowed as the fluid");
-    has("h = enthalpy('CO2[0.5]&Argon[0.5]::Ideal', T=200)", "no ideal-gas model");
+    has("h = enthalpy('CO2&Argon::Ideal', T=200)", "mole fraction");
+    has("h = enthalpy('Nitrogen[0.9]&SulfurDioxide[0.1]', T=500, P=100)", "::Ideal");
+    assert!(errors("h = enthalpy('CO2[0.5]&Argon[0.5]::Ideal', T=200)").is_empty());
     assert!(errors("T = t_sat(CO2::Real, P=10)").is_empty());
 }

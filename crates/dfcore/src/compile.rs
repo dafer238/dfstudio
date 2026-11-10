@@ -58,6 +58,8 @@ pub struct Equation {
 
 #[derive(Debug, Clone, Default)]
 pub struct Model {
+    /// String variables and constants by canonical name (`f$` → `R134a`).
+    pub strings: HashMap<String, String>,
     pub vars: Vec<VarInfo>,
     pub var_index: HashMap<String, VarId>,
     pub eqs: Vec<Equation>,
@@ -124,11 +126,40 @@ pub struct CompileOptions {
     pub unit_system: Option<UnitSystem>,
     /// Validate fluid names against CoolProp at compile time.
     pub check_fluids: bool,
+    /// Files the script names (`$Include`, lookup tables).
+    pub files: Files,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        CompileOptions { unit_system: None, check_fluids: true }
+        CompileOptions { unit_system: None, check_fluids: true, files: Files::default() }
+    }
+}
+
+/// Text of the files a script names (`$Include lib.dfs`, `interpolate('data.csv', ...)`),
+/// by name: the files attached to a project, or the files next to the script.
+#[derive(Clone, Default)]
+pub struct Files(pub Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>);
+
+impl Files {
+    pub fn new(f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Files {
+        Files(Some(Arc::new(f)))
+    }
+    /// Files in a directory (and its parent's names relative to it).
+    pub fn dir(dir: std::path::PathBuf) -> Files {
+        Files::new(move |name| std::fs::read_to_string(dir.join(name)).ok())
+    }
+    /// Text of a file, trying `name` as written, then with `.csv`, `.txt`, `.dfs`.
+    pub fn read(&self, name: &str) -> Option<String> {
+        let f = self.0.as_ref()?;
+        let name = name.trim().trim_matches(['\'', '"']);
+        f(name).or_else(|| [".csv", ".txt", ".dfs", ".lib"].iter().find_map(|e| f(&format!("{name}{e}"))))
+    }
+}
+
+impl std::fmt::Debug for Files {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Files({})", if self.0.is_some() { "set" } else { "none" })
     }
 }
 
@@ -140,6 +171,16 @@ struct Builder<'s> {
     consts: HashMap<String, f64>,
     func_map: HashMap<String, Arc<FuncCell>>,
     opts: CompileOptions,
+    /// String variables and constants (`F$ = 'R134a'`, `$Constant F#$ = 'Air'`), by canonical name
+    strings: HashMap<String, String>,
+    /// `Module` / `Subprogram` definitions, and how many times each was instantiated
+    modules: HashMap<String, Arc<ModuleDef>>,
+    module_uses: HashMap<String, usize>,
+    module_depth: usize,
+    /// Lookup tables read so far, by name
+    tables: HashMap<String, Arc<crate::lookup::Table>>,
+    /// `$Constant N# = 12 [kg]`: value in model units and its dimension
+    user_consts: HashMap<String, (f64, Option<Dim>)>,
     /// `a = b - c/d [bar]`: (equation index, unit, span)
     eq_units: Vec<(usize, String, Span)>,
 }
@@ -150,12 +191,79 @@ fn err(msg: impl Into<String>, span: Span) -> Diagnostic {
 
 /// Parse and compile a script.
 pub fn compile(src: &str, opts: &CompileOptions) -> Model {
-    let pr = parse(src);
-    compile_program(src, &pr.program, pr.diagnostics, opts)
+    let (full, included, mut extra) = with_includes(src, &opts.files);
+    if included.is_empty() {
+        let pr = parse(src);
+        let mut m = compile_program(src, &pr.program, pr.diagnostics, opts);
+        m.diagnostics.extend(extra);
+        return m;
+    }
+    let pr = parse(&full);
+    let mut m = compile_program(&full, &pr.program, pr.diagnostics, opts);
+    // messages about an included file point at its `$Include` line
+    for d in m.diagnostics.iter_mut() {
+        if d.span.start >= src.len() {
+            if let Some((name, at, r)) = included.iter().find(|(_, _, r)| r.contains(&d.span.start)) {
+                let line = full[r.start..d.span.start].bytes().filter(|b| *b == b'\n').count() + 1;
+                d.msg = format!("{name}, line {line}: {}", d.msg);
+                d.span = *at;
+            }
+        }
+    }
+    m.diagnostics.append(&mut extra);
+    m
+}
+
+/// The script with the files of its `$Include` lines appended (one level,
+/// as in EES), the included ranges, and messages about missing files.
+#[allow(clippy::type_complexity)]
+fn with_includes(src: &str, files: &Files) -> (String, Vec<(String, Span, std::ops::Range<usize>)>, Vec<Diagnostic>) {
+    let mut full = src.to_string();
+    let mut inc = Vec::new();
+    let mut diags = Vec::new();
+    let mut at = 0;
+    for (k, line) in src.split_inclusive('\n').enumerate() {
+        let start = at;
+        at += line.len();
+        let t = line.trim();
+        if !t.get(..8).is_some_and(|h| h.eq_ignore_ascii_case("$include")) {
+            continue;
+        }
+        let name = t[8..].split(['{', '"']).next().unwrap_or("").split("//").next().unwrap_or("").trim().to_string();
+        let off = line.len() - line.trim_start().len();
+        let span = Span { start: start + off, end: start + off + t.len(), line: k as u32 + 1 };
+        match files.read(&name) {
+            Some(text) if text.lines().any(|l| l.trim_start().to_ascii_lowercase().starts_with("$include")) => {
+                diags.push(err(format!("{name}: an included file cannot include other files"), span));
+            }
+            Some(text) => {
+                full.push('\n');
+                let s = full.len();
+                full.push_str(&text);
+                full.push('\n');
+                inc.push((name, span, s..full.len()));
+            }
+            None => diags.push(err(format!("cannot find the file '{name}' (attach it to the project, or put it next to the script)"), span)),
+        }
+    }
+    (full, inc, diags)
 }
 
 pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: &CompileOptions) -> Model {
-    let mut b = Builder { src, m: Model::default(), consts: HashMap::new(), func_map: HashMap::new(), opts: opts.clone(), eq_units: Vec::new() };
+    let mut b = Builder {
+        src,
+        m: Model::default(),
+        consts: HashMap::new(),
+        func_map: HashMap::new(),
+        opts: opts.clone(),
+        strings: HashMap::new(),
+        user_consts: HashMap::new(),
+        tables: HashMap::new(),
+        modules: HashMap::new(),
+        module_uses: HashMap::new(),
+        module_depth: 0,
+        eq_units: Vec::new(),
+    };
     b.m.diagnostics = diags;
     b.m.unit_system = opts.unit_system.clone().unwrap_or_default();
     // 1. unit system directive (affects literal conversion)
@@ -167,6 +275,45 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
                     Err(e) => b.m.diagnostics.push(err(e, *span)),
                 }
             }
+        }
+    }
+    // 1b. string variables and $Constant: known before functions and equations
+    for s in &prog.stmts {
+        match s {
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Str { value, .. }, span, .. } if idx.is_empty() => {
+                if name.ends_with('$') {
+                    b.strings.insert(name.clone(), value.clone());
+                } else {
+                    b.m.diagnostics.push(err(format!("'{name}' holds text: a string variable name ends with $ (e.g. {name}$)"), *span));
+                }
+            }
+            Stmt::Directive { name, args, span } if name == "constant" => b.constant(args, *span),
+            _ => {}
+        }
+    }
+    // `A$ = B$`: copies, in any order
+    let copies: Vec<(&String, &String, Span)> = prog
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Var { name: from, idx: i2, .. }, span, .. }
+                if idx.is_empty() && i2.is_empty() && name.ends_with('$') && from.ends_with('$') =>
+            {
+                Some((name, from, *span))
+            }
+            _ => None,
+        })
+        .collect();
+    for _ in 0..=copies.len() {
+        for (to, from, _) in &copies {
+            if let Some(v) = b.strings.get(&canon(from)).cloned() {
+                b.strings.insert((*to).clone(), v);
+            }
+        }
+    }
+    for (to, from, span) in &copies {
+        if !b.strings.contains_key(*to) {
+            b.m.diagnostics.push(err(format!("string variable {from} is not set (write {from} = 'text')"), *span));
         }
     }
     // 2. register functions (late-bound so they may call each other)
@@ -183,6 +330,13 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
         if let Err(d) = b.compile_func(f) {
             b.m.diagnostics.push(d);
         }
+    }
+    for m in &prog.modules {
+        if b.func_map.contains_key(&m.name) || b.modules.contains_key(&m.name) {
+            b.m.diagnostics.push(err(format!("'{}' is defined twice", m.display), m.span));
+            continue;
+        }
+        b.modules.insert(m.name.clone(), Arc::new(m.clone()));
     }
     // 3. constants usable in indices / Duplicate bounds
     b.discover_consts(&prog.stmts);
@@ -213,6 +367,7 @@ pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: 
             }
         }
     }
+    b.m.strings = std::mem::take(&mut b.strings);
     // 6. unit inference
     let (dims, conflicts) = crate::dims::infer(&b.m);
     b.m.var_dims = dims;
@@ -286,6 +441,58 @@ impl<'s> Builder<'s> {
         }
     }
 
+    /// `$Constant Name# = value [unit]` or `$Constant Name#$ = 'text'`.
+    fn constant(&mut self, args: &str, span: Span) {
+        let Some((lhs, text)) = args.split_once('=') else {
+            self.m.diagnostics.push(err("expected `$Constant Name# = value`", span));
+            return;
+        };
+        let name = canon(lhs.trim());
+        if !name.ends_with('#') && !name.ends_with("#$") {
+            self.m.diagnostics.push(err(format!("a constant name ends with # (e.g. {}#)", lhs.trim()), span));
+            return;
+        }
+        if builtin_const(&name, &self.m.unit_system).is_some() {
+            self.m.diagnostics.push(err(format!("{} is a built-in constant; give the constant another name", lhs.trim()), span));
+            return;
+        }
+        let pr = parse(&format!("__x = {}", text.trim()));
+        match pr.program.stmts.first() {
+            Some(Stmt::Equation { rhs: Expr::Str { value, .. }, .. }) if name.ends_with('$') => {
+                self.strings.insert(name, value.clone());
+            }
+            Some(Stmt::Equation { rhs, .. }) if !name.ends_with('$') && pr.diagnostics.is_empty() => match self.const_eval(rhs, &HashMap::new()) {
+                Some(v) => {
+                    let dim = match rhs {
+                        Expr::Num { unit: Some(u), .. } => parse_unit(u).ok().map(|u| u.dim),
+                        _ => None,
+                    };
+                    self.user_consts.insert(name, (v, dim));
+                }
+                None => self.m.diagnostics.push(err(format!("$Constant {}: '{}' is not a constant", lhs.trim(), text.trim()), span)),
+            },
+            _ => self.m.diagnostics.push(err(format!("$Constant {}: cannot read '{}'", lhs.trim(), text.trim()), span)),
+        }
+    }
+
+    /// A lookup table by file name, read once.
+    fn table(&mut self, name: &str, span: Span) -> Result<Arc<crate::lookup::Table>, Diagnostic> {
+        let key = name.to_ascii_lowercase();
+        if let Some(t) = self.tables.get(&key) {
+            return Ok(t.clone());
+        }
+        let text =
+            self.opts.files.read(name).ok_or_else(|| err(format!("cannot find the table '{name}' (attach the CSV file to the project, or put it next to the script)"), span))?;
+        let t = Arc::new(crate::lookup::Table::parse(name, &text, &self.m.unit_system).map_err(|e| err(e, span))?);
+        self.tables.insert(key, t.clone());
+        Ok(t)
+    }
+
+    /// Text of a string variable or constant (`F$`, `F#$`).
+    fn string_var(&self, name: &str, span: Span) -> Result<String, Diagnostic> {
+        self.strings.get(&canon(name)).cloned().ok_or_else(|| err(format!("string variable {name} is not set (write {name} = 'text')"), span))
+    }
+
     fn literal(&self, value: f64, unit: &Option<String>, span: Span) -> Result<f64, Diagnostic> {
         match unit {
             None => Ok(value),
@@ -309,6 +516,8 @@ impl<'s> Builder<'s> {
                     *v
                 } else if let Some(c) = builtin_const(name, &self.m.unit_system) {
                     c
+                } else if let Some((c, _)) = self.user_consts.get(name) {
+                    *c
                 } else {
                     *self.consts.get(name)?
                 }
@@ -385,6 +594,10 @@ impl<'s> Builder<'s> {
     fn stmt(&mut self, s: &Stmt, env: &HashMap<String, f64>) {
         match s {
             Stmt::Directive { .. } => {}
+            // a string variable: no equation
+            Stmt::Equation { lhs: Expr::Var { idx, .. }, rhs: Expr::Str { .. }, .. } if idx.is_empty() => {}
+            Stmt::Equation { lhs: Expr::Var { name, idx, .. }, rhs: Expr::Var { name: from, idx: i2, .. }, .. }
+                if idx.is_empty() && i2.is_empty() && name.ends_with('$') && from.ends_with('$') => {}
             Stmt::Equation { lhs, rhs, span, trailing_comment, unit } => {
                 let n = self.m.eqs.len();
                 if let Err(d) = self.equation(lhs, rhs, *span, env, trailing_comment.as_deref()) {
@@ -416,6 +629,11 @@ impl<'s> Builder<'s> {
                     }
                 }
             }
+            Stmt::Call { name, inputs, outputs, span } if self.modules.contains_key(name) => {
+                if let Err(d) = self.module_call(name, inputs, outputs, *span, env) {
+                    self.m.diagnostics.push(d);
+                }
+            }
             Stmt::Call { name, inputs, outputs, span } => {
                 if let Err(d) = self.call_stmt(name, inputs, outputs, *span, env) {
                     self.m.diagnostics.push(d);
@@ -426,7 +644,7 @@ impl<'s> Builder<'s> {
 
     fn equation(&mut self, lhs: &Expr, rhs: &Expr, span: Span, env: &HashMap<String, f64>, comment: Option<&str>) -> Result<(), Diagnostic> {
         let mut t = Tape::default();
-        let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new() };
+        let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
         let l = lw.expr(lhs, &mut t)?;
         let r = lw.expr(rhs, &mut t)?;
         let const_dims = std::mem::take(&mut lw.const_dims);
@@ -482,6 +700,36 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
+    /// `Call M(a, b : c)` of a Module: its equations, with the parameters
+    /// replaced by the arguments and its other variables renamed `M1.x`,
+    /// `M2.x`, ... for each use, solved with the rest of the model.
+    fn module_call(&mut self, name: &str, inputs: &[Expr], outputs: &[Expr], span: Span, env: &HashMap<String, f64>) -> Result<(), Diagnostic> {
+        let m = self.modules[name].clone();
+        if inputs.len() != m.params.len() || outputs.len() != m.outputs.len() {
+            return Err(err(
+                format!("{} takes {} input(s) and {} output(s) ({}({} : {}))", m.display, m.params.len(), m.outputs.len(), m.display, m.params.join(", "), m.outputs.join(", ")),
+                span,
+            ));
+        }
+        if self.module_depth > 20 {
+            return Err(err(format!("{}: modules call each other too deeply (recursion?)", m.display), span));
+        }
+        let k = {
+            let n = self.module_uses.entry(name.to_string()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let map: HashMap<String, Expr> = m.params.iter().chain(&m.outputs).cloned().zip(inputs.iter().chain(outputs).cloned()).collect();
+        let r = Rename { map, prefix: format!("{}{k}", m.display), b: self };
+        let body: Vec<Stmt> = m.body.iter().map(|s| r.stmt(s)).collect();
+        self.module_depth += 1;
+        for s in &body {
+            self.stmt(s, env);
+        }
+        self.module_depth -= 1;
+        Ok(())
+    }
+
     fn call_stmt(&mut self, name: &str, inputs: &[Expr], outputs: &[Expr], span: Span, env: &HashMap<String, f64>) -> Result<(), Diagnostic> {
         let cell = self.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), span))?;
         let src = cell.source.as_ref().unwrap();
@@ -493,7 +741,7 @@ impl<'s> Builder<'s> {
         }
         for (k, out) in outputs.iter().enumerate() {
             let mut t = Tape::default();
-            let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new() };
+            let mut lw = Lower { b: self, env: env.clone(), slots: None, const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
             let l = lw.expr(out, &mut t)?;
             let mut args = Vec::new();
             for e in inputs {
@@ -539,12 +787,13 @@ impl<'s> Builder<'s> {
                 slots.insert(o.clone(), n);
             }
         }
-        let mut lw = Lower { b: self, env: HashMap::new(), slots: Some(slots), const_dims: Vec::new() };
+        let mut lw = Lower { b: self, env: HashMap::new(), slots: Some(slots), const_dims: Vec::new(), bound: HashMap::new(), arrays: HashMap::new(), loads: Vec::new() };
         let body = lw.fblock(&f.body)?;
+        let narrays = lw.arrays.len();
         let slots = lw.slots.take().unwrap();
         let out_slots = out_names.iter().map(|o| slots[o]).collect();
         let cell = self.func_map[&f.name].clone();
-        let _ = cell.def.set(CompiledFunc { name: f.display.clone(), nparams: f.params.len(), nslots: slots.len(), out_slots, body });
+        let _ = cell.def.set(CompiledFunc { name: f.display.clone(), nparams: f.params.len(), nslots: slots.len(), narrays, out_slots, body });
         Ok(())
     }
 
@@ -627,7 +876,8 @@ impl<'s> Builder<'s> {
                 let target = args[t0 + 9..].trim().to_string();
                 self.m.controls.push(ControlSpec { vary, target, span });
             }
-            "include" | "tabstops" | "arrays" | "warnings" | "checkunits" | "complex" | "uniterrors" | "ifnot" | "endif" | "if" | "common" | "reference" | "private" | "local" => {
+            "include" | "constant" => {}
+            "tabstops" | "arrays" | "warnings" | "checkunits" | "complex" | "uniterrors" | "ifnot" | "endif" | "if" | "common" | "reference" | "private" | "local" => {
                 self.m.diagnostics.push(Diagnostic { msg: format!("${name} is ignored"), span, severity: Severity::Info });
             }
             other => self.m.diagnostics.push(Diagnostic { msg: format!("unknown directive ${other}"), span, severity: Severity::Warning }),
@@ -755,6 +1005,110 @@ pub const BUILTIN_CONSTS: &[(&str, &str)] = &[
     ("c#", "Speed of light 299792458 m/s"),
 ];
 
+/// Instantiation of a Module body: parameters → arguments, locals → `M1.x`.
+struct Rename<'a, 'b> {
+    map: HashMap<String, Expr>,
+    prefix: String,
+    b: &'a Builder<'b>,
+}
+
+/// Leading arguments of a built-in function that name a fluid, a table or
+/// columns, not variables.
+fn name_args(f: &str) -> usize {
+    match f {
+        "interpolate" | "interpolate1" | "interpolate2" | "interpolate3" => 3,
+        "convert" | "converttemp" => 2,
+        "lookup"
+        | "interpolate2dm"
+        | "t_sat"
+        | "p_sat"
+        | "enthalpy_vaporization"
+        | "normalboilingpt"
+        | "humrat"
+        | "relhum"
+        | "wetbulb"
+        | "dewpoint"
+        | "enthalpy_formation"
+        | "lhv"
+        | "hhv" => 1,
+        f if props::property_function(f).is_some() => 1,
+        _ => 0,
+    }
+}
+
+impl Rename<'_, '_> {
+    fn keep(&self, name: &str) -> bool {
+        name.ends_with('#') || name.ends_with('$') || builtin_const(name, &self.b.m.unit_system).is_some() || self.b.user_consts.contains_key(name)
+    }
+    fn var(&self, display: &str) -> (String, String) {
+        let d = format!("{}.{display}", self.prefix);
+        (canon(&d), d)
+    }
+    fn expr(&self, e: &Expr) -> Expr {
+        match e {
+            Expr::Var { name, display, idx, span } => {
+                if idx.is_empty() {
+                    if let Some(x) = self.map.get(name) {
+                        return x.clone();
+                    }
+                }
+                if self.keep(name) {
+                    return e.clone();
+                }
+                let (n, d) = self.var(display);
+                Expr::Var { name: n, display: d, idx: idx.iter().map(|i| self.expr(i)).collect(), span: *span }
+            }
+            Expr::Num { .. } | Expr::Str { .. } => e.clone(),
+            Expr::Neg(a, s) => Expr::Neg(Box::new(self.expr(a)), *s),
+            Expr::Not(a, s) => Expr::Not(Box::new(self.expr(a)), *s),
+            Expr::Bin(op, a, b, s) => Expr::Bin(*op, Box::new(self.expr(a)), Box::new(self.expr(b)), *s),
+            Expr::Cmp(op, a, b, s) => Expr::Cmp(*op, Box::new(self.expr(a)), Box::new(self.expr(b)), *s),
+            Expr::Call { name, display, args, span } => {
+                let fixed = name_args(name);
+                let args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let bare = a.name.is_none() && matches!(&a.value, Expr::Var { idx, name, .. } if idx.is_empty() && !self.map.contains_key(name));
+                        if i < fixed && bare {
+                            return a.clone();
+                        }
+                        // the index of sum / product
+                        let n = match (&a.name, name.as_str(), i) {
+                            (Some(n), "sum" | "product", 1) => Some(self.var(n).1),
+                            _ => a.name.clone(),
+                        };
+                        Arg { name: n, value: self.expr(&a.value) }
+                    })
+                    .collect();
+                Expr::Call { name: name.clone(), display: display.clone(), args, span: *span }
+            }
+        }
+    }
+    fn stmt(&self, s: &Stmt) -> Stmt {
+        match s {
+            Stmt::Equation { lhs, rhs, span, trailing_comment, unit } => {
+                Stmt::Equation { lhs: self.expr(lhs), rhs: self.expr(rhs), span: *span, trailing_comment: trailing_comment.clone(), unit: unit.clone() }
+            }
+            Stmt::Duplicate { var, from, to, body, span } => {
+                Stmt::Duplicate { var: self.var(var).0, from: self.expr(from), to: self.expr(to), body: body.iter().map(|b| self.stmt(b)).collect(), span: *span }
+            }
+            Stmt::Call { name, inputs, outputs, span } => {
+                Stmt::Call { name: name.clone(), inputs: inputs.iter().map(|e| self.expr(e)).collect(), outputs: outputs.iter().map(|e| self.expr(e)).collect(), span: *span }
+            }
+            Stmt::Directive { .. } => s.clone(),
+        }
+    }
+}
+
+/// Text of an array element as written, for messages.
+fn display_of(e: &Expr) -> String {
+    match e {
+        Expr::Var { display, .. } => format!("{display}[...]"),
+        _ => String::new(),
+    }
+}
+
 fn ext(t: &mut Tape, f: Arc<dyn crate::funcs::ExtFn>, args: &[u32]) -> u32 {
     let st = t.args.len() as u32;
     t.args.extend_from_slice(args);
@@ -783,6 +1137,18 @@ pub fn math_f1(name: &str) -> Option<F1> {
         "round" => F1::Round,
         "trunc" => F1::Trunc,
         "step" => F1::Step,
+        "erf" => F1::Erf,
+        "erfc" => F1::Erfc,
+        "gamma_" => F1::Gamma,
+        "factorial" => F1::Factorial,
+        "bessel_j0" => F1::BesselJ0,
+        "bessel_j1" => F1::BesselJ1,
+        "bessel_y0" => F1::BesselY0,
+        "bessel_y1" => F1::BesselY1,
+        "bessel_i0" => F1::BesselI0,
+        "bessel_i1" => F1::BesselI1,
+        "bessel_k0" => F1::BesselK0,
+        "bessel_k1" => F1::BesselK1,
         _ => return None,
     })
 }
@@ -809,8 +1175,21 @@ pub const MATH_FUNCTIONS: &[(&str, &str)] = &[
     ("round", "round(x)"),
     ("trunc", "trunc(x)"),
     ("step", "step(x) = 1 if x >= 0 else 0"),
+    ("erf", "Error function erf(x)"),
+    ("erfc", "Complementary error function erfc(x) = 1 - erf(x)"),
+    ("gamma_", "Gamma function gamma_(x); gamma_(n+1) = n!"),
+    ("factorial", "factorial(n) = n! of round(n); 1 for n <= 0"),
+    ("bessel_j0", "Bessel function of the first kind, order 0: bessel_j0(x)"),
+    ("bessel_j1", "Bessel function of the first kind, order 1: bessel_j1(x)"),
+    ("bessel_y0", "Bessel function of the second kind, order 0: bessel_y0(x), x > 0"),
+    ("bessel_y1", "Bessel function of the second kind, order 1: bessel_y1(x), x > 0"),
+    ("bessel_i0", "Modified Bessel function of the first kind, order 0: bessel_i0(x)"),
+    ("bessel_i1", "Modified Bessel function of the first kind, order 1: bessel_i1(x)"),
+    ("bessel_k0", "Modified Bessel function of the second kind, order 0: bessel_k0(x), x > 0"),
+    ("bessel_k1", "Modified Bessel function of the second kind, order 1: bessel_k1(x), x > 0"),
     ("min", "min(a, b, ...)"),
     ("max", "max(a, b, ...)"),
+    ("average", "average(a, b, ...): arithmetic mean"),
     ("mod", "mod(a, b)"),
     ("pow", "pow(a, b)"),
     ("convert", "convert(from, to): factor between two units, e.g. convert(bar, kPa) = 100"),
@@ -828,6 +1207,39 @@ struct Lower<'b, 's> {
     env: HashMap<String, f64>,
     slots: Option<HashMap<String, u32>>,
     const_dims: Vec<(u32, Dim)>,
+    /// Variables bound to a tape node (the variable of `integral`)
+    bound: HashMap<String, u32>,
+    /// Arrays local to a function body, by name
+    arrays: HashMap<String, u32>,
+    /// Array elements the expression being compiled reads
+    loads: Vec<crate::funcs::Load>,
+}
+
+/// Nodes and weights of the n-point Gauss-Legendre rule on [-1, 1], from
+/// Newton's method on P_n (Press et al., Numerical Recipes, 3rd ed., §4.6).
+pub fn gauss_legendre(n: usize) -> Vec<(f64, f64)> {
+    let mut r = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut x = (std::f64::consts::PI * (i as f64 + 0.75) / (n as f64 + 0.5)).cos();
+        let mut dp = 1.0;
+        for _ in 0..100 {
+            // P_n(x) and P_n'(x) by the three-term recurrence
+            let (mut p0, mut p1) = (1.0, x);
+            for k in 2..=n {
+                let p2 = ((2 * k - 1) as f64 * x * p1 - (k - 1) as f64 * p0) / k as f64;
+                p0 = p1;
+                p1 = p2;
+            }
+            dp = n as f64 * (x * p1 - p0) / (x * x - 1.0);
+            let dx = p1 / dp;
+            x -= dx;
+            if dx.abs() < 1e-15 {
+                break;
+            }
+        }
+        r.push((x, 2.0 / ((1.0 - x * x) * dp * dp)));
+    }
+    r
 }
 
 impl Lower<'_, '_> {
@@ -838,21 +1250,38 @@ impl Lower<'_, '_> {
     }
 
     fn fexpr(&mut self, e: &Expr) -> Result<Expr1, Diagnostic> {
+        let saved = std::mem::take(&mut self.loads);
         let mut t = Tape::default();
-        let root = self.expr(e, &mut t)?;
-        Ok(Expr1 { tape: t, root })
+        let root = self.expr(e, &mut t);
+        let loads = std::mem::replace(&mut self.loads, saved);
+        Ok(Expr1 { tape: t, root: root?, loads })
+    }
+
+    fn array(&mut self, name: &str) -> u32 {
+        let n = self.arrays.len() as u32;
+        *self.arrays.entry(name.to_string()).or_insert(n)
+    }
+
+    /// A fresh local slot, for intermediate values.
+    fn temp_slot(&mut self) -> u32 {
+        let n = self.slots.as_ref().map_or(0, |s| s.len());
+        self.slot(&format!("\u{1}{n}"))
     }
 
     fn fblock(&mut self, body: &[FStmt]) -> Result<Vec<IStmt>, Diagnostic> {
         let mut out = Vec::new();
         for s in body {
+            let mut after = Vec::new();
             out.push(match s {
-                FStmt::Assign { target, idx, value, span } => {
-                    if !idx.is_empty() {
-                        return Err(err("arrays are not supported inside functions yet", *span));
-                    }
+                FStmt::Assign { target, idx, value, .. } => {
                     let e = self.fexpr(value)?;
-                    IStmt::Assign(self.slot(target), e)
+                    if idx.is_empty() {
+                        IStmt::Assign(self.slot(target), e)
+                    } else {
+                        let array = self.array(target);
+                        let ix = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                        IStmt::AssignIdx(array, ix, e)
+                    }
                 }
                 FStmt::If { cond, then, els, .. } => IStmt::If(self.fexpr(cond)?, self.fblock(then)?, self.fblock(els)?),
                 FStmt::Repeat { body, until, .. } => IStmt::Repeat(self.fblock(body)?, self.fexpr(until)?),
@@ -865,14 +1294,43 @@ impl Lower<'_, '_> {
                     };
                     IStmt::For { slot, from: self.fexpr(from)?, to: self.fexpr(to)?, step, body: self.fblock(body)? }
                 }
+                FStmt::Call { name, inputs, outputs, span } if (name == "error" || name == "warning") && !self.b.func_map.contains_key(name) => {
+                    // EES `Call Error('message XXXF1', x)`, `Call Warning(...)`
+                    let (msg, rest) = match inputs.split_first() {
+                        Some((Expr::Str { value, .. }, rest)) => (value.clone(), rest),
+                        _ => ("Error".to_string(), &inputs[..]),
+                    };
+                    if !outputs.is_empty() || rest.len() > 1 {
+                        return Err(err("Call Error('message', value): a message and at most one value", *span));
+                    }
+                    let x = rest.first().map(|e| self.fexpr(e)).transpose()?;
+                    if name == "warning" {
+                        IStmt::Warning(msg, x)
+                    } else {
+                        IStmt::Error(msg, x)
+                    }
+                }
                 FStmt::Call { name, inputs, outputs, span } => {
                     let cell = self.b.func_map.get(name).cloned().ok_or_else(|| err(format!("unknown procedure '{name}'"), *span))?;
                     let ins = inputs.iter().map(|e| self.fexpr(e)).collect::<Result<Vec<_>, _>>()?;
-                    let outs = outputs.iter().map(|(n, _)| self.slot(n)).collect();
+                    let mut outs = Vec::new();
+                    for (n, idx) in outputs {
+                        if idx.is_empty() {
+                            outs.push(self.slot(n));
+                        } else {
+                            // `Call p(x : a[i])`: through a slot into the array
+                            let tmp = self.temp_slot();
+                            outs.push(tmp);
+                            let array = self.array(n);
+                            let ix = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                            after.push(IStmt::AssignIdx(array, ix, crate::funcs::single(Op::Var(tmp))));
+                        }
+                    }
                     IStmt::Call(cell, ins, outs)
                 }
                 FStmt::Return { .. } => IStmt::Return,
             });
+            out.append(&mut after);
         }
         Ok(out)
     }
@@ -895,6 +1353,9 @@ impl Lower<'_, '_> {
                     return Err(err(format!("'{name}' is a fluid name (Fluid::Ideal / Fluid::Real); it is only allowed as the fluid of a property function"), *span));
                 }
                 if idx.is_empty() {
+                    if let Some(n) = self.bound.get(name) {
+                        return Ok(*n);
+                    }
                     if let Some(v) = self.env.get(name) {
                         return Ok(t.constant(*v));
                     }
@@ -905,10 +1366,25 @@ impl Lower<'_, '_> {
                         }
                         return Ok(n);
                     }
+                    if let Some((c, d)) = self.b.user_consts.get(name).copied() {
+                        let n = t.constant(c);
+                        if let Some(d) = d {
+                            self.const_dims.push((n, d));
+                        }
+                        return Ok(n);
+                    }
+                    if name.ends_with('$') {
+                        return Err(err(format!("{name} is a string variable: it can only name a fluid, a table or a column"), *span));
+                    }
                 }
                 if self.slots.is_some() {
                     if !idx.is_empty() {
-                        return Err(err("arrays are not supported inside functions yet", *span));
+                        // array element: read into a slot before the expression is evaluated
+                        let array = self.array(name);
+                        let idx = idx.iter().map(|i| self.fexpr(i)).collect::<Result<Vec<_>, _>>()?;
+                        let slot = self.temp_slot();
+                        self.loads.push(crate::funcs::Load { slot, array, name: display_of(e), idx });
+                        return Ok(t.push(Op::Var(slot)));
                     }
                     let s = self.slot(name);
                     return Ok(t.push(Op::Var(s)));
@@ -1004,6 +1480,52 @@ impl Lower<'_, '_> {
             // a model temperature, or a display unit would convert it again
             return Ok(t.push(Op::F1(F1::Opaque, z)));
         }
+        // ---- definite integral: integral(expr, x, a, b), 20-point Gauss-Legendre
+        if name == "integral" {
+            if args.len() != 4 || args.iter().any(|a| a.name.is_some()) {
+                return Err(err(format!("{display}(expression, x, from, to): the integral of the expression over x"), span));
+            }
+            let Expr::Var { name: var, idx, .. } = &args[1].value else {
+                return Err(err(format!("{display}: the second argument is the variable of integration"), args[1].value.span()));
+            };
+            if !idx.is_empty() {
+                return Err(err(format!("{display}: the variable of integration cannot be an array element"), args[1].value.span()));
+            }
+            let a = self.expr(&args[2].value, t)?;
+            let b = self.expr(&args[3].value, t)?;
+            let two = t.constant(2.0);
+            let s = t.push(Op::F2(F2::Add, a, b));
+            let mid = t.push(Op::F2(F2::Div, s, two));
+            let d = t.push(Op::F2(F2::Sub, b, a));
+            let half = t.push(Op::F2(F2::Div, d, two));
+            let saved = self.bound.remove(var);
+            let mut acc: Option<u32> = None;
+            for (xi, wi) in gauss_legendre(20) {
+                let k = t.constant(xi);
+                let off = t.push(Op::F2(F2::Mul, half, k));
+                let x = t.push(Op::F2(F2::Add, mid, off));
+                self.bound.insert(var.clone(), x);
+                let f = self.expr(&args[0].value, t);
+                let f = match f {
+                    Ok(f) => f,
+                    Err(e) => {
+                        self.bound.remove(var);
+                        return Err(e);
+                    }
+                };
+                let w = t.constant(wi);
+                let wf = t.push(Op::F2(F2::Mul, w, f));
+                acc = Some(match acc {
+                    None => wf,
+                    Some(p) => t.push(Op::F2(F2::Add, p, wf)),
+                });
+            }
+            match saved {
+                Some(n) => self.bound.insert(var.clone(), n),
+                None => self.bound.remove(var),
+            };
+            return Ok(t.push(Op::F2(F2::Mul, half, acc.unwrap())));
+        }
         // ---- unrolled reductions: sum(expr, i=a, b)
         if (name == "sum" || name == "product") && args.len() == 3 && args[1].name.is_some() {
             let var = canon(args[1].name.as_ref().unwrap());
@@ -1049,6 +1571,15 @@ impl Lower<'_, '_> {
                 let f = if name == "min" { F2::Min } else { F2::Max };
                 return Ok(v[1..].iter().fold(v[0], |acc, x| t.push(Op::F2(f, acc, *x))));
             }
+            "average" => {
+                if args.is_empty() {
+                    return Err(err(format!("{display}() needs arguments"), span));
+                }
+                let v: Vec<u32> = args.iter().map(|a| self.expr(&a.value, t)).collect::<Result<_, _>>()?;
+                let s = v[1..].iter().fold(v[0], |acc, x| t.push(Op::F2(F2::Add, acc, *x)));
+                let n = t.constant(v.len() as f64);
+                return Ok(t.push(Op::F2(F2::Div, s, n)));
+            }
             "pow" | "atan2" | "mod" => {
                 let a = self.positional(args, 2, display, span, t)?;
                 let f = match name {
@@ -1072,6 +1603,10 @@ impl Lower<'_, '_> {
             }
             _ => {}
         }
+        // ---- lookup tables
+        if matches!(name, "lookup" | "interpolate" | "interpolate1" | "interpolate2" | "interpolate3" | "interpolate2dm") {
+            return self.table_call(name, display, args, span, t);
+        }
         // ---- thermophysical properties
         if let Some(r) = self.property_call(name, display, args, span, t)? {
             return Ok(r);
@@ -1089,8 +1624,82 @@ impl Lower<'_, '_> {
         Err(err(format!("unknown function '{display}'"), span))
     }
 
+    /// `lookup`, `interpolate`, `interpolate1/2/3`, `interpolate2dm`.
+    fn table_call(&mut self, name: &str, display: &str, args: &[Arg], span: Span, t: &mut Tape) -> Result<u32, Diagnostic> {
+        use crate::lookup::{Kind, TableCall};
+        let Some(first) = args.first() else {
+            return Err(err(format!("{display}('table', ...): give the table (a CSV file) first"), span));
+        };
+        let tname = self.str_arg(first)?;
+        let table = self.b.table(&tname, first.value.span())?;
+        let label = format!("{display}('{tname}')");
+        let is_text = |a: &Arg| matches!(&a.value, Expr::Str { .. }) || matches!(&a.value, Expr::Var { name, idx, .. } if idx.is_empty() && name.ends_with('$'));
+        let (kind, nodes) = match name {
+            "lookup" => {
+                if args.len() != 3 || args.iter().any(|a| a.name.is_some()) {
+                    return Err(err(format!("{display}('table', row, column) takes three arguments"), span));
+                }
+                let row = self.expr(&args[1].value, t)?;
+                if is_text(&args[2]) {
+                    let c = table.col(&self.str_arg(&args[2])?).map_err(|e| err(e, args[2].value.span()))?;
+                    (Kind::Lookup(Some(c)), vec![row])
+                } else {
+                    let col = self.expr(&args[2].value, t)?;
+                    (Kind::Lookup(None), vec![row, col])
+                }
+            }
+            "interpolate2dm" => {
+                if args.len() != 3 || args.iter().any(|a| a.name.is_some()) {
+                    return Err(err(format!("{display}('table', x, y) takes three arguments"), span));
+                }
+                (Kind::Grid, vec![self.expr(&args[1].value, t)?, self.expr(&args[2].value, t)?])
+            }
+            _ => {
+                let order = match name {
+                    "interpolate1" => 1,
+                    "interpolate2" => 2,
+                    _ => 3,
+                };
+                let usage = format!("{display}('table', 'ColA', 'ColB', ColB=value [, first row, last row])");
+                if !(4..=6).contains(&args.len()) || args[1].name.is_some() || args[2].name.is_some() {
+                    return Err(err(usage, span));
+                }
+                let c1 = table.col(&self.str_arg(&args[1])?).map_err(|e| err(e, args[1].value.span()))?;
+                let c2 = table.col(&self.str_arg(&args[2])?).map_err(|e| err(e, args[2].value.span()))?;
+                let known = args[3].name.as_deref().ok_or_else(|| err(usage.clone(), args[3].value.span()))?;
+                let k = table.col(known).map_err(|e| err(e, args[3].value.span()))?;
+                let out = if k == c1 {
+                    c2
+                } else if k == c2 {
+                    c1
+                } else {
+                    return Err(err(format!("{display}: '{known}' must be one of the two columns named before"), args[3].value.span()));
+                };
+                let n = table.rows();
+                let row = |a: Option<&Arg>, default: usize| -> Result<usize, Diagnostic> {
+                    match a {
+                        None => Ok(default),
+                        Some(a) => {
+                            let v = self.b.const_eval(&a.value, &self.env).ok_or_else(|| err("first and last row must be constants", a.value.span()))?;
+                            Ok(v.round().max(0.0) as usize)
+                        }
+                    }
+                };
+                let lo = row(args.get(4), 1)?.max(1);
+                let hi = row(args.get(5), n)?;
+                let hi = if hi == 0 || hi > n { n } else { hi };
+                if hi < lo + 1 {
+                    return Err(err(format!("{display}: rows {lo}..{hi} hold fewer than two points"), span));
+                }
+                (Kind::Interp(k, out, order, lo - 1, hi), vec![self.expr(&args[3].value, t)?])
+            }
+        };
+        Ok(ext(t, Arc::new(TableCall { label, table, kind }), &nodes))
+    }
+
     fn fluid_arg(&self, a: &Arg) -> Result<String, Diagnostic> {
         match &a.value {
+            Expr::Var { display, idx, span, .. } if idx.is_empty() && a.name.is_none() && display.ends_with('$') => self.b.string_var(display, *span),
             Expr::Var { display, idx, .. } if idx.is_empty() && a.name.is_none() => Ok(display.clone()),
             Expr::Str { value, .. } => Ok(value.clone()),
             other => Err(err("expected a fluid name (e.g. CO2, Water, R134a, CO2::Ideal or 'IF97::Water')", other.span())),
@@ -1100,6 +1709,7 @@ impl Lower<'_, '_> {
     fn str_arg(&self, a: &Arg) -> Result<String, Diagnostic> {
         match &a.value {
             Expr::Str { value, .. } => Ok(value.clone()),
+            Expr::Var { display, idx, span, .. } if idx.is_empty() && display.ends_with('$') => self.b.string_var(display, *span),
             Expr::Var { display, idx, .. } if idx.is_empty() => Ok(display.clone()),
             other => Err(err("expected a string", other.span())),
         }
@@ -1115,7 +1725,7 @@ impl Lower<'_, '_> {
     fn property_call(&mut self, name: &str, display: &str, args: &[Arg], span: Span, t: &mut Tape) -> Result<Option<u32>, Diagnostic> {
         let us = self.b.m.unit_system.clone();
         // ---- EES humid air: enthalpy(AirH2O, T=, P=, w=), humrat(AirH2O, ...), ...
-        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| props::split_model(&f).0.eq_ignore_ascii_case("airh2o"));
+        let air_h2o = args.first().and_then(|a| self.fluid_arg(a).ok()).is_some_and(|f| props::is_humid_air(props::split_model(&f).0));
         // `Fluid::Ideal` has no saturation states
         let no_ideal = |fluid: &str| -> Result<(), Diagnostic> {
             if props::split_model(fluid).1 == props::Model::Ideal {
@@ -1161,6 +1771,38 @@ impl Lower<'_, '_> {
             }
             return Ok(Some(t.push(Op::F2(F2::Sub, h[0], h[1]))));
         }
+        if matches!(name, "enthalpy_formation" | "lhv" | "hhv") {
+            // per kg of the fluid or mixture, a constant
+            let [f] = args else { return Err(err(format!("{display}(Fluid) takes the fluid (or a mixture 'A[x]&B[y]') only"), span)) };
+            let fluid = self.fluid_arg(f)?;
+            let d = crate::combustion::molar(&fluid).map_err(|e| err(format!("{display}: {e}"), span))?;
+            let per_mol = match name {
+                "enthalpy_formation" => d.hf,
+                "lhv" => d.lhv,
+                _ => d.hhv,
+            };
+            // kJ/mol / (g/mol) = 1e6 J/kg; per kmol in a molar unit system
+            let (si, dim) = if us.molar { (per_mol * 1e3, Dim::MOLAR_ENERGY) } else { (per_mol / d.m * 1e6, Dim::SPEC_ENERGY) };
+            let v = us.unit_for(dim).from_si(si);
+            let n = t.constant(v);
+            self.const_dims.push((n, dim));
+            return Ok(Some(n));
+        }
+        if name == "normalboilingpt" {
+            // T_sat at 1 atm, a constant of the fluid
+            let [f] = args else { return Err(err(format!("{display}(Fluid) takes the fluid only"), span)) };
+            let fluid = self.fluid_arg(f)?;
+            self.check_fluid(&fluid, span)?;
+            no_ideal(&fluid)?;
+            let base = props::split_model(&fluid).0;
+            let pc = PropCall::new(format!("{display}({base})"), base, Key::T, vec![Key::P, Key::Q], Some(&us)).map_err(|e| err(e, span))?;
+            use crate::funcs::ExtFn;
+            let p = us.unit_for(Dim::PRESSURE).from_si(101_325.0);
+            let v = pc.eval(&[p, 0.0]).map_err(|e| err(e, span))?;
+            let n = t.constant(v);
+            self.const_dims.push((n, Dim::TEMP));
+            return Ok(Some(n));
+        }
         let sat = match name {
             "t_sat" => Some((Key::T, Key::P)),
             "p_sat" => Some((Key::P, Key::T)),
@@ -1183,7 +1825,10 @@ impl Lower<'_, '_> {
                 return Err(err(format!("{display}() needs a fluid as first argument"), span));
             }
             let fluid = self.fluid_arg(&args[0])?;
-            self.check_fluid(&fluid, span)?;
+            let mixture = fluid.contains('&');
+            if !mixture {
+                self.check_fluid(&fluid, span)?;
+            }
             let mut keys = Vec::new();
             let mut nodes = Vec::new();
             for a in &args[1..] {
@@ -1194,7 +1839,7 @@ impl Lower<'_, '_> {
                 keys.push(k);
                 nodes.push(self.expr(&a.value, t)?);
             }
-            let trivial = matches!(out, Key::MolarMass | Key::Tcrit | Key::Pcrit);
+            let trivial = out.is_fluid_constant();
             // property model: `Fluid::Ideal`, `Fluid::Real`, or from the number of inputs
             let (base, model) = props::split_model(&fluid);
             let ideal = match model {
@@ -1202,6 +1847,22 @@ impl Lower<'_, '_> {
                 props::Model::Real => false,
                 props::Model::Auto => keys.len() == 1 && out != Key::SurfTension,
             };
+            if mixture && self.b.opts.check_fluids {
+                // the ideal-gas mixture needs its components only; the real
+                // one also the binary interaction parameters of every pair
+                if ideal && !trivial {
+                    for c in props::coolprop_fluid(base).trim_start_matches("HEOS::").split('&') {
+                        self.check_fluid(c.split('[').next().unwrap_or(c), span)?;
+                    }
+                } else if let Err(e) = props::backend::check_fluid(&props::coolprop_fluid(&fluid)) {
+                    let hint = if e.contains("binary pair") {
+                        format!("; CoolProp has no interaction parameters for that pair: the ideal-gas mixture {display}('{base}::Ideal', ...) needs none")
+                    } else {
+                        String::new()
+                    };
+                    return Err(err(format!("{e}{hint}"), span));
+                }
+            }
             if trivial {
                 if !keys.is_empty() {
                     return Err(err(format!("{display}(Fluid) takes no state inputs"), span));
@@ -1233,7 +1894,7 @@ impl Lower<'_, '_> {
                 let v = pc.eval(&[]).map_err(|e| err(e, span))?;
                 let n = t.constant(v);
                 // molarmass(Fluid) is kg/kmol, Tcrit a temperature, ...
-                self.const_dims.push((n, out.dim()));
+                self.const_dims.push((n, if us.molar { out.molar_dim() } else { out.dim() }));
                 return Ok(Some(n));
             }
             return Ok(Some(ext(t, Arc::new(pc), &nodes)));

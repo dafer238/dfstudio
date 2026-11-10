@@ -622,7 +622,7 @@ impl StudiesUi {
                 for (k, r) in g.rows.iter().enumerate().filter(|(_, r)| r.matching) {
                     src.push_str(&format!("\n__match_{k} = ({}) - ({})\n", r.target, r.other));
                 }
-                let m2 = Arc::new(dfcore::compile(&src, &dfcore::CompileOptions { unit_system: Some(m.unit_system.clone()), check_fluids: false }));
+                let m2 = Arc::new(dfcore::compile(&src, &dfcore::CompileOptions { unit_system: Some(m.unit_system.clone()), check_fluids: false, files: Default::default() }));
                 let mut targets = Vec::new();
                 for (k, r) in g.rows.iter().enumerate() {
                     if r.matching {
