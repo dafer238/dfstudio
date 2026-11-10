@@ -312,6 +312,18 @@ pub struct Row {
 pub struct Section {
     pub title: String,
     pub rows: Vec<Row>,
+    /// Why the section has no rows (shown instead of the table).
+    pub missing: String,
+}
+
+impl Section {
+    fn new(title: &str, rows: Vec<Row>) -> Self {
+        Section { title: title.into(), rows, missing: String::new() }
+    }
+    /// Placeholder of a section that cannot be computed yet.
+    fn missing(title: &str, why: &str) -> Self {
+        Section { title: title.into(), rows: Vec::new(), missing: why.into() }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -335,6 +347,11 @@ pub struct Chart {
     /// Full-height vertical markers (x, y of the annotation, annotation,
     /// colour), e.g. the pinch.
     pub vlines: Vec<(f64, f64, String, [u8; 3])>,
+    /// Stable identity of the chart across components (the title may name
+    /// the fluid); empty: the title.
+    pub key: &'static str,
+    /// Why the chart cannot be drawn (shown instead of the plot).
+    pub missing: String,
 }
 
 #[derive(Clone, Debug)]
@@ -818,6 +835,8 @@ pub fn ua_pinch(pr: &[(f64, f64, f64)]) -> (f64, f64) {
     (if pinch > 0.0 { ua } else { f64::NAN }, pinch)
 }
 
+const TQ_TITLE: &str = "T-Q diagram (counter-flow)";
+
 /// Compute the report of component `id`.
 pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -> Report {
     let fm = Fmt { inp };
@@ -835,6 +854,25 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
         }
     }
     let t0 = d.t0;
+    let solved = inp.analysis.solution.is_some();
+    // reason shown in a tab that cannot be filled (an unsolved model has no states)
+    let need = |why: &str| -> String {
+        if solved {
+            why.into()
+        } else {
+            "Solve the model to see this.".into()
+        }
+    };
+    const CONNECT2: &str = "Connect the inlet and outlet streams (with state numbers).";
+    const CONNECT4: &str = "Connect the four streams (hot in/out, cold in/out) with state numbers.";
+    const NEED_FLUID: &str = "Needs the fluid of the streams (Stream > Fluid) to evaluate properties.";
+    // the process path on the selected property diagram, or why it is missing
+    let proc_chart = |r: &mut Report, ch: Option<Chart>, why: &str| {
+        r.charts.push(match ch {
+            Some(ch) => Chart { key: "process", ..ch },
+            None => Chart { title: format!("{} diagram", diag.label()), key: "process", missing: need(why), ..Default::default() },
+        })
+    };
     let p_ = |k: usize| ps.get(k).and_then(|s| s.as_ref());
     let mflow = |a: &St, b: &St| if a.m.is_finite() { a.m } else { b.m };
     // entropy generation of the component (adiabatic unless q_loss given)
@@ -851,21 +889,45 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
         let sg = sgen(q_loss);
         if sg.is_finite() {
             let pw = Dim::POWER;
-            r.sections.push(Section {
-                title: "Second law".into(),
-                rows: vec![
+            r.sections.push(Section::new(
+                "Second law",
+                vec![
                     fm.num("Entropy generation S_gen", sg / 1000.0, "kW/K", "sum m s (out - in) + Q_loss/T0"),
                     fm.row("Exergy destruction T0 S_gen", pw, t0 * sg, &format!("T0 = {:.2} K (Gouy–Stodola)", t0)),
                 ],
-            });
+            ));
+        } else {
+            r.sections.push(Section::missing("Second law", &need("Needs the entropy of every port: connect all streams with state numbers and set their fluid.")));
         }
     };
     let pw = Dim::POWER;
     let pr = Dim::PRESSURE;
     match c.kind.base() {
         Kind::Turbine | Kind::Compressor | Kind::Pump => {
+            let shaft: Vec<String> = d
+                .comps
+                .iter()
+                .filter(|g| matches!(g.kind, Kind::Generator | Kind::Motor))
+                .filter(|g| shaft_machines(d, g.id).0.contains(&id))
+                .map(|g| format!("{} ({})", g.label, g.kind.name()))
+                .collect();
+            let shaft = Section::new(
+                "Shaft",
+                vec![Row {
+                    label: "Connected to".into(),
+                    value: if shaft.is_empty() { "—".into() } else { shaft.join(", ") },
+                    unit: String::new(),
+                    note: "set in the generator / motor".into(),
+                }],
+            );
             let (Some(i), Some(o)) = (p_(0), p_(1)) else {
-                r.notes.push("Connect the inlet and outlet streams (with state numbers).".into());
+                r.notes.push(CONNECT2.into());
+                for t in ["Performance", "Sizing"] {
+                    r.sections.push(Section::missing(t, &need(CONNECT2)));
+                }
+                r.sections.push(shaft);
+                second_law(&mut r, f64::NAN);
+                proc_chart(&mut r, None, CONNECT2);
                 return r;
             };
             let m = mflow(i, o);
@@ -897,7 +959,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             } else {
                 r.notes.push("Isentropic efficiency needs the stream fluid (Stream > Fluid) and P, h arrays.".into());
             }
-            r.sections.push(Section { title: "Performance".into(), rows: perf });
+            r.sections.push(Section::new("Performance", perf));
             // sizing
             let (vi, vo) = (i.derived(Key::V), o.derived(Key::V));
             let mut size = Vec::new();
@@ -913,39 +975,30 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                     }
                 }
             }
-            if !size.is_empty() {
-                r.sections.push(Section { title: "Sizing".into(), rows: size });
-            }
-            // shaft
-            let shaft: Vec<String> = d
-                .comps
-                .iter()
-                .filter(|g| matches!(g.kind, Kind::Generator | Kind::Motor))
-                .filter(|g| shaft_machines(d, g.id).0.contains(&id))
-                .map(|g| format!("{} ({})", g.label, g.kind.name()))
-                .collect();
-            r.sections.push(Section {
-                title: "Shaft".into(),
-                rows: vec![Row {
-                    label: "Connected to".into(),
-                    value: if shaft.is_empty() { "—".into() } else { shaft.join(", ") },
-                    unit: String::new(),
-                    note: "set in the generator / motor".into(),
-                }],
+            r.sections.push(if size.is_empty() {
+                Section::missing("Sizing", &need("Needs the specific volume of the streams: set their fluid (Stream > Fluid)."))
+            } else {
+                Section::new("Sizing", size)
             });
+            r.sections.push(shaft);
             second_law(&mut r, f64::NAN);
-            if let Some(ch) = process_chart(
+            let ch = process_chart(
                 &fm,
                 diag,
                 &[(if turb { "expansion" } else { "compression" }, i, o, Proc::Polytropic(c.kind.base() != Kind::Pump), if turb { HOT_C } else { COLD_C })],
                 Some((i, o.p)),
-            ) {
-                r.charts.push(ch);
-            }
+            );
+            proc_chart(&mut r, ch, NEED_FLUID);
         }
         Kind::HeatExchanger => {
             let (Some(hi), Some(ho), Some(ci), Some(co)) = (p_(0), p_(1), p_(2), p_(3)) else {
-                r.notes.push("Connect the four streams (hot in/out, cold in/out) with state numbers.".into());
+                r.notes.push(CONNECT4.into());
+                for t in ["Heat transfer", "Sizing", "Pressure drops"] {
+                    r.sections.push(Section::missing(t, &need(CONNECT4)));
+                }
+                second_law(&mut r, f64::NAN);
+                r.charts.push(Chart { title: TQ_TITLE.into(), missing: need(CONNECT4), ..Default::default() });
+                proc_chart(&mut r, None, CONNECT4);
                 return r;
             };
             let (mh, mc) = (mflow(hi, ho), mflow(ci, co));
@@ -972,7 +1025,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             rows.push(fm.dt("Cold-end approach T_ho - T_ci", d2, ""));
             let lmtd = if (d1 - d2).abs() < 1e-9 { d1 } else { (d1 - d2) / (d1 / d2).ln() };
             rows.push(fm.dt("LMTD (counter-flow, end temperatures)", lmtd, ""));
-            r.sections.push(Section { title: "Heat transfer".into(), rows });
+            r.sections.push(Section::new("Heat transfer", rows));
             let mut size = Vec::new();
             if let Some(pr_) = tq_profile(hi, ho, ci, co, TQ_STEPS) {
                 let (ua, pinch) = ua_pinch(&pr_);
@@ -1027,7 +1080,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 );
                 r.charts.push(Chart {
                     vlines: vec![vl],
-                    title: "T-Q diagram (counter-flow)".into(),
+                    title: TQ_TITLE.into(),
                     x_label: format!("Q [{}]", xu.symbol),
                     y_label: format!("T [{}]", yu.symbol),
                     lines: vec![
@@ -1059,11 +1112,16 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                     r.notes.push("A stream without a known fluid is drawn linear in h (constant cp).".into());
                 }
             }
-            if !size.is_empty() {
-                r.sections.push(Section { title: "Sizing".into(), rows: size });
+            let tq_missing = "The T-Q profile needs a positive duty on both sides: finite flows and enthalpies, with the hot stream cooling and the cold one heating.";
+            if size.is_empty() {
+                r.sections.push(Section::missing("Sizing", &need(tq_missing)));
+                r.charts.push(Chart { title: TQ_TITLE.into(), missing: need(tq_missing), ..Default::default() });
+            } else {
+                r.sections.push(Section::new("Sizing", size));
             }
             r.sections.push(Section {
                 title: "Pressure drops".into(),
+                missing: String::new(),
                 rows: vec![
                     fm.row("Hot side dP", pr, hi.p - ho.p, ""),
                     fm.pct("Hot side dP/P_in", (hi.p - ho.p) / hi.p, ""),
@@ -1072,13 +1130,20 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 ],
             });
             second_law(&mut r, loss);
-            if let Some(ch) = process_chart(&fm, diag, &[("hot", hi, ho, Proc::Linear, HOT_C), ("cold", ci, co, Proc::Linear, COLD_C)], None) {
-                r.charts.push(ch);
-            }
+            let ch = process_chart(&fm, diag, &[("hot", hi, ho, Proc::Linear, HOT_C), ("cold", ci, co, Proc::Linear, COLD_C)], None);
+            proc_chart(&mut r, ch, NEED_FLUID);
         }
         Kind::Heater | Kind::Cooler | Kind::Pipe | Kind::Valve => {
             let (Some(i), Some(o)) = (p_(0), p_(1)) else {
-                r.notes.push("Connect the inlet and outlet streams (with state numbers).".into());
+                r.notes.push(CONNECT2.into());
+                r.sections.push(Section::missing("Performance", &need(CONNECT2)));
+                if matches!(c.kind.base(), Kind::Valve | Kind::Pipe) {
+                    second_law(&mut r, f64::NAN);
+                }
+                if c.kind.base() == Kind::Valve {
+                    r.sections.push(Section::missing("Energy balance", &need(CONNECT2)));
+                }
+                proc_chart(&mut r, None, CONNECT2);
                 return r;
             };
             let m = mflow(i, o);
@@ -1112,7 +1177,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                     rows.push(fm.num("Velocity (inlet)", m / (rho * area), "m/s", &format!("D = {} m", fmt_sig(dia))));
                 }
             }
-            r.sections.push(Section { title: "Performance".into(), rows });
+            r.sections.push(Section::new("Performance", rows));
             if matches!(c.kind.base(), Kind::Valve | Kind::Pipe) {
                 second_law(&mut r, if c.kind.base() == Kind::Pipe { -q } else { 0.0 });
             }
@@ -1121,9 +1186,8 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                 Kind::Cooler => COLD_C,
                 _ => GREEN,
             };
-            if let Some(ch) = process_chart(&fm, diag, &[(c.kind.name(), i, o, if c.kind.base() == Kind::Valve { Proc::Throttle } else { Proc::Linear }, col)], None) {
-                r.charts.push(ch);
-            }
+            let ch = process_chart(&fm, diag, &[(c.kind.name(), i, o, if c.kind.base() == Kind::Valve { Proc::Throttle } else { Proc::Linear }, col)], None);
+            proc_chart(&mut r, ch, NEED_FLUID);
         }
         Kind::Mixer | Kind::Splitter => {
             let ins: Vec<&St> = ps.iter().enumerate().filter(|(k, _)| pl[*k].inlet).filter_map(|(_, s)| s.as_ref()).collect();
@@ -1144,7 +1208,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             } else if ins.len() == 2 {
                 rows.push(fm.dt("Inlet temperature difference", ins[0].t - ins[1].t, "0 for isothermal mixing"));
             }
-            r.sections.push(Section { title: "Balances".into(), rows });
+            r.sections.push(Section::new("Balances", rows));
             if c.kind.base() == Kind::Mixer {
                 second_law(&mut r, f64::NAN);
             }
@@ -1153,6 +1217,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
             let (wi, wo, ai, ao) = (p_(0), p_(1), p_(2), p_(3));
             let (Some(wi), Some(wo)) = (wi, wo) else {
                 r.notes.push("Connect the water inlet and outlet streams.".into());
+                r.sections.push(Section::missing("Performance", &need("Connect the water inlet and outlet streams (with state numbers).")));
                 return r;
             };
             let range = wi.t - wo.t;
@@ -1199,7 +1264,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                     rows.push(fm.pct("Fan power / heat rejected", wf / q, ""));
                 }
             }
-            r.sections.push(Section { title: "Performance".into(), rows });
+            r.sections.push(Section::new("Performance", rows));
         }
         Kind::Generator | Kind::Motor => {
             let (ids, auto) = shaft_machines(d, id);
@@ -1263,7 +1328,7 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
                     ("to the fluid (shaft)".into(), u.from_si(w_mech), COLD_C),
                 ];
             }
-            r.sections.push(Section { title: "Energy conversion".into(), rows });
+            r.sections.push(Section::new("Energy conversion", rows));
             let u = fm.unit(pw);
             r.charts.push(Chart { title: "Energy chain".into(), x_label: String::new(), y_label: format!("Power [{}]", u.symbol), bars, ..Default::default() });
         }
@@ -1272,8 +1337,12 @@ pub fn report(d: &CycleDiagram, inp: &CycleInputs, id: u32, diag: PathDiagram) -
     // energy balance of components with streams only
     if !r.streams.is_empty() && !matches!(c.kind.base(), Kind::Turbine | Kind::Compressor | Kind::Pump | Kind::Heater | Kind::Cooler | Kind::Pipe | Kind::Source | Kind::Sink) {
         let e: f64 = r.streams.iter().map(|s| if s.inlet { s.st.m * s.st.h } else { -s.st.m * s.st.h }).sum();
-        if e.is_finite() && !matches!(c.kind.base(), Kind::Mixer | Kind::Splitter | Kind::HeatExchanger | Kind::CoolingTower) {
-            r.sections.push(Section { title: "Energy balance".into(), rows: vec![fm.row("sum m h (in - out)", pw, e, "")] });
+        if !matches!(c.kind.base(), Kind::Mixer | Kind::Splitter | Kind::HeatExchanger | Kind::CoolingTower) {
+            r.sections.push(if e.is_finite() {
+                Section::new("Energy balance", vec![fm.row("sum m h (in - out)", pw, e, "")])
+            } else {
+                Section::missing("Energy balance", &need("Needs the flow and enthalpy of every connected stream."))
+            });
         }
     }
     r
@@ -1394,6 +1463,12 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
     for n in &r.notes {
         ui.label(RichText::new(n).small().weak());
     }
+    let why = |ui: &mut egui::Ui, t: &str| {
+        ui.label(RichText::new(t).italics().weak());
+    };
+    if view == Some(0) && r.streams.is_empty() {
+        why(ui, "No stream with a state number is connected to this component.");
+    }
     if show(0) && !r.streams.is_empty() {
         ui.strong("Streams");
         egui::ScrollArea::horizontal().id_salt(("sh", salt)).show(ui, |ui| {
@@ -1426,7 +1501,16 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
         if !show(i + 1) {
             continue;
         }
+        // the summary lists what is available; a tab of its own says what is missing
+        if view.is_none() && !sec.missing.is_empty() {
+            continue;
+        }
         ui.strong(&sec.title);
+        if !sec.missing.is_empty() {
+            why(ui, &sec.missing);
+            ui.add_space(6.0);
+            continue;
+        }
         egui::Grid::new(("sec", i, salt)).striped(true).num_columns(3).spacing([18.0, 6.0]).show(ui, |ui| {
             for row in &sec.rows {
                 ui.label(&row.label);
@@ -1439,11 +1523,11 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
     }
     let base = r.sections.len() + 1;
     for (i, ch) in r.charts.iter().enumerate() {
-        if !show(base + i) {
+        if !show(base + i) || (view.is_none() && !ch.missing.is_empty()) {
             continue;
         }
         ui.strong(&ch.title);
-        if !ch.lines.is_empty() && ch.title.contains("diagram —") {
+        if ch.key == "process" {
             egui::ComboBox::from_id_salt(("diag", salt, i)).selected_text(diag.label()).show_ui(ui, |ui| {
                 for p in PathDiagram::ALL {
                     if ui.selectable_value(diag, p, p.label()).changed() {
@@ -1452,7 +1536,11 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
                 }
             });
         }
-        chart(ui, ch, (salt, i), view.is_some());
+        if ch.missing.is_empty() {
+            chart(ui, ch, (salt, i), view.is_some());
+        } else {
+            why(ui, &ch.missing);
+        }
         ui.add_space(6.0);
     }
     changed

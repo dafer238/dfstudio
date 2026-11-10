@@ -6,6 +6,13 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Changed
+- Cycle diagram, Components tab: the selected sub-tab (for example the T-Q
+  diagram) stays selected when another component is picked in the list.
+  Each component kind always shows all its sub-tabs; one that cannot be
+  computed yet says what it needs (solve the model, connect the streams,
+  set the stream fluid).
+
 ## [1.3.0] - 2026-11-10
 
 ### Added

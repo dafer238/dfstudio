@@ -350,6 +350,40 @@ mod tests {
         }
     }
 
+    /// A component shows the same tabs whether or not it can be computed
+    /// (a tab without data says what it needs), so the selected tab is kept
+    /// when moving between components of a kind.
+    #[test]
+    fn component_tabs_do_not_depend_on_data() {
+        let tabs = |r: &crate::components::Report| -> Vec<String> {
+            r.sections.iter().map(|s| s.title.clone()).chain(r.charts.iter().map(|c| if c.key.is_empty() { c.title.clone() } else { c.key.into() })).collect()
+        };
+        for t in &ALL {
+            let d = (t.diagram)();
+            let du = HashMap::new();
+            let solved =
+                run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: true, solve_opts: Default::default(), warm: None, init: Default::default() });
+            let unsolved =
+                run(Request { gen: 1, text: t.script.into(), opts: Default::default(), solve: false, solve_opts: Default::default(), warm: None, init: Default::default() });
+            assert!(unsolved.solution.is_none());
+            let (a, b) = (
+                crate::cycle::CycleInputs { analysis: &solved, display_units: &du, script: t.script },
+                crate::cycle::CycleInputs { analysis: &unsolved, display_units: &du, script: t.script },
+            );
+            let mut by_kind: Vec<(crate::cycle::Kind, Vec<String>)> = Vec::new();
+            for c in &d.comps {
+                let diag = crate::components::PathDiagram::default();
+                let (ra, rb) = (crate::components::report(&d, &a, c.id, diag), crate::components::report(&d, &b, c.id, diag));
+                assert_eq!(tabs(&ra), tabs(&rb), "{}: {}", t.name, c.label);
+                assert!(rb.sections.iter().all(|s| !s.missing.is_empty() || s.title == "Shaft" || !s.rows.is_empty()), "{}: {}", t.name, c.label);
+                match by_kind.iter().find(|k| k.0 == c.kind) {
+                    Some(prev) => assert_eq!(prev.1, tabs(&ra), "{}: {} differs from another {:?}", t.name, c.label, c.kind),
+                    None => by_kind.push((c.kind, tabs(&ra))),
+                }
+            }
+        }
+    }
+
     /// The example studies run: every parametric row converges, the goal
     /// seek reaches its target and the optimisation finds an interior point.
     #[test]
