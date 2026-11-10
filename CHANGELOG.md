@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-10
+
 ### Added
 - Cycle diagram (Diagram and Components sub-tabs) and Plots: the sidebars
   can be hidden for a larger view, with `Ctrl+B` (left), `Ctrl+Shift+B`
@@ -438,7 +440,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/dafer238/dfstudio/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dafer238/dfstudio/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/dafer238/dfstudio/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dafer238/dfstudio/compare/v1.0.3...v1.1.0
