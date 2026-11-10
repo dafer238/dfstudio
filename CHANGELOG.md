@@ -6,6 +6,23 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Mixture editor: properties at a reference state chosen by the user
+  (15 °C and 101.325 kPa by default, ISO 13443): molar mass in kg/kmol,
+  density in kg/m³, cp in kJ/kg-K, and LHV and HHV in kJ/kg (also kJ/kmol
+  and MJ/Nm³) at the reference temperature, by Kirchhoff's law as in
+  ISO 6976.
+- Mixture editor: a flow of the mixture or of its flue gas in kg/s, kg/h,
+  t/h, kmol/s, kmol/h, Nm³/s, Nm³/h, Nm³/day or Sm³/h, shown in the other
+  units with the thermal input. 1 Nm³ is 44.61503 mol (ideal gas at 0 °C
+  and 101.325 kPa, DIN 1343).
+- Combustion products itemised: fuel, air and each product in mol %,
+  dry mol %, mass %, kmol, kg and Nm³ per second, hour or day, with the O2
+  content wet and dry and the water dew point of the flue gas.
+
+### Fixed
+- The button that clears the Library search showed a box instead of ×.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added
