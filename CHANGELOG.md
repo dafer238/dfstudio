@@ -6,6 +6,19 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-16
+
+### Fixed
+- Windows: DeltaF Studio did not start on computers without OpenGL 2.0,
+  such as virtual machines and remote sessions without a GPU ("egui_glow
+  requires opengl 2.0+"). It now falls back to Direct3D 12, with Windows'
+  software renderer when there is no GPU, and on other systems to Vulkan or
+  Metal.
+- `dfs` without arguments, `dfs --help` and `dfs --version` print the usage
+  or the version and exit with 0 (without arguments it used to exit with 2).
+  The release workflow now starts both executables without arguments, as
+  winget's validation does.
+
 ## [1.4.0] - 2026-11-10
 
 ### Added
