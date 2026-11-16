@@ -18,6 +18,11 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   or the version and exit with 0 (without arguments it used to exit with 2).
   The release workflow now starts both executables without arguments, as
   winget's validation does.
+- Occasional crash (double free or segmentation fault) when several
+  threads computed properties at the same time, for example in parallel
+  parametric tables: CoolProp creates its configuration on first use without
+  a lock, so two threads could both create it. It is now created once, when
+  CoolProp is loaded.
 
 ## [1.4.0] - 2026-11-10
 
