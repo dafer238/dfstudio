@@ -129,7 +129,23 @@ fn main() -> eframe::Result {
             _ => 1,
         });
     }
+    let file = std::env::args().nth(1);
+    // OpenGL (glow) first. Where it is not available, as on virtual machines
+    // and remote sessions without a GPU (Windows offers only OpenGL 1.1
+    // there), fall back to wgpu, which uses Direct3D 12 (with its software
+    // renderer) on Windows and Vulkan or Metal elsewhere.
+    match run(eframe::Renderer::Glow, file.clone()) {
+        Err(e) => {
+            eprintln!("OpenGL renderer unavailable ({e}); trying wgpu");
+            run(eframe::Renderer::Wgpu, file)
+        }
+        ok => ok,
+    }
+}
+
+fn run(renderer: eframe::Renderer, file: Option<String>) -> eframe::Result {
     let opts = eframe::NativeOptions {
+        renderer,
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("DeltaF Studio")
             .with_app_id("dfstudio")
@@ -138,6 +154,5 @@ fn main() -> eframe::Result {
             .with_min_inner_size([800.0, 500.0]),
         ..Default::default()
     };
-    let file = std::env::args().nth(1);
     eframe::run_native("DeltaF Studio", opts, Box::new(move |cc| Ok(Box::new(app::DfApp::new(cc, file)))))
 }

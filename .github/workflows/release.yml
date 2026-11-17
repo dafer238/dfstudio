@@ -214,6 +214,23 @@ jobs:
             if (-not (Test-Path "HKCU:\Software\Classes\$ext")) { throw "$ext not associated" }
           }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DeltaF Studio.lnk")) { throw "no Start menu entry" }
+          # winget's validation starts every installed executable without
+          # arguments, on a machine without a GPU, and flags any that exits
+          # with an error: a window must stay open, a command must exit 0
+          $bad = @()
+          foreach ($exe in 'dfstudio.exe', 'dfs.exe') {
+            $err = Join-Path $env:RUNNER_TEMP "$exe.err"
+            $p = Start-Process "$app\$exe" -PassThru -RedirectStandardError $err
+            if ($p.WaitForExit(15000)) {
+              Get-Content $err -ErrorAction SilentlyContinue
+              Write-Host "$exe exited with $($p.ExitCode)"
+              if ($p.ExitCode -ne 0 -or $exe -eq 'dfstudio.exe') { $bad += $exe }
+            } else {
+              Write-Host "$exe still running after 15 s"
+              Stop-Process -Id $p.Id -Force
+            }
+          }
+          if ($bad) { throw "failed when started without arguments: $bad" }
           Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
           # the uninstaller re-launches itself from %TEMP%, so -Wait returns early
           for ($i = 0; $i -lt 60 -and (Test-Path "$app\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
