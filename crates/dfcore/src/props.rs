@@ -1032,7 +1032,18 @@ pub mod backend {
                     continue;
                 }
                 match unsafe { CoolProp::new(&p) } {
-                    Ok(c) => return Lib(RwLock::new(c)),
+                    Ok(c) => {
+                        // CoolProp creates its configuration on first use
+                        // (`_get_config`) without a lock. Two threads doing
+                        // flashes under `shared_access` could each create it
+                        // and one free the other's (double free, SIGSEGV).
+                        // Setting a key to its default creates it here, once,
+                        // before any other thread can call CoolProp.
+                        let key = std::ffi::CString::new("ALTERNATIVE_REFPROP_PATH").unwrap();
+                        let val = std::ffi::CString::new("").unwrap();
+                        unsafe { c.set_config_string(key.as_ptr(), val.as_ptr()) };
+                        return Lib(RwLock::new(c));
+                    }
                     Err(e) => tried.push(format!("{} ({e})", p.display())),
                 }
             }

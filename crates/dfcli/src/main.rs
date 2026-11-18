@@ -16,12 +16,36 @@ use dfcore::dffile::{is_df, Artifact, DfFile, Results, Table};
 use dfcore::{compile, solver, CompileOptions, Severity, SolveOptions, UnitSystem, VarStatus};
 use std::process::ExitCode;
 
+const USAGE: &str = "DeltaF Studio command-line solver
+
+usage: dfs <run|check|info|pack|unpack|export> <file> [--units eng|si|si-kpa|imperial] [-o out.df] [--attach files...] [--project state.json] [--table name=file.csv ...]
+       dfs --version
+
+  run    model.dfs    solve and print the variables (.df projects too)
+  check  model.dfs    structural analysis only
+  info   model.df     list the sections of a project file
+  pack   model.dfs -o model.df    solve and save as a .df project
+  unpack model.df [dir]          extract script, results, tables and files
+  export model.dfs    print the simplified script";
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    // `dfs`, `dfs --help` and `dfs --version` succeed: package managers
+    // (winget) start every installed executable without arguments to check
+    // that it runs
+    match args.get(1).map(String::as_str) {
+        None | Some("-h" | "--help" | "help") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Some("-V" | "--version" | "version") => {
+            println!("dfs {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        _ => {}
+    }
     if args.len() < 3 {
-        eprintln!(
-            "usage: dfs <run|check|info|pack|unpack|export> <file> [--units eng|si|si-kpa|imperial] [-o out.df] [--attach files...] [--project state.json] [--table name=file.csv ...]"
-        );
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     }
     let cmd = args[1].as_str();
