@@ -22,6 +22,7 @@ mod studies_ui;
 mod support;
 mod templates;
 mod units_ui;
+mod varname;
 
 /// `dfstudio --report project.df report.pdf`: solve a project and write its
 /// cycle-diagram report without opening a window.

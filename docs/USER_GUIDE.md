@@ -143,6 +143,32 @@ folder of the source tree (`dfstudio --write-examples DIR`).
 The Equations tab has two sub-views: **Editor** and **Dependencies**
 (section 6.3).
 
+### 3.1 Variable names (View > Variable names)
+
+Outside the editor, variable names are typeset as in EES's formatted
+equations: `eta_th` shows as η with subscript th, `m_dot` as ṁ, `T[1]` as T
+with subscript 1. This applies to the Variables panel, the Solution tab
+(variables and arrays), Initial values, the Dependencies graph and panel,
+parametric table headers, study results, the cycle diagram and its PDF
+report, and plot axes, legends and read-outs. Text boxes, drop-down lists
+and selectors keep the names as written.
+
+| Written | Shown | Rule |
+|---|---|---|
+| `T_sat` | T with subscript sat | `_` starts a subscript |
+| `eta_is_t` | η with subscript is,t | further `_` parts join the same subscript |
+| `T_c__1` | T, subscript c, which has its own subscript 1 | `__` goes one level deeper (`___` two, ...) |
+| `x\|2`, `h\|o_f` | x², h° with subscript f | `\|` starts a superscript; a lone `o` is the degree sign; super- and subscripts of one symbol are stacked |
+| `eta`, `Delta_P` | η, Δ with subscript P | a part that is exactly a Greek letter's name; capitals only where they differ from Latin letters (`Nu` stays Nu) |
+| `m_dot`, `x_ddot`, `v_bar`, `u_hat`, `a_tilde`, `F_vec` | ṁ, ẍ, v̄, û, ã, F⃗ | accents on the symbol they follow (also inside a script: `W_c__dot`) |
+| `T_star`, `c_prime`, `T_infinity` | T*, c′, T with subscript ∞ | |
+| `T[1]`, `T_in[1,2]` | T₁, T with subscript in,1,2 | array indices are subscripts |
+
+*View > Variable names > As written* shows every name exactly as in the
+script, as before. *Show raw names too* adds a column with the name as
+written to the Variables panel and the Solution variables. Copied tables and
+CSV files always use the names as written.
+
 ## 4. Writing equations
 
 The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:

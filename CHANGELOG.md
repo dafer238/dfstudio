@@ -6,6 +6,18 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Variable names are typeset outside the editor, following EES's formatted
+  equations: Greek letters (`eta_th` → η with subscript th), subscripts
+  (`_`, several at one level or nested with `__`), superscripts (`|`,
+  `h|o_f` → h° with subscript f), accents (`m_dot` → ṁ, `_bar`, `_hat`,
+  `_tilde`, `_vec`, `_ddot`), `_star`, `_prime`, `_infinity` and array
+  indices (`T[1]` → T₁). They show in the Variables panel, Solution,
+  Initial values, Dependencies, parametric tables, the cycle diagram, its
+  PDF report and plot axes, legends and read-outs. *View > Variable names*
+  switches back to the names as written, or adds a column with them to the
+  Variables panel and the Solution variables.
+
 ### Fixed
 - Hiding a left sidebar now slides it smoothly into its thin strip, as on
   the right; before, the sidebar vanished halfway and the strip popped in
