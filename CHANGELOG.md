@@ -6,6 +6,20 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Custom units: any unit name that is not built in (`[EUR]`, `[EUR/yr]`,
+  `[kg-CO2/MWh]`, `[pax]`) is a custom unit, a dimension of its own that
+  combines with the physical units, is converted and is unit-checked.
+  SI prefixes are inferred from the other names in the script: with `EUR`
+  or `kEUR` used, `MEUR` is 10⁶ EUR. The first use of each gets an info note
+  with a button that adds a `$CustomUnits` line; `$CustomUnits a b` also
+  lets a script use names of built-in units (`a` is otherwise the ampere).
+  A name one letter away from a built-in unit gets a *did you mean* warning
+  (`kgg` → `kg`). The unit columns and *Units per quantity* offer the
+  custom units of the script and their k, M and G multiples.
+- Built-in units take SI prefixes not in the table: `Mt`, `kt`, `hPa`,
+  `kbar`, `nm`, `mA`.
+
 ### Fixed
 - Hiding a left sidebar now slides it smoothly into its thin strip, as on
   the right; before, the sidebar vanished halfway and the strip popped in

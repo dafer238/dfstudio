@@ -19,14 +19,7 @@ enum D {
 }
 
 fn half(d: Dim) -> Option<Dim> {
-    let mut r = [0i8; 7];
-    for i in 0..7 {
-        if d.0[i] % 2 != 0 {
-            return None;
-        }
-        r[i] = d.0[i] / 2;
-    }
-    Some(Dim(r))
+    d.half()
 }
 
 pub fn infer(m: &Model) -> (Vec<Option<Dim>>, Vec<u32>) {

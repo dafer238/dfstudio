@@ -292,8 +292,14 @@ $UnitSystem Eng            // or SI | Imperial | custom: SI C bar kJ  (also K kP
 $Guess h[2] = 300, T[5] = 400
 $Bounds x = 0 .. 1
 $Units T[*] = C, P[*] = bar, W_net = MW
+$CustomUnits EUR pax a          // custom units (optional; needed for names of built-in units, here `a`)
 $Control vary P[7] to make T_gas[2] = 333       // control loop (phase 4)
 ```
+
+Custom units: a unit name that is not built in (`[EUR/yr]`, `[MEUR]`,
+`[kg-CO2/MWh]`) is a custom unit, a dimension of its own, with SI prefixes
+when the unprefixed name (or another prefixed form) is also used. See the
+User guide, section 5.2.
 
 `MOLAR` in `$UnitSystem` gives the specific properties of the property
 functions per amount of substance, as in EES: h, u in kJ/kmol (J/mol in J
