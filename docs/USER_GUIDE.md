@@ -571,8 +571,9 @@ title, *Export PDF report…*, *Fit view*).
   component it snaps (within 15 px) so that a port lines up with the port it
   connects to, which gives straight streams.
 * Select a stream to set its **state number**, **colour** (fluid presets)
-  and **fluid** (auto: from the colour preset or the model's main fluid; or
-  a CoolProp name; or *none / mixture*).
+  and **fluid** (auto: the fluid the script evaluates that state with, as in
+  `enthalpy(Air, T=T[4], P=P[4])`, also inside `Duplicate`; else the colour
+  preset or the model's main fluid; or a CoolProp name; or *none / mixture*).
 * *Stream labels*, two styles:
   * **cross** (default, the usual heat-balance layout): four numbers around a cross,
     P | T over m | h, with the state number just above and a unit legend
@@ -671,7 +672,10 @@ Process paths are evaluated with CoolProp:
 
 A chart opened in its own tab of the Components view fills the panel.
 
-The saturation dome is drawn with 240 points. These profiles show what
+The saturation dome is drawn with 240 points, and only when the process is
+near it: the dome is left out when it lies farther from the process than the
+process's own extent on either axis (air compressed from 15 to 200 °C, dome
+below −140 °C), so the axes fit the process. These profiles show what
 happens inside the component, so an internal pinch or a temperature cross
 is visible even when the end temperatures look fine.
 Streams without a known fluid (e.g. a gas mixture defined by your own

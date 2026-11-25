@@ -206,21 +206,139 @@ pub fn main_fluid(script: &str) -> Option<String> {
     count.into_iter().max_by_key(|(_, n)| *n).map(|(f, _)| f)
 }
 
-/// Fluid of a stream and whether it was set explicitly: explicit, from its
-/// colour preset, or the model's main fluid.
-pub fn stream_fluid(l: &Link, default: &Option<String>) -> Option<String> {
-    stream_fluid_ex(l, default).map(|x| x.0)
+/// Automatic fluid of the streams: the fluid of each state number as
+/// evaluated in the script, and the model's main fluid.
+#[derive(Clone, Debug, Default)]
+pub struct FluidGuess {
+    pub main: Option<String>,
+    /// State `k` -> fluid named most often in property calls whose arguments
+    /// use a state variable of index `k` (`enthalpy(Air, T=T[4], P=P[4])`,
+    /// also inside `Duplicate i = 1, 6`).
+    pub states: BTreeMap<i64, String>,
 }
 
-pub(crate) fn stream_fluid_ex(l: &Link, default: &Option<String>) -> Option<(String, bool)> {
+impl FluidGuess {
+    pub fn new(inp: &CycleInputs) -> FluidGuess {
+        let b = bases(inp);
+        let state_bases: Vec<String> = [b.t, b.p, b.h, b.s].into_iter().flatten().collect();
+        // drawn every frame: parse the script only when it changes
+        thread_local! {
+            static CACHE: std::cell::RefCell<Option<(String, Vec<String>, FluidGuess)>> = const { std::cell::RefCell::new(None) };
+        }
+        CACHE.with(|c| {
+            let mut c = c.borrow_mut();
+            if let Some((s, bs, g)) = c.as_ref() {
+                if s == inp.script && *bs == state_bases {
+                    return g.clone();
+                }
+            }
+            let g = FluidGuess { main: main_fluid(inp.script), states: state_fluids(inp.script, &state_bases) };
+            *c = Some((inp.script.to_string(), state_bases, g.clone()));
+            g
+        })
+    }
+}
+
+/// Fluid used for each state number by the property calls of a script
+/// (see [`FluidGuess::states`]). `state_bases` are the canonical (lower
+/// case) names of the state arrays (`t`, `p`, `h`, `s`).
+pub fn state_fluids(script: &str, state_bases: &[String]) -> BTreeMap<i64, String> {
+    use dfcore::ast::{BinOp, Expr, Stmt};
+    type Env = Vec<(String, i64, i64)>;
+    /// Integer values an index expression takes over the enclosing loops.
+    fn index_values(e: &Expr, env: &Env) -> Vec<i64> {
+        match e {
+            Expr::Num { value, .. } if value.fract() == 0.0 => vec![*value as i64],
+            Expr::Var { name, idx, .. } if idx.is_empty() => env.iter().rev().find(|(v, ..)| v == name).map(|(_, a, b)| (*a..=*b).collect()).unwrap_or_default(),
+            Expr::Bin(op @ (BinOp::Add | BinOp::Sub), a, b, _) => {
+                let (va, vb) = (index_values(a, env), index_values(b, env));
+                match (va.len(), vb.len()) {
+                    (_, 1) => va.iter().map(|x| if *op == BinOp::Add { x + vb[0] } else { x - vb[0] }).collect(),
+                    (1, _) if *op == BinOp::Add => vb.iter().map(|x| x + va[0]).collect(),
+                    _ => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
+    fn fluid_name(e: &Expr) -> Option<String> {
+        let f = match e {
+            Expr::Var { display, idx, .. } if idx.is_empty() => display.clone(),
+            Expr::Str { value, .. } => value.clone(),
+            _ => return None,
+        };
+        (!f.is_empty() && f.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')).then_some(f)
+    }
+    fn visit(e: &Expr, env: &Env, bases: &[String], votes: &mut BTreeMap<i64, BTreeMap<String, usize>>) {
+        e.walk(&mut |n| {
+            let Expr::Call { name, args, .. } = n else { return };
+            if !dfcore::props::PROPERTY_FUNCTIONS.iter().any(|(f, _)| f == name) {
+                return;
+            }
+            let Some(fluid) = args.first().and_then(|a| fluid_name(&a.value)) else { return };
+            for a in &args[1..] {
+                a.value.walk(&mut |v| {
+                    if let Expr::Var { name, idx, .. } = v {
+                        if idx.len() == 1 && bases.iter().any(|b| b == name) {
+                            for k in index_values(&idx[0], env) {
+                                *votes.entry(k).or_default().entry(fluid.clone()).or_default() += 1;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+    fn stmts(ss: &[Stmt], env: &mut Env, bases: &[String], votes: &mut BTreeMap<i64, BTreeMap<String, usize>>) {
+        for s in ss {
+            match s {
+                Stmt::Equation { lhs, rhs, .. } => {
+                    visit(lhs, env, bases, votes);
+                    visit(rhs, env, bases, votes);
+                }
+                Stmt::Duplicate { var, from, to, body, .. } => {
+                    let (a, b) = (index_values(from, env), index_values(to, env));
+                    // loops with symbolic bounds are skipped (range unknown)
+                    if let (&[a], &[b]) = (a.as_slice(), b.as_slice()) {
+                        if b >= a && b - a < 10_000 {
+                            env.push((var.clone(), a, b));
+                            stmts(body, env, bases, votes);
+                            env.pop();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let prog = dfcore::parser::parse(script).program;
+    let mut votes = BTreeMap::new();
+    stmts(&prog.stmts, &mut Vec::new(), state_bases, &mut votes);
+    votes.into_iter().filter_map(|(k, v)| v.into_iter().max_by_key(|(_, n)| *n).map(|(f, _)| (k, f))).collect()
+}
+
+/// Fluid of a stream and whether it was set explicitly: explicit, the fluid
+/// the script evaluates its state with, its colour preset, or the model's
+/// main fluid. The script takes precedence over the colour, which is only a
+/// drawing hint (a red "exhaust gas" stream of an air-standard model is air).
+pub fn stream_fluid(l: &Link, guess: &FluidGuess) -> Option<String> {
+    stream_fluid_ex(l, guess).map(|x| x.0)
+}
+
+pub(crate) fn stream_fluid_ex(l: &Link, guess: &FluidGuess) -> Option<(String, bool)> {
     match l.fluid.trim() {
         "-" => None,
-        "" => match l.color {
-            Some([0, 60, 220]) | Some([230, 120, 0]) => Some(("Water".into(), false)),
-            Some([0, 150, 70]) => Some(("Air".into(), false)),
-            Some([220, 0, 0]) => None,
-            _ => default.clone().map(|f| (f, false)),
-        },
+        "" => {
+            if let Some(f) = l.state.and_then(|k| guess.states.get(&k)) {
+                return Some((f.clone(), false));
+            }
+            match l.color {
+                Some([0, 60, 220]) | Some([230, 120, 0]) => Some(("Water".into(), false)),
+                Some([0, 150, 70]) => Some(("Air".into(), false)),
+                Some([220, 0, 0]) => None,
+                _ => guess.main.clone().map(|f| (f, false)),
+            }
+        }
         f => Some((f.to_string(), true)),
     }
 }
@@ -500,13 +618,13 @@ pub fn shaft_machines(d: &CycleDiagram, gen: u32) -> (Vec<u32>, bool) {
 
 /// Streams at the ports of a component (port index -> state).
 fn port_states(d: &CycleDiagram, inp: &CycleInputs, b: &Bases, id: u32, kind: Kind) -> Vec<Option<St>> {
-    let default = main_fluid(inp.script);
+    let guess = FluidGuess::new(inp);
     ports(kind)
         .iter()
         .enumerate()
         .map(|(k, _)| {
             let l = d.links.iter().find(|l| l.from == (id, k) || l.to == (id, k))?;
-            Some(state(inp, b, l.state?, stream_fluid_ex(l, &default)))
+            Some(state(inp, b, l.state?, stream_fluid_ex(l, &guess)))
         })
         .collect()
 }
@@ -765,11 +883,13 @@ fn process_chart(fm: &Fmt, diag: PathDiagram, pairs: &[(&str, &St, &St, Proc, [u
     // dome of the main fluid (entropy and enthalpy on CoolProp's scale; the
     // offset of the first stream shifts enthalpies to the model scale)
     let off = pairs.iter().find(|p| p.1.fluid.as_deref() == Some(fluid.as_str())).map(|p| p.1.h_off).unwrap_or(0.0);
-    if let Ok(dm) = dfcore::diagrams::dome(&fluid, if x == Key::V { Key::V } else { x }, y, 240) {
+    let dome = dfcore::diagrams::dome(&fluid, if x == Key::V { Key::V } else { x }, y, 240).ok().map(|dm| {
         let fix = |c: Vec<[f64; 2]>| c.into_iter().map(|p| [if x == Key::H { p[0] + off } else { p[0] }, if y == Key::H { p[1] + off } else { p[1] }]).collect::<Vec<_>>();
-        ch.lines.push(ChartLine { name: "saturated liquid".into(), color: GREY, pts: tr(fix(dm.liquid)), dashed: false, markers: false });
-        ch.lines.push(ChartLine { name: "saturated vapour".into(), color: GREY, pts: tr(fix(dm.vapor)), dashed: false, markers: false });
-    }
+        [
+            ChartLine { name: "saturated liquid".into(), color: GREY, pts: tr(fix(dm.liquid)), dashed: false, markers: false },
+            ChartLine { name: "saturated vapour".into(), color: GREY, pts: tr(fix(dm.vapor)), dashed: false, markers: false },
+        ]
+    });
     let mut any = false;
     for (name, a, b, proc_, col) in pairs {
         let pts = path(a, b, x, y, *proc_, if matches!(proc_, Proc::Polytropic(_)) { 60 } else { 120 });
@@ -786,7 +906,39 @@ fn process_chart(fm: &Fmt, diag: PathDiagram, pairs: &[(&str, &St, &St, Proc, [u
             ch.lines.push(ChartLine { name: "isentropic".into(), color: GREY, pts: tr(pts), dashed: true, markers: false });
         }
     }
+    // the dome frames the plot only when the process is near it: a gas
+    // process far from saturation (air compressed from 15 to 200 C, dome
+    // below -140 C) would otherwise be a sliver at the edge of the axes
+    if let Some(dome) = dome {
+        if near_dome(&ch.lines, &dome, log_y) {
+            ch.lines.splice(0..0, dome);
+        }
+    }
     any.then_some(ch)
+}
+
+/// Bounding box of chart lines (`log_y`: in log10 of y).
+fn bbox<'a>(lines: impl IntoIterator<Item = &'a ChartLine>, log_y: bool) -> Option<[f64; 4]> {
+    let mut b = [f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY];
+    for p in lines.into_iter().flat_map(|l| l.pts.iter()) {
+        let y = if log_y { p[1].log10() } else { p[1] };
+        if p[0].is_finite() && y.is_finite() {
+            b = [b[0].min(p[0]), b[1].max(p[0]), b[2].min(y), b[3].max(y)];
+        }
+    }
+    (b[0] <= b[1] && b[2] <= b[3]).then_some(b)
+}
+
+/// Whether the saturation dome overlaps the process lines' box widened by
+/// its own size on each side (both axes). A dome that is not near is left
+/// out of the chart so the axes fit the process.
+fn near_dome(process: &[ChartLine], dome: &[ChartLine], log_y: bool) -> bool {
+    let (Some(p), Some(d)) = (bbox(process, log_y), bbox(dome, log_y)) else { return true };
+    let near = |lo: f64, hi: f64, dlo: f64, dhi: f64| {
+        let w = (hi - lo).max(1e-3 * hi.abs().max(lo.abs())).max(1e-12);
+        dlo <= hi + w && dhi >= lo - w
+    };
+    near(p[0], p[1], d[0], d[1]) && near(p[2], p[3], d[2], d[3])
 }
 
 /// T-Q profile of a counter-flow exchanger in `n` equal duty intervals plus
@@ -1358,7 +1510,7 @@ pub fn derived_lines(d: &CycleDiagram, inp: &CycleInputs, l: &Link) -> Vec<Strin
     }
     let Some(k) = l.state else { return Vec::new() };
     let b = bases(inp);
-    let st = state(inp, &b, k, stream_fluid_ex(l, &main_fluid(inp.script)));
+    let st = state(inp, &b, k, stream_fluid_ex(l, &FluidGuess::new(inp)));
     if !st.ok() {
         return Vec::new();
     }
@@ -1641,6 +1793,77 @@ mod tests {
 
     fn st(t: f64, h: f64) -> St {
         St { k: 0, fluid: None, m: 1.0, t, p: 1e5, h, s: f64::NAN, h_off: 0.0 }
+    }
+
+    #[test]
+    fn state_fluids_follow_property_calls() {
+        let bs: Vec<String> = ["t", "p", "h", "s"].map(String::from).to_vec();
+        let f = state_fluids(include_str!("../../../examples/brayton_recuperated.dfs"), &bs);
+        assert_eq!(f.keys().copied().collect::<Vec<_>>(), (1..=6).collect::<Vec<_>>());
+        assert!(f.values().all(|v| v == "Air"), "{f:?}");
+        // literal indices, index offsets in a loop, and other arrays ignored
+        let src = "T[1] = temperature(Water, P=P[1], h=h[1])\nDuplicate j = 2, 3\n h[j+1] = enthalpy(R134a, T=T[j+1], P=P[j+1])\nEnd\nh_g[1] = enthalpy(Air, T=T_g[1], P=1)";
+        let f = state_fluids(src, &bs);
+        assert_eq!(f.into_iter().collect::<Vec<_>>(), vec![(1, "Water".into()), (3, "R134a".into()), (4, "R134a".into())]);
+    }
+
+    /// Air-standard recuperated Brayton with the template flowsheet: the red
+    /// (exhaust) streams 4-6 are air because the script evaluates them as air.
+    #[test]
+    fn recuperated_brayton_template_streams_are_air() {
+        if backend::limits("Air").is_err() {
+            return;
+        }
+        let script = include_str!("../../../examples/brayton_recuperated.dfs");
+        let a = crate::analysis::run(crate::analysis::Request {
+            gen: 1,
+            text: script.into(),
+            opts: Default::default(),
+            solve: true,
+            solve_opts: Default::default(),
+            warm: None,
+            init: Default::default(),
+        });
+        assert!(a.solution.is_some());
+        let du = std::collections::HashMap::new();
+        let inp = CycleInputs { analysis: &a, display_units: &du, script };
+        let d = crate::templates::brayton_recuperated();
+        let guess = FluidGuess::new(&inp);
+        for l in &d.links {
+            assert_eq!(stream_fluid(l, &guess).as_deref(), Some("Air"), "state {:?}", l.state);
+        }
+        let id = |k: Kind| d.comps.iter().find(|c| c.kind == k).unwrap().id;
+        let rec = report(&d, &inp, id(Kind::HeatExchanger), PathDiagram::Ts);
+        assert!(rec.streams.iter().all(|s| s.st.fluid.is_some()));
+        assert!(rec.warnings.is_empty(), "{:?}", rec.warnings);
+        let tur = report(&d, &inp, id(Kind::Turbine), PathDiagram::Ts);
+        let eta = tur.sections.iter().flat_map(|s| &s.rows).find(|r| r.label == "Isentropic efficiency").expect("turbine efficiency");
+        assert!(eta.value.starts_with("88"), "{eta:?}");
+        // T-s of the compressor fits the process: the air dome (below
+        // -140 C) is far from 15 -> 200 C and is left out
+        let com = report(&d, &inp, id(Kind::Compressor), PathDiagram::Ts);
+        let ch = com.charts.iter().find(|c| c.key == "process").unwrap();
+        assert!(ch.missing.is_empty(), "{}", ch.missing);
+        assert!(!ch.lines.is_empty() && ch.lines.iter().all(|l| !l.name.starts_with("saturated")));
+    }
+
+    #[test]
+    fn dome_kept_near_the_process() {
+        if backend::limits("Water").is_err() {
+            return;
+        }
+        let line = |pts: Vec<[f64; 2]>| ChartLine { name: "p".into(), color: GREY, pts, dashed: false, markers: false };
+        let dm = dfcore::diagrams::dome("Water", Key::S, Key::T, 120).unwrap();
+        let dome = [line(dm.liquid), line(dm.vapor)];
+        // steam turbine 550 C / 150 bar to wet exhaust: inside the dome's box
+        let a = real("Water", 150e5, Some(823.15), None);
+        let b = outlet(&a, 0.1e5, 0.85);
+        assert!(near_dome(&[line(vec![[a.s, a.t], [b.s, b.t]])], &dome, false));
+        // superheated HP expansion above the critical temperature: still near
+        let c = outlet(&a, 30e5, 0.85);
+        assert!(near_dome(&[line(vec![[a.s, a.t], [c.s, c.t]])], &dome, false));
+        // hot gas-like process far above the dome
+        assert!(!near_dome(&[line(vec![[9000.0, 1500.0], [9100.0, 1600.0]])], &dome, false));
     }
 
     #[test]
