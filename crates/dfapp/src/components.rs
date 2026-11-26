@@ -535,7 +535,7 @@ impl Fmt<'_> {
     /// SI value -> (text, unit) in the model's unit system.
     fn q(&self, dim: Dim, si: f64) -> (String, String) {
         let u = self.unit(dim);
-        (fmt_sig(u.from_si(si)), if u.symbol == "-" { String::new() } else { u.symbol })
+        (crate::numfmt::fmt(u.from_si(si)), if u.symbol == "-" { String::new() } else { u.symbol })
     }
     fn row(&self, label: &str, dim: Dim, si: f64, note: &str) -> Row {
         let (v, u) = self.q(dim, si);
@@ -543,13 +543,13 @@ impl Fmt<'_> {
     }
     /// Temperature difference (K).
     fn dt(&self, label: &str, v: f64, note: &str) -> Row {
-        Row { label: label.into(), value: fmt_sig(v), unit: "K".into(), note: note.into() }
+        Row { label: label.into(), value: crate::numfmt::fmt(v), unit: "K".into(), note: note.into() }
     }
     fn pct(&self, label: &str, v: f64, note: &str) -> Row {
-        Row { label: label.into(), value: fmt_sig(100.0 * v), unit: "%".into(), note: note.into() }
+        Row { label: label.into(), value: crate::numfmt::fmt(100.0 * v), unit: "%".into(), note: note.into() }
     }
     fn num(&self, label: &str, v: f64, unit: &str, note: &str) -> Row {
-        Row { label: label.into(), value: fmt_sig(v), unit: unit.into(), note: note.into() }
+        Row { label: label.into(), value: crate::numfmt::fmt(v), unit: unit.into(), note: note.into() }
     }
     fn key_unit(&self, k: Key) -> dfcore::units::Unit {
         self.unit(k.dim())
@@ -1629,21 +1629,40 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
                     ui.strong(h);
                 }
                 ui.end_row();
-                for s in &r.streams {
+                // m, T, P, h, s, rho, cp of each stream, each column aligned
+                // on the decimal point
+                const UNITS: [&str; 7] = ["kg/s", "C", "bar", "kJ/kg", "kJ/kg-K", "kg/m3", "kJ/kg-K"];
+                let nums: Vec<[f64; 7]> = r
+                    .streams
+                    .iter()
+                    .map(|s| {
+                        let st = &s.st;
+                        [st.m, st.t - 273.15, st.p / 1e5, st.h / 1e3, st.s / 1e3, st.derived(Key::D), st.derived(Key::Cp) / 1e3]
+                    })
+                    .collect();
+                let cols: Vec<Vec<String>> = (0..7).map(|j| crate::numfmt::align(&nums.iter().map(|n| crate::numfmt::fmt(n[j])).collect::<Vec<_>>())).collect();
+                let cell = |ui: &mut egui::Ui, i: usize, j: usize| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.label(RichText::new(format!("{} ", cols[j][i])).monospace());
+                        if nums[i][j].is_finite() {
+                            crate::varname::line_label(ui, &[crate::varname::Seg::Unit(UNITS[j])], RichText::new(UNITS[j]).monospace(), None);
+                        }
+                    });
+                };
+                for (i, s) in r.streams.iter().enumerate() {
                     let st = &s.st;
                     ui.label(format!("{} ({})", s.port, if s.inlet { "in" } else { "out" }));
                     ui.label(st.k.to_string());
                     ui.label(st.fluid.clone().unwrap_or_else(|| "—".into()));
-                    for (v, unit) in [(st.m, "kg/s"), (st.t - 273.15, "C"), (st.p / 1e5, "bar"), (st.h / 1e3, "kJ/kg"), (st.s / 1e3, "kJ/kg-K")] {
-                        let t = if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() };
-                        crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace(), None);
+                    for j in 0..5 {
+                        cell(ui, i, j);
                     }
                     let (xq, dt) = st.phase().cells();
                     ui.label(RichText::new(xq).monospace());
                     ui.label(RichText::new(dt).monospace());
-                    for (v, unit) in [(st.derived(Key::D), "kg/m3"), (st.derived(Key::Cp) / 1e3, "kJ/kg-K")] {
-                        let t = if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() };
-                        crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace(), None);
+                    for j in 5..7 {
+                        cell(ui, i, j);
                     }
                     ui.end_row();
                 }
@@ -1666,11 +1685,16 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
             continue;
         }
         egui::Grid::new(("sec", i, salt)).striped(true).num_columns(3).spacing([18.0, 6.0]).show(ui, |ui| {
-            for row in &sec.rows {
+            // values aligned on the decimal point, units after them
+            let vals = crate::numfmt::align(&sec.rows.iter().map(|r| r.value.as_str()).collect::<Vec<_>>());
+            for (row, v) in sec.rows.iter().zip(&vals) {
                 ui.label(&row.label);
-                let t = format!("{} {}", row.value, row.unit);
                 let c = ui.visuals().strong_text_color();
-                crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace().strong(), Some(c));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label(RichText::new(format!("{v} ")).monospace().strong().color(c));
+                    crate::varname::line_label(ui, &[crate::varname::Seg::Unit(&row.unit)], RichText::new(&row.unit).monospace().strong(), Some(c));
+                });
                 ui.label(RichText::new(&row.note).small().weak());
                 ui.end_row();
             }

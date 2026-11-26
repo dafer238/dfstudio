@@ -14,6 +14,7 @@ mod icons;
 mod library;
 mod markdown;
 mod mixture_ui;
+mod numfmt;
 mod pdf;
 mod plots;
 mod project;
