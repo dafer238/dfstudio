@@ -41,6 +41,10 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
   custom units of the script and their k, M and G multiples.
 - Built-in units take SI prefixes not in the table: `Mt`, `kt`, `hPa`,
   `kbar`, `nm`, `mA`.
+- *File > Open recent*, under *Open…*: the last 10 files opened or saved
+  (`.df`, `.dfs`, `.ees`), newest first, with their full path on hover.
+  Files no longer on disk are dimmed, and *Clear recent files* empties the
+  list. The list is kept between sessions.
 
 ### Fixed
 - Cycle diagram: a stream's automatic fluid now comes first from the

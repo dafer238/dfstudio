@@ -790,6 +790,11 @@ or other European locales) are recognised and solved as they are. *Edit > Decima
 and list separators* converts the whole script between `1.5 / f(a, b)` and
 `1,5 / f(a; b)`; formatting keeps the form of the script.
 
+**Open recent** (*File > Open recent*): the last 10 files opened or saved
+(`.df`, `.dfs`, `.ees`, newest first); hover a file for its full path. A file
+that is no longer on disk is shown dimmed, and one that fails to open leaves
+the list. *Clear recent files* empties it.
+
 **Auto save** (*File > Auto save*): saves to the current file 3 s after the
 last change. It is off for files you open (so opening a reference model never
 modifies it) and switched on for a new project after its first *Save as*.
