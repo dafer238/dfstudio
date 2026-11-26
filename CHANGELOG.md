@@ -7,6 +7,15 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Fixed
+- Cycle diagram: a stream's automatic fluid now comes first from the
+  script's property calls for that state (also inside `Duplicate`), and the
+  colour preset is only a fallback. With the Recuperated Brayton template,
+  the red exhaust-gas streams 4 to 6 showed fluid *none*, so the recuperator
+  report used linear h on the hot side with a false internal-pinch warning
+  and the turbine had no isentropic efficiency; they are now air.
+- Component process diagrams (T-s, P-h, ...) leave out the saturation dome
+  when it is far from the process, so the axes fit the process: a gas
+  compressor's T-s line was a sliver at the edge of the air dome's scale.
 - Hiding a left sidebar now slides it smoothly into its thin strip, as on
   the right; before, the sidebar vanished halfway and the strip popped in
   at the end.
