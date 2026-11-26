@@ -316,7 +316,8 @@ fn lookup_atom(name: &str) -> Option<Atom> {
     None
 }
 
-/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`.
+/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`
+/// (`**` is a power too, as in Python: `m**3/kg`).
 /// EES convention: everything after the first `/` is in the denominator and
 /// `-`, `*`, `·` or blanks separate factors.
 pub fn parse_unit(text: &str) -> Result<Unit, String> {
@@ -325,7 +326,7 @@ pub fn parse_unit(text: &str) -> Result<Unit, String> {
         return Ok(Unit::none());
     }
     // protect negative exponents (m^-1) from the '-' factor separator
-    let cleaned: String = t.replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
+    let cleaned: String = t.replace("**", "^").replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
     let mut parts = cleaned.splitn(2, '/');
     let num = parts.next().unwrap_or("");
     let den = parts.next().unwrap_or("");
@@ -587,6 +588,13 @@ mod tests {
         assert!((f.to_si(32.0) - 273.15).abs() < 1e-9);
         // delta-C inside compound unit has no offset
         assert_eq!(parse_unit("kJ/kg-C").unwrap().offset, 0.0);
+        // `**` is a power, as `^`
+        for (a, b) in [("m**3/kg", "m^3/kg"), ("W/m**2-K", "W/m^2-K"), ("kg*m**-1", "kg*m^-1"), ("1/s**2", "1/s^2")] {
+            let (ua, ub) = (parse_unit(a).unwrap(), parse_unit(b).unwrap());
+            assert_eq!(ua.dim, ub.dim, "{a}");
+            assert!((ua.factor - ub.factor).abs() < 1e-12 * ub.factor.abs(), "{a}");
+            assert_eq!(ua.symbol, a, "the symbol stays as written");
+        }
     }
     #[test]
     fn delta_temperature() {

@@ -20,6 +20,10 @@ a = 1; b = 2                  // ';' separates equations on one line
 
 Operators: `+ - * / ^` (also `**`), comparisons `< <= > >= <>`, `and`, `or`, `not`.
 
+Unit symbols: after the first `/` everything is in the denominator; `-`,
+`*`, `·` or blanks separate factors and `^` or `**` raise to a power
+(`kJ/kg-K`, `W/m^2-K`, `m**3/kg`).
+
 Units after an equation: a `[unit]` at the end of an equation, preceded by a
 space, is the unit of the variable that equation computes (found from the
 structure of the model, the same matching the Dependencies view shows). It

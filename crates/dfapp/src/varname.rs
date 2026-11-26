@@ -312,7 +312,7 @@ pub fn unit_factors(unit: &str) -> Option<Vec<(String, i32)>> {
     if t.is_empty() || t == "-" {
         return None;
     }
-    let cleaned: String = t.replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
+    let cleaned: String = t.replace("**", "^").replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
     let (num, den) = cleaned.split_once('/').unwrap_or((&cleaned, ""));
     let mut out = Vec::new();
     let mut structured = t.contains(['/', '^', '*', '·']) || t[1..].contains('-');
@@ -1013,6 +1013,8 @@ mod tests {
         assert_eq!(f("1/s"), Some("s-1".into()));
         assert_eq!(f("m^-1"), Some("m-1".into()));
         assert_eq!(f("kg-m"), Some("kg1 m1".into()));
+        assert_eq!(f("W/m**2-K"), Some("W1 m-2 K-1".into()));
+        assert_eq!(f("m**-1"), Some("m-1".into()));
         for plain in ["kW", "C", "-", "", "bar", "dK"] {
             assert_eq!(f(plain), None, "{plain}");
         }

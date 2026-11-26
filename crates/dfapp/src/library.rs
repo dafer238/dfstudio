@@ -808,7 +808,7 @@ impl Library {
             });
             ui.end_row();
         });
-        ui.label(RichText::new("Compound units are written with / and - (or *): kJ/kg-K, W/m^2-K.").small().weak());
+        ui.label(RichText::new("Compound units are written with / and - (or *), powers with ^ or **: kJ/kg-K, W/m^2-K, m**3/kg.").small().weak());
         act
     }
 }

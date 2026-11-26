@@ -7,6 +7,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
+- Units accept `**` for powers, as in Python (`m**3/kg`, `W/m**2-K`), as
+  well as `^`.
 - Units are shown with exponents (`kJ/kg-K` → kJ kg⁻¹ K⁻¹, thin spaces
   between factors) in unit columns, headers, the cycle diagram, the PDF
   report and plots. *View > Units > As written* restores `kJ/kg`.
