@@ -169,6 +169,9 @@ pub struct Settings {
     /// Variables sidebar and the Solution variables.
     #[serde(default)]
     pub var_names_both: bool,
+    /// View > Units: with exponents (kJ kg⁻¹, the default) or as written.
+    #[serde(default)]
+    pub unit_style: crate::varname::UnitStyle,
 }
 
 fn yes() -> bool {
@@ -238,6 +241,7 @@ impl Default for Settings {
             defaults_rev: DEFAULTS_REV,
             var_names: Default::default(),
             var_names_both: false,
+            unit_style: Default::default(),
         }
     }
 }
@@ -967,7 +971,7 @@ impl DfApp {
 
     fn unit_combo_in(&mut self, ui: &mut egui::Ui, a: &Analysis, i: usize, current: &str, salt: &str) {
         let Some(dim) = a.model.var_dim(i as u32) else {
-            ui.label(current);
+            crate::varname::line_label(ui, &[crate::varname::Seg::Unit(current)], RichText::new(current), None);
             return;
         };
         let mut opts = choices(dim);
@@ -975,11 +979,11 @@ impl DfApp {
             opts.insert(0, Box::leak(current.to_string().into_boxed_str()));
         }
         if opts.len() <= 1 {
-            ui.label(current);
+            crate::varname::line_label(ui, &[crate::varname::Seg::Unit(current)], RichText::new(current), None);
             return;
         }
         let mut sel = current.to_string();
-        egui::ComboBox::from_id_salt(("unit", i, salt)).selected_text(current).width(90.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(("unit", i, salt)).selected_text(crate::varname::unit_text(ui, current)).width(90.0).show_ui(ui, |ui| {
             for o in &opts {
                 ui.selectable_value(&mut sel, o.to_string(), *o);
             }
@@ -1333,7 +1337,7 @@ impl DfApp {
                                     opts.insert(0, Box::leak(before.clone().into_boxed_str()));
                                 }
                                 if opts.len() > 1 {
-                                    egui::ComboBox::from_id_salt(("init_unit", i)).selected_text(&before).width(90.0).show_ui(ui, |ui| {
+                                    egui::ComboBox::from_id_salt(("init_unit", i)).selected_text(crate::varname::unit_text(ui, &before)).width(90.0).show_ui(ui, |ui| {
                                         for o in &opts {
                                             ui.selectable_value(&mut sel, o.to_string(), *o);
                                         }
@@ -1518,7 +1522,7 @@ impl DfApp {
                     h.col(|ui| {
                         ui.vertical(|ui| {
                             crate::varname::label(ui, &disp[b], RichText::new(&disp[b]).strong(), Some(ui.visuals().strong_text_color()));
-                            ui.label(RichText::new(unit).small().weak());
+                            crate::varname::unit_label(ui, &unit);
                         });
                     });
                 }
@@ -1694,7 +1698,7 @@ impl eframe::App for DfApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.editor.completion_rows = self.s.completion_rows;
-        crate::varname::set_style(self.s.var_names, self.s.var_names_both);
+        crate::varname::set_style(self.s.var_names, self.s.var_names_both, self.s.unit_style);
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1891,6 +1895,14 @@ impl eframe::App for DfApp {
                         ui.radio_value(&mut self.s.var_names, NameStyle::Raw, "As written");
                         ui.add_enabled(self.s.var_names == NameStyle::Formatted, egui::Checkbox::new(&mut self.s.var_names_both, "Show raw names too"))
                             .on_hover_text("Adds a column with the name as written to the Variables sidebar and the Solution variables");
+                    }
+                    ui.separator();
+                    ui.label("Units");
+                    {
+                        use crate::varname::UnitStyle;
+                        ui.radio_value(&mut self.s.unit_style, UnitStyle::Exponents, "With exponents (kJ kg^-1)")
+                            .on_hover_text("kJ/kg-K is shown as kJ kg^-1 K^-1 with the exponents as superscripts, everywhere except text boxes, lists and exported files");
+                        ui.radio_value(&mut self.s.unit_style, UnitStyle::Raw, "As written (kJ/kg)");
                     }
                     ui.separator();
                     ui.label("Theme");

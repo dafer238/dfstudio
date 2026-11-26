@@ -506,7 +506,9 @@ pub fn info(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, v: u32, value: &dyn 
             if crate::varname::link(ui, &[Seg::Name(n)], RichText::new(n).monospace()).on_hover_text("focus this variable").clicked() {
                 *act = Some(DepAction::Focus(Some(x)));
             }
-            ui.label(RichText::new(value(x)).monospace().weak());
+            let val = value(x);
+            let c = ui.visuals().weak_text_color();
+            crate::varname::line_label(ui, &crate::varname::value_segs(&val), RichText::new(&val).monospace().weak(), Some(c));
         });
     };
     let eq_link = |ui: &mut egui::Ui, e: u32, act: &mut Option<DepAction>| {
@@ -524,7 +526,9 @@ pub fn info(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, v: u32, value: &dyn 
     };
     ui.horizontal(|ui| {
         crate::varname::heading(ui, &vi.display, RichText::new(&vi.display).monospace().heading());
-        ui.label(RichText::new(value(v)).monospace().strong());
+        let val = value(v);
+        let c = ui.visuals().strong_text_color();
+        crate::varname::line_label(ui, &crate::varname::value_segs(&val), RichText::new(&val).monospace().strong(), Some(c));
     });
     ui.horizontal(|ui| {
         crate::app::dot(ui, status_color(s, dark));

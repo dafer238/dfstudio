@@ -3,7 +3,7 @@
 use crate::analysis::Analysis;
 use crate::app::natord;
 use crate::editor::fmt_num;
-use crate::varname::{self, Seg};
+use crate::varname;
 use dfcore::studies::{goal_seek_multi, optimize, parametric, GoalMultiResult, OptMethod, OptResult, OptSpec};
 use dfcore::units::{parse_unit, Unit};
 use dfcore::{Model, SolveOptions};
@@ -456,7 +456,7 @@ impl StudiesUi {
                                     remove_in = Some(k);
                                 }
                             });
-                            ui.label(RichText::new(unit_of(n)).small().weak());
+                            varname::unit_label(ui, &unit_of(n));
                         });
                     });
                 }
@@ -469,7 +469,7 @@ impl StudiesUi {
                                     remove_out = Some(k);
                                 }
                             });
-                            ui.label(RichText::new(unit_of(n)).small().weak());
+                            varname::unit_label(ui, &unit_of(n));
                         });
                     });
                 }
@@ -598,7 +598,8 @@ impl StudiesUi {
                 } else {
                     ui.add(egui::TextEdit::singleline(&mut r.value).desired_width(80.0));
                     if let Some(v) = m.var(&r.target) {
-                        ui.label(conv(&m, du, v).1.symbol);
+                        let u = conv(&m, du, v).1.symbol;
+                        varname::line_label(ui, &[varname::Seg::Unit(&u)], RichText::new(&u), None);
                     }
                 }
                 ui.label("by changing");
@@ -662,7 +663,7 @@ impl StudiesUi {
                         let unit = if d.symbol == "-" { "" } else { d.symbol.as_str() };
                         let rest = format!(" = {} {unit}", fmt_num(mu.convert(*x, &d))).trim_end().to_string();
                         let c = Color32::from_rgb(90, 180, 90);
-                        varname::line_label(ui, &[Seg::Name(n), Seg::Text(&rest)], RichText::new(format!("{n}{rest}")).strong().color(c), Some(c));
+                        varname::line_label(ui, &varname::with_value(n, &rest), RichText::new(format!("{n}{rest}")).strong().color(c), Some(c));
                     }
                 }
                 if ui.button("Apply to script").on_hover_text("Overwrite the `x = value` equations of the changed variables with these results").clicked() {
@@ -701,7 +702,8 @@ impl StudiesUi {
                 ui.label("…");
                 ui.add(egui::TextEdit::singleline(hi).desired_width(70.0).hint_text("upper"));
                 if let Some(v) = m.var(n) {
-                    ui.label(conv(&m, du, v).1.symbol);
+                    let u = conv(&m, du, v).1.symbol;
+                    varname::line_label(ui, &[varname::Seg::Unit(&u)], RichText::new(&u), None);
                 }
                 if ui.small_button("remove").clicked() {
                     remove = Some(k);
@@ -751,13 +753,13 @@ impl StudiesUi {
                 let (mu, d) = conv(&m, du, ov);
                 let rest = format!(" = {} {}", fmt_num(mu.convert(r.objective, &d)), d.symbol);
                 let c = Color32::from_rgb(90, 180, 90);
-                varname::line_label(ui, &[Seg::Name(&o.objective), Seg::Text(&rest)], RichText::new(format!("{}{rest}", o.objective)).strong().color(c), Some(c));
+                varname::line_label(ui, &varname::with_value(&o.objective, &rest), RichText::new(format!("{}{rest}", o.objective)).strong().color(c), Some(c));
             }
             for (k, n) in self.opt_units.iter().enumerate() {
                 if let (Some(v), Some(b)) = (m.var(n), r.best.get(k)) {
                     let (mu, d) = conv(&m, du, v);
                     let rest = format!(" = {} {}", fmt_num(mu.convert(*b, &d)), d.symbol);
-                    varname::line_label(ui, &[Seg::Name(n), Seg::Text(&rest)], RichText::new(format!("{n}{rest}")), None);
+                    varname::line_label(ui, &varname::with_value(n, &rest), RichText::new(format!("{n}{rest}")), None);
                 }
             }
             if ui.button("Apply to script").on_hover_text("Overwrite the `x = value` equations of the decision variables with the optimum").clicked() {
@@ -774,7 +776,7 @@ impl StudiesUi {
             let r = egui_plot::Plot::new("opt_hist")
                 .height(220.0)
                 .x_axis_label("evaluation")
-                .y_axis_label(varname::widget_text(ui.ctx(), &[Seg::Name(&o.objective), Seg::Text(&unit)], egui::TextStyle::Body.resolve(ui.style())))
+                .y_axis_label(varname::widget_text(ui.ctx(), &varname::head_segs(&format!("{}{unit}", o.objective)), egui::TextStyle::Body.resolve(ui.style())))
                 .show_x(false)
                 .show_y(false)
                 .show(ui, |p| {

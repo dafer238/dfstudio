@@ -235,6 +235,7 @@ fn symbol(c: char) -> Option<(u8, u16)> {
         'Ω' => (b'W', 768),
         '∞' => (0xA5, 713),
         '′' => (0xA2, 247),
+        '\u{2212}' => (0x2D, 549),
         _ => return None,
     })
 }
@@ -246,10 +247,11 @@ fn mixed_width(s: &str, size: f32, bold: bool) -> f32 {
 
 /// Width of a line with variable names (typeset when names are formatted).
 pub fn rich_width(segs: &[Seg], size: f32, bold: bool) -> f32 {
-    if !varname::formatted() {
+    let fmt = varname::Fmt::now();
+    if !varname::needs(segs, fmt) {
         return text_width(&varname::concat(segs), size, bold);
     }
-    varname::typeset(segs, size, true, &|t, s| mixed_width(t, s, bold)).width
+    varname::typeset(segs, size, fmt, &|t, s| mixed_width(t, s, bold)).width
 }
 
 impl Page {
@@ -257,10 +259,11 @@ impl Page {
     /// sub- and superscripts, accents); plain [`Page::text`] when names are
     /// shown as written.
     pub fn rich(&mut self, x: f32, y: f32, size: f32, segs: &[Seg], bold: bool, align: Align, c: Rgb) {
-        if !varname::formatted() {
+        let fmt = varname::Fmt::now();
+        if !varname::needs(segs, fmt) {
             return self.text(x, y, size, &varname::concat(segs), bold, align, c);
         }
-        let ts = varname::typeset(segs, size, true, &|t, s| mixed_width(t, s, bold));
+        let ts = varname::typeset(segs, size, fmt, &|t, s| mixed_width(t, s, bold));
         let x0 = match align {
             Align::Left => x,
             Align::Center => x - ts.width / 2.0,

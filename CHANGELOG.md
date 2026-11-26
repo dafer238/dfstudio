@@ -7,6 +7,9 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
+- Units are shown with exponents (`kJ/kg-K` → kJ kg⁻¹ K⁻¹, thin spaces
+  between factors) in unit columns, headers, the cycle diagram, the PDF
+  report and plots. *View > Units > As written* restores `kJ/kg`.
 - Variable names are typeset outside the editor, following EES's formatted
   equations: Greek letters (`eta_th` → η with subscript th), subscripts
   (`_`, several at one level or nested with `__`), superscripts (`|`,

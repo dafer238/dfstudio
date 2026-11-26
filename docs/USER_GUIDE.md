@@ -169,6 +169,18 @@ script, as before. *Show raw names too* adds a column with the name as
 written to the Variables panel and the Solution variables. Copied tables and
 CSV files always use the names as written.
 
+### 3.2 Units with exponents (View > Units)
+
+Compound units are shown with exponents instead of `/`, with a thin space
+between factors (as in the SI Brochure): `kJ/kg` as kJ kg⁻¹, `kJ/kg-K` as
+kJ kg⁻¹ K⁻¹, `W/(m^2*K)` as W m⁻² K⁻¹, `m^3/kg` as m³ kg⁻¹. Simple units
+(`kW`, `bar`, `C`) do not change. This applies wherever a unit is shown:
+unit columns and the closed unit drop-downs, column headers, value labels
+of the cycle diagram and the PDF report, plot axes, legends and read-outs.
+Open drop-down lists, text boxes, copied tables, CSV and Python exports keep
+the units as written, and units are always typed the usual way.
+*View > Units > As written* shows `kJ/kg` everywhere, as before.
+
 ## 4. Writing equations
 
 The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:

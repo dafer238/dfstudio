@@ -37,14 +37,46 @@ pub enum NameStyle {
     Raw,
 }
 
+/// How units are shown (View > Units).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum UnitStyle {
+    /// With exponents instead of `/`: `kJ/kg-K` as kJ kg⁻¹ K⁻¹.
+    #[default]
+    Exponents,
+    /// As written (`kJ/kg-K`).
+    Raw,
+}
+
 static RAW: AtomicBool = AtomicBool::new(false);
 static BOTH: AtomicBool = AtomicBool::new(false);
+static UNITS_RAW: AtomicBool = AtomicBool::new(false);
 
-/// Apply the View menu choice: the style, and whether the Variables sidebar
-/// and the Solution variables add a column with the raw name.
-pub fn set_style(style: NameStyle, both: bool) {
+/// Apply the View menu choices: the name style, whether the Variables
+/// sidebar and the Solution variables add a column with the raw name, and
+/// the unit style.
+pub fn set_style(style: NameStyle, both: bool, units: UnitStyle) {
     RAW.store(style == NameStyle::Raw, Ordering::Relaxed);
     BOTH.store(both, Ordering::Relaxed);
+    UNITS_RAW.store(units == UnitStyle::Raw, Ordering::Relaxed);
+}
+
+/// Units are shown with exponents.
+pub fn unit_exp() -> bool {
+    !UNITS_RAW.load(Ordering::Relaxed)
+}
+
+/// What [`typeset`] formats: names, units, or both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fmt {
+    pub names: bool,
+    pub units: bool,
+}
+
+impl Fmt {
+    /// The current View menu choices.
+    pub fn now() -> Fmt {
+        Fmt { names: formatted(), units: unit_exp() }
+    }
 }
 
 /// Names are typeset.
@@ -266,6 +298,60 @@ pub struct Typeset {
 pub enum Seg<'a> {
     Name(&'a str),
     Text(&'a str),
+    /// A unit symbol (`kJ/kg-K`): with exponents when units are formatted.
+    Unit(&'a str),
+}
+
+/// The factors of a unit with their exponents, `kJ/kg-K` → kJ¹ kg⁻¹ K⁻¹,
+/// following the unit parser's convention (everything after the first `/`
+/// is in the denominator; `-`, `*`, `·`, `.` and blanks separate factors;
+/// `m^-1` and `m3` are powers). `None` when there is nothing to rewrite
+/// (`kW`, `C`, `-`): the unit is then shown as written.
+pub fn unit_factors(unit: &str) -> Option<Vec<(String, i32)>> {
+    let t = unit.trim();
+    if t.is_empty() || t == "-" {
+        return None;
+    }
+    let cleaned: String = t.replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
+    let (num, den) = cleaned.split_once('/').unwrap_or((&cleaned, ""));
+    let mut out = Vec::new();
+    let mut structured = t.contains(['/', '^', '*', '·']) || t[1..].contains('-');
+    for (part, sign) in [(num, 1), (den, -1)] {
+        for f in part.split(['-', '*', '·', ' ', '/', '.']) {
+            let f = f.trim();
+            if f.is_empty() || f == "1" {
+                continue;
+            }
+            let (base, exp) = match f.split_once('^') {
+                Some((b, e)) => (b.to_string(), e.replace('~', "-").parse::<i32>().ok()?),
+                None => {
+                    // trailing digits of a unit name are a power: m3, s2
+                    let digits = f.len() - f.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+                    if digits > 0 && digits < f.len() && f.chars().any(|c| c.is_alphabetic()) {
+                        structured = true;
+                        (f[..f.len() - digits].to_string(), f[f.len() - digits..].parse::<i32>().ok()?)
+                    } else {
+                        (f.to_string(), 1)
+                    }
+                }
+            };
+            if base.is_empty() {
+                return None;
+            }
+            out.push((base, exp * sign));
+        }
+    }
+    (structured && !out.is_empty()).then_some(out)
+}
+
+/// The segments change when typeset with `fmt` (else the plain text is
+/// shown, exactly as before formatting existed).
+pub fn needs(segs: &[Seg], fmt: Fmt) -> bool {
+    segs.iter().any(|s| match s {
+        Seg::Name(n) => fmt.names && parse(n).is_some_and(|p| !p.is_plain() || p.text != *n),
+        Seg::Unit(u) => fmt.units && unit_factors(u).is_some(),
+        Seg::Text(_) => false,
+    })
 }
 
 impl<'a> Seg<'a> {
@@ -324,8 +410,8 @@ fn set_sym(s: &Sym, x: f32, rise: f32, size: f32, root: f32, w: &dyn Fn(&str, f3
 }
 
 /// Lay out a line of segments at font `size`; `w(text, size)` is the
-/// advance width of a text. Names are typeset only when `fmt` is true.
-pub fn typeset(segs: &[Seg], size: f32, fmt: bool, w: &dyn Fn(&str, f32) -> f32) -> Typeset {
+/// advance width of a text. Names and units are typeset as `fmt` says.
+pub fn typeset(segs: &[Seg], size: f32, fmt: Fmt, w: &dyn Fn(&str, f32) -> f32) -> Typeset {
     let mut out = Typeset::default();
     let mut x = 0.0;
     let mut plain = String::new();
@@ -337,7 +423,22 @@ pub fn typeset(segs: &[Seg], size: f32, fmt: bool, w: &dyn Fn(&str, f32) -> f32)
     };
     for s in segs {
         match *s {
-            Seg::Name(n) if fmt => match parse(n) {
+            Seg::Unit(u) if fmt.units => match unit_factors(u) {
+                Some(fs) => {
+                    flush(&mut plain, &mut x, &mut out);
+                    for (i, (base, e)) in fs.iter().enumerate() {
+                        if i > 0 {
+                            // thin space (SI brochure); an advance, as the
+                            // default font has no U+2009 glyph
+                            x += 0.18 * size;
+                        }
+                        let sup = if *e == 1 { Vec::new() } else { vec![Sym::leaf(e.to_string().replace('-', "\u{2212}"))] };
+                        x = set_sym(&Sym { text: base.clone(), sup, ..Default::default() }, x, 0.0, size, size, w, &mut out);
+                    }
+                }
+                None => plain.push_str(u),
+            },
+            Seg::Name(n) if fmt.names => match parse(n) {
                 Some(sym) if !sym.is_plain() => {
                     flush(&mut plain, &mut x, &mut out);
                     x = set_sym(&sym, x, 0.0, size, size, w, &mut out);
@@ -345,7 +446,7 @@ pub fn typeset(segs: &[Seg], size: f32, fmt: bool, w: &dyn Fn(&str, f32) -> f32)
                 Some(sym) => plain.push_str(&sym.text),
                 None => plain.push_str(n),
             },
-            Seg::Name(t) | Seg::Text(t) => plain.push_str(t),
+            Seg::Name(t) | Seg::Text(t) | Seg::Unit(t) => plain.push_str(t),
         }
     }
     flush(&mut plain, &mut x, &mut out);
@@ -371,11 +472,11 @@ fn galley_baseline(g: &Galley) -> f32 {
 
 /// Lay out `segs` with `font` (names typeset when formatting is on).
 pub fn shape(painter: &egui::Painter, segs: &[Seg], font: &FontId, color: Color32) -> Shaped {
-    shape_with(painter, segs, font, color, formatted())
+    shape_with(painter, segs, font, color, Fmt::now())
 }
 
-fn shape_with(painter: &egui::Painter, segs: &[Seg], font: &FontId, color: Color32, fmt: bool) -> Shaped {
-    let fam = if fmt { FontFamily::Proportional } else { font.family.clone() };
+fn shape_with(painter: &egui::Painter, segs: &[Seg], font: &FontId, color: Color32, fmt: Fmt) -> Shaped {
+    let fam = if fmt.names { FontFamily::Proportional } else { font.family.clone() };
     let prime_ok = painter.fonts_mut(|f| f.has_glyph(&FontId::new(font.size, fam.clone()), '′'));
     let fix = |t: &str| if prime_ok { t.to_string() } else { t.replace('′', "'") };
     let lay = |t: &str, size: f32| painter.layout_no_wrap(fix(t), FontId::new(size, fam.clone()), color);
@@ -452,6 +553,20 @@ pub fn line_label(ui: &mut egui::Ui, segs: &[Seg], rich: RichText, color: Option
     sized_label(ui, segs, rich, color, egui::TextStyle::Body)
 }
 
+/// A unit as a small, weak label (column headers): `kJ kg⁻¹` with exponents.
+pub fn unit_label(ui: &mut egui::Ui, unit: &str) -> Response {
+    let c = ui.visuals().weak_text_color();
+    sized_label(ui, &[Seg::Unit(unit)], RichText::new(unit).small().weak(), Some(c), egui::TextStyle::Small)
+}
+
+/// The closed label of a unit drop-down (the open list stays as written).
+pub fn unit_text(ui: &egui::Ui, unit: &str) -> egui::WidgetText {
+    if !needs(&[Seg::Unit(unit)], Fmt::now()) {
+        return unit.into();
+    }
+    widget_text(ui.ctx(), &[Seg::Unit(unit)], egui::TextStyle::Button.resolve(ui.style()))
+}
+
 /// A variable name as a heading (see [`label`]).
 pub fn heading(ui: &mut egui::Ui, raw: &str, rich: RichText) -> Response {
     let c = ui.visuals().strong_text_color();
@@ -459,11 +574,11 @@ pub fn heading(ui: &mut egui::Ui, raw: &str, rich: RichText) -> Response {
 }
 
 fn sized_label(ui: &mut egui::Ui, segs: &[Seg], rich: RichText, color: Option<Color32>, style: egui::TextStyle) -> Response {
-    if !formatted() {
+    if !needs(segs, Fmt::now()) {
         return ui.label(rich);
     }
     let color = color.unwrap_or_else(|| ui.visuals().text_color());
-    let font = FontId::proportional(style.resolve(ui.style()).size);
+    let font = rich_font(ui, &rich, style);
     let shaped = shape(ui.painter(), segs, &font, color);
     let (size, dy) = shaped.in_line(ui.painter(), &font);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
@@ -473,14 +588,35 @@ fn sized_label(ui: &mut egui::Ui, segs: &[Seg], rich: RichText, color: Option<Co
     resp
 }
 
+/// Font of a typeset line in a widget: proportional at the style's size
+/// when names are typeset, else the raw text's own font (monospace stays
+/// monospace when only units change).
+fn rich_font(ui: &egui::Ui, rich: &RichText, style: egui::TextStyle) -> FontId {
+    if formatted() {
+        return FontId::proportional(style.resolve(ui.style()).size);
+    }
+    let w: egui::WidgetText = rich.clone().into();
+    let job = w.into_layout_job(ui.style(), egui::FontSelection::Style(style.clone()), egui::Align::Min);
+    job.sections.first().map(|s| s.format.font_id.clone()).unwrap_or_else(|| style.resolve(ui.style()))
+}
+
+/// Font of a line's rows (as [`shape`] lays it out).
+fn line_font(font: &FontId) -> FontId {
+    if formatted() {
+        FontId::proportional(font.size)
+    } else {
+        font.clone()
+    }
+}
+
 /// A line with names as a hyperlink-styled button, like
 /// [`egui::Ui::link`] (used as is in raw mode).
 pub fn link(ui: &mut egui::Ui, segs: &[Seg], rich: RichText) -> Response {
-    if !formatted() {
+    if !needs(segs, Fmt::now()) {
         return ui.link(rich);
     }
     let color = ui.visuals().hyperlink_color;
-    let font = FontId::proportional(egui::TextStyle::Body.resolve(ui.style()).size);
+    let font = rich_font(ui, &rich, egui::TextStyle::Body);
     let shaped = shape(ui.painter(), segs, &font, color);
     let (size, dy) = shaped.in_line(ui.painter(), &font);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
@@ -496,7 +632,7 @@ pub fn link(ui: &mut egui::Ui, segs: &[Seg], rich: RichText) -> Response {
 /// Paint a line with names like [`egui::Painter::text`] (which is used as
 /// is in raw mode); returns the text's rect.
 pub fn paint(painter: &egui::Painter, pos: Pos2, align: egui::Align2, segs: &[Seg], font: FontId, color: Color32) -> Rect {
-    if !formatted() {
+    if !needs(segs, Fmt::now()) {
         return painter.text(pos, align, concat(segs), font, color);
     }
     shape(painter, segs, &font, color).paint_at(painter, pos, align, color)
@@ -504,7 +640,7 @@ pub fn paint(painter: &egui::Painter, pos: Pos2, align: egui::Align2, segs: &[Se
 
 /// Size of a line painted by [`paint`].
 pub fn measure(painter: &egui::Painter, segs: &[Seg], font: FontId) -> Vec2 {
-    if !formatted() {
+    if !needs(segs, Fmt::now()) {
         return painter.layout_no_wrap(concat(segs), font, Color32::PLACEHOLDER).size();
     }
     shape(painter, segs, &font, Color32::PLACEHOLDER).size
@@ -521,9 +657,31 @@ pub fn line_segs(line: &str) -> Vec<Seg<'_>> {
                 && !n.starts_with(' ')
                 && (!n.contains(' ') || n.contains('[')) =>
         {
-            vec![Seg::Name(n), Seg::Text(&line[n.len()..])]
+            let mut v = vec![Seg::Name(n)];
+            v.extend(value_segs(&line[n.len()..]));
+            v
         }
         _ => vec![Seg::Text(line)],
+    }
+}
+
+/// A name followed by ` = value unit`.
+pub fn with_value<'a>(name: &'a str, rest: &'a str) -> Vec<Seg<'a>> {
+    let mut v = vec![Seg::Name(name)];
+    v.extend(value_segs(rest));
+    v
+}
+
+/// ` = 550 kJ/kg` (or `550 kJ/kg`): the number as text, then the unit.
+pub fn value_segs(s: &str) -> Vec<Seg<'_>> {
+    let lead = s.len() - s.trim_start_matches([' ', '=']).len();
+    let rest = &s[lead..];
+    match rest.split_once(' ') {
+        Some((num, unit)) if !unit.is_empty() && num.parse::<f64>().is_ok() && !unit.contains(' ') => {
+            let cut = lead + num.len() + 1;
+            vec![Seg::Text(&s[..cut]), Seg::Unit(&s[cut..])]
+        }
+        _ => vec![Seg::Text(s)],
     }
 }
 
@@ -531,13 +689,13 @@ pub fn line_segs(line: &str) -> Vec<Seg<'_>> {
 /// [`egui::Painter::text`] with the lines joined by newlines, which is what
 /// raw mode does; each line is aligned horizontally as `align` says.
 pub fn paint_lines(painter: &egui::Painter, pos: Pos2, align: egui::Align2, lines: &[String], font: FontId, color: Color32) -> Rect {
-    if !formatted() {
+    if !lines.iter().any(|l| needs(&line_segs(l), Fmt::now())) {
         return painter.text(pos, align, lines.join("\n"), font, color);
     }
     let shaped: Vec<Shaped> = lines.iter().map(|l| shape(painter, &line_segs(l), &font, color)).collect();
     let size = lines_size(painter, &shaped, &font);
     let r = align.anchor_size(pos, size);
-    let rh = painter.fonts_mut(|f| f.row_height(&FontId::proportional(font.size)));
+    let rh = painter.fonts_mut(|f| f.row_height(&line_font(&font)));
     let mut y = r.min.y;
     for sh in &shaped {
         let x = match align.x() {
@@ -553,13 +711,13 @@ pub fn paint_lines(painter: &egui::Painter, pos: Pos2, align: egui::Align2, line
 }
 
 fn lines_size(painter: &egui::Painter, shaped: &[Shaped], font: &FontId) -> Vec2 {
-    let rh = painter.fonts_mut(|f| f.row_height(&FontId::proportional(font.size)));
+    let rh = painter.fonts_mut(|f| f.row_height(&line_font(font)));
     Vec2::new(shaped.iter().map(|s| s.size.x).fold(0.0, f32::max), shaped.iter().map(|s| s.size.y.max(rh)).sum())
 }
 
 /// Size of the block [`paint_lines`] paints.
 pub fn measure_lines(painter: &egui::Painter, lines: &[String], font: FontId) -> Vec2 {
-    if !formatted() {
+    if !lines.iter().any(|l| needs(&line_segs(l), Fmt::now())) {
         return painter.layout_no_wrap(lines.join("\n"), font, Color32::PLACEHOLDER).size();
     }
     let shaped: Vec<Shaped> = lines.iter().map(|l| shape(painter, &line_segs(l), &font, Color32::PLACEHOLDER)).collect();
@@ -571,22 +729,27 @@ pub fn measure_lines(painter: &egui::Painter, lines: &[String], font: FontId) ->
 pub fn head_segs(s: &str) -> Vec<Seg<'_>> {
     let ident = |n: &str| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || "_|[],#$".contains(c));
     let end = s.find(" [").or_else(|| s.find(" (")).unwrap_or(s.len());
-    if ident(&s[..end]) {
-        if end == s.len() {
-            vec![Seg::Name(s)]
-        } else {
-            vec![Seg::Name(&s[..end]), Seg::Text(&s[end..])]
+    let mut v = if ident(&s[..end]) { vec![Seg::Name(&s[..end])] } else { vec![Seg::Text(&s[..end])] };
+    let rest = &s[end..];
+    // " [unit]" and what follows
+    match rest.strip_prefix(" [").and_then(|r| r.find(']').map(|k| (k, r))) {
+        Some((k, r)) => {
+            v.push(Seg::Text(" ["));
+            v.push(Seg::Unit(&r[..k]));
+            v.push(Seg::Text(&r[k..]));
         }
-    } else {
-        vec![Seg::Text(s)]
+        None if !rest.is_empty() => v.push(Seg::Text(rest)),
+        None => {}
     }
+    v.retain(|x| !matches!(x, Seg::Text("")));
+    v
 }
 
 /// Text for a widget that takes [`egui::WidgetText`] (plot axis labels):
 /// the plain text in raw mode, else one galley holding the typeset line
 /// (in the widget's text colour, accents included).
 pub fn widget_text(ctx: &egui::Context, segs: &[Seg], font: FontId) -> egui::WidgetText {
-    if !formatted() {
+    if !needs(segs, Fmt::now()) {
         return concat(segs).into();
     }
     let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
@@ -597,7 +760,7 @@ pub fn widget_text(ctx: &egui::Context, segs: &[Seg], font: FontId) -> egui::Wid
 /// their places, and a row with the accents' mesh. Its colour is the
 /// painter's fallback colour (the text colour of the widget showing it).
 pub fn galley(painter: &egui::Painter, segs: &[Seg], font: &FontId) -> Arc<Galley> {
-    let sh = shape_with(painter, segs, font, Color32::PLACEHOLDER, true);
+    let sh = shape_with(painter, segs, font, Color32::PLACEHOLDER, Fmt::now());
     let first = sh.galleys[0].1.clone();
     let mut rows = Vec::new();
     let mut bounds = Rect::NOTHING;
@@ -697,7 +860,7 @@ fn mark_mesh(mesh: &mut egui::Mesh, m: &Mark, x: f32, base: f32) {
 pub fn concat(segs: &[Seg]) -> String {
     segs.iter()
         .map(|s| match s {
-            Seg::Name(t) | Seg::Text(t) => *t,
+            Seg::Name(t) | Seg::Text(t) | Seg::Unit(t) => *t,
         })
         .collect()
 }
@@ -801,15 +964,15 @@ mod tests {
     #[test]
     fn layout_is_raw_when_off() {
         let w = |t: &str, s: f32| t.chars().count() as f32 * s * 0.5;
-        let t = typeset(&[Seg::Name("eta_t"), Seg::Text(" = 0.3")], 10.0, false, &w);
+        let t = typeset(&[Seg::Name("eta_t"), Seg::Text(" = 0.3")], 10.0, Fmt { names: false, units: false }, &w);
         assert_eq!(t.runs.len(), 1);
         assert_eq!(t.runs[0].text, "eta_t = 0.3");
-        let t = typeset(&[Seg::Name("eta_t"), Seg::Text(" = 0.3")], 10.0, true, &w);
+        let t = typeset(&[Seg::Name("eta_t"), Seg::Text(" = 0.3")], 10.0, Fmt { names: true, units: true }, &w);
         let texts: Vec<&str> = t.runs.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(texts, ["η", "t", " = 0.3"]);
         assert!(t.runs[1].rise < 0.0 && t.runs[1].size < 10.0);
         // stacked scripts start at the same x
-        let t = typeset(&[Seg::Name("h|o_f")], 10.0, true, &w);
+        let t = typeset(&[Seg::Name("h|o_f")], 10.0, Fmt { names: true, units: true }, &w);
         assert_eq!(t.runs[1].x, t.runs[2].x);
     }
 
@@ -831,5 +994,37 @@ mod tests {
         assert_eq!(h("T[3]"), Some("T[3]".into()));
         assert_eq!(h("W_net (right axis)"), Some("W_net".into()));
         assert_eq!(h("Turbine power"), None);
+        let u = |l: &'static str| head_segs(l).iter().find_map(|s| if let Seg::Unit(u) = s { Some(u.to_string()) } else { None });
+        assert_eq!(u("w_spec [kJ/kg] (right axis)"), Some("kJ/kg".into()));
+        assert_eq!(concat(&head_segs("w_spec [kJ/kg] (right axis)")), "w_spec [kJ/kg] (right axis)");
+        assert_eq!(concat(&line_segs("T = 550 kJ/kg")), "T = 550 kJ/kg");
+        assert!(matches!(line_segs("T = 550 kJ/kg")[..], [Seg::Name("T"), Seg::Text(" = 550 "), Seg::Unit("kJ/kg")]));
+        assert!(matches!(line_segs("eta = 0.85")[..], [Seg::Name("eta"), Seg::Text(" = 0.85")]));
+    }
+
+    #[test]
+    fn unit_exponents() {
+        let f = |u: &str| unit_factors(u).map(|v| v.iter().map(|(b, e)| format!("{b}{e}")).collect::<Vec<_>>().join(" "));
+        assert_eq!(f("kJ/kg"), Some("kJ1 kg-1".into()));
+        assert_eq!(f("kJ/kg-K"), Some("kJ1 kg-1 K-1".into()));
+        assert_eq!(f("W/(m^2*K)"), Some("W1 m-2 K-1".into()));
+        assert_eq!(f("kg/m^3"), Some("kg1 m-3".into()));
+        assert_eq!(f("m3/kg"), Some("m3 kg-1".into()));
+        assert_eq!(f("1/s"), Some("s-1".into()));
+        assert_eq!(f("m^-1"), Some("m-1".into()));
+        assert_eq!(f("kg-m"), Some("kg1 m1".into()));
+        for plain in ["kW", "C", "-", "", "bar", "dK"] {
+            assert_eq!(f(plain), None, "{plain}");
+        }
+        let w = |t: &str, s: f32| t.chars().count() as f32 * s * 0.5;
+        let both = Fmt { names: true, units: true };
+        let t = typeset(&[Seg::Unit("kJ/kg")], 10.0, both, &w);
+        let texts: Vec<&str> = t.runs.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, ["kJ", "kg", "\u{2212}1"]);
+        assert!(t.runs[2].rise > 0.0);
+        let t = typeset(&[Seg::Unit("kJ/kg")], 10.0, Fmt { names: true, units: false }, &w);
+        assert_eq!(t.runs[0].text, "kJ/kg");
+        assert!(!needs(&[Seg::Unit("kW")], both));
+        assert!(needs(&[Seg::Unit("kW/K")], both));
     }
 }

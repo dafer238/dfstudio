@@ -1877,7 +1877,7 @@ impl CycleUi {
                 for (h, u) in &t.heads {
                     ui.vertical(|ui| {
                         crate::varname::label(ui, h, RichText::new(h).strong(), Some(ui.visuals().strong_text_color()));
-                        ui.label(RichText::new(u).small().weak());
+                        crate::varname::unit_label(ui, u);
                     });
                 }
                 ui.end_row();
@@ -2456,7 +2456,7 @@ impl CycleUi {
         if !kp.is_empty() && d.kpi_box {
             let font = egui::FontId::proportional(12.0);
             let lw = kp.iter().map(|(l, n, _)| crate::varname::measure(&painter, &[kseg(l, *n)], font.clone()).x).fold(0.0, f32::max);
-            let vw = kp.iter().map(|(_, _, v)| painter.layout_no_wrap(v.clone(), font.clone(), text).size().x).fold(0.0, f32::max);
+            let vw = kp.iter().map(|(_, _, v)| varname::measure(&painter, &varname::value_segs(v), font.clone()).x).fold(0.0, f32::max);
             let h = 18.0;
             let bx = Rect::from_min_size(Pos2::new(rect.max.x - lw - vw - 36.0, rect.min.y + 10.0), Vec2::new(lw + vw + 26.0, h * kp.len() as f32 + 10.0));
             self.kpi_w = bx.width() + 20.0;
@@ -2470,7 +2470,7 @@ impl CycleUi {
             for (i, (l, n, v)) in kp.iter().enumerate() {
                 let y = bx.min.y + 5.0 + h * i as f32 + h / 2.0;
                 crate::varname::paint(&painter, Pos2::new(bx.min.x + 8.0, y), egui::Align2::LEFT_CENTER, &[kseg(l, *n)], font.clone(), text);
-                painter.text(Pos2::new(bx.max.x - 8.0, y), egui::Align2::RIGHT_CENTER, v, font.clone(), text);
+                varname::paint(&painter, Pos2::new(bx.max.x - 8.0, y), egui::Align2::RIGHT_CENTER, &varname::value_segs(v), font.clone(), text);
             }
         }
         if !d.title.is_empty() {
@@ -2481,11 +2481,11 @@ impl CycleUi {
             let u = inp.cross_units(d);
             if u.iter().any(|x| !x.is_empty()) {
                 let font = egui::FontId::proportional(11.0);
-                let g: Vec<_> = u.iter().map(|x| painter.layout_no_wrap(x.clone(), font.clone(), text)).collect();
+                let g: Vec<Vec2> = u.iter().map(|x| varname::measure(&painter, &[varname::Seg::Unit(x)], font.clone())).collect();
                 let pad = 4.0;
-                let wl = g[0].size().x.max(g[2].size().x);
-                let wr = g[1].size().x.max(g[3].size().x);
-                let rh = g.iter().map(|g| g.size().y).fold(0.0, f32::max);
+                let wl = g[0].x.max(g[2].x);
+                let wr = g[1].x.max(g[3].x);
+                let rh = g.iter().map(|g| g.y).fold(0.0, f32::max);
                 let top = rect.min.y + if d.title.is_empty() { 10.0 } else { 36.0 };
                 let bx = Rect::from_min_size(Pos2::new(rect.min.x + 12.0, top), Vec2::new(wl + wr + 4.0 * pad, 2.0 * rh + 2.0 * pad));
                 painter.rect(
@@ -2498,11 +2498,10 @@ impl CycleUi {
                 let (xv, yc) = (bx.min.x + wl + 2.0 * pad, bx.center().y);
                 painter.line_segment([Pos2::new(bx.min.x, yc), Pos2::new(bx.max.x, yc)], Stroke::new(1.0, text));
                 painter.line_segment([Pos2::new(xv, bx.min.y), Pos2::new(xv, bx.max.y)], Stroke::new(1.0, text));
-                for (i, gal) in g.into_iter().enumerate() {
-                    let w = gal.size();
+                for (i, w) in g.into_iter().enumerate() {
                     let x = if i % 2 == 0 { xv - pad - w.x } else { xv + pad };
                     let y = if i < 2 { yc - pad * 0.5 - w.y } else { yc + pad * 0.5 };
-                    painter.galley(Pos2::new(x, y), gal, text);
+                    varname::paint(&painter, Pos2::new(x, y), egui::Align2::LEFT_TOP, &[varname::Seg::Unit(&u[i])], font.clone(), text);
                 }
             }
         }
@@ -2647,7 +2646,13 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
     let kpi_w = if kpis.is_empty() {
         0.0
     } else {
-        kpis.iter().map(|(l, n, v)| pdf::rich_width(&[kseg(l, *n)], 8.5, false).max(pdf::text_width(l, 8.5, false)) + pdf::text_width(v, 8.5, true)).fold(0.0, f32::max) + 30.0
+        kpis.iter()
+            .map(|(l, n, v)| {
+                pdf::rich_width(&[kseg(l, *n)], 8.5, false).max(pdf::text_width(l, 8.5, false))
+                    + pdf::rich_width(&varname::value_segs(v), 8.5, true).max(pdf::text_width(v, 8.5, true))
+            })
+            .fold(0.0, f32::max)
+            + 30.0
     };
     // unit legend of the cross labels, top left of the diagram
     let legend = if d.show_values && d.label_style == LabelStyle::Cross && d.links.iter().any(|l| l.state.is_some()) {
@@ -2659,7 +2664,7 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
     if let Some(u) = &legend {
         let fs = 8.0;
         let pad = 3.0;
-        let w: Vec<f32> = u.iter().map(|x| pdf::text_width(x, fs, false)).collect();
+        let w: Vec<f32> = u.iter().map(|x| pdf::rich_width(&[varname::Seg::Unit(x)], fs, false)).collect();
         let (wl, wr, rh) = (w[0].max(w[2]), w[1].max(w[3]), fs * 1.15);
         let (x0, y0) = (margin, top);
         let size = [wl + wr + 4.0 * pad, 2.0 * rh + 2.0 * pad];
@@ -2670,7 +2675,7 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         for (i, x) in u.iter().enumerate() {
             let (px, al) = if i % 2 == 0 { (xv - pad, Align::Right) } else { (xv + pad, Align::Left) };
             let py = if i < 2 { yc - pad * 0.5 - fs * 0.25 } else { yc + pad * 0.5 + fs * 0.8 };
-            page.text(px, py, fs, x, false, al, black);
+            page.rich(px, py, fs, &[varname::Seg::Unit(x)], false, al, black);
         }
         top += size[1] + 6.0;
     }
@@ -2858,7 +2863,7 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
         for (l, n, v) in &kpis {
             y += 12.5;
             page.rich(x0, y, 8.5, &[kseg(l, *n)], false, Align::Left, black);
-            page.text(pw - margin, y, 8.5, v, true, Align::Right, black);
+            page.rich(pw - margin, y, 8.5, &varname::value_segs(v), true, Align::Right, black);
         }
         page.line([x0, y + 4.0], [pw - margin, y + 4.0], 0.6, black);
     }
@@ -2879,7 +2884,11 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
             for (i, (h, u)) in heads.iter().enumerate() {
                 let x = margin + 40.0 + col_w * (i as f32 + 1.0) - 6.0;
                 page.rich(x, *y, fs, &[varname::Seg::Name(h)], true, Align::Right, black);
-                page.text(x, *y + 9.0, 6.5, &if u.is_empty() { "-".to_string() } else { format!("[{u}]") }, false, Align::Right, grey);
+                if u.is_empty() {
+                    page.text(x, *y + 9.0, 6.5, "-", false, Align::Right, grey);
+                } else {
+                    page.rich(x, *y + 9.0, 6.5, &[varname::Seg::Text("["), varname::Seg::Unit(u), varname::Seg::Text("]")], false, Align::Right, grey);
+                }
             }
             *y += 13.0;
             page.line([margin, *y], [margin + 40.0 + col_w * heads.len() as f32, *y], 0.6, black);

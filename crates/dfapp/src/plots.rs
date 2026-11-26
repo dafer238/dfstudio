@@ -226,10 +226,25 @@ fn axis_label(cols: &[&Column]) -> String {
     axis_parts(cols).into_iter().map(|p| p.0).collect()
 }
 
-/// [`axis_label`] in pieces: (text, the text is a variable name).
-fn axis_parts(cols: &[&Column]) -> Vec<(String, bool)> {
+/// Kind of a piece of an axis label.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Part {
+    Text,
+    Name,
+    Unit,
+}
+
+/// [`axis_label`] in pieces.
+fn axis_parts(cols: &[&Column]) -> Vec<(String, Part)> {
     let unit = |c: &Column| if c.unit == "-" { String::new() } else { c.unit.clone() };
-    let with_unit = |name: &str, u: &str| if u.is_empty() { vec![(name.to_string(), true)] } else { vec![(name.to_string(), true), (format!(" [{u}]"), false)] };
+    let bracket = |u: &str| vec![(" [".to_string(), Part::Text), (u.to_string(), Part::Unit), ("]".to_string(), Part::Text)];
+    let with_unit = |name: &str, u: &str| {
+        let mut v = vec![(name.to_string(), Part::Name)];
+        if !u.is_empty() {
+            v.extend(bracket(u));
+        }
+        v
+    };
     match cols {
         [] => Vec::new(),
         [one] => with_unit(&one.name, if one.unit == "-" { "" } else { &one.unit }),
@@ -239,19 +254,19 @@ fn axis_parts(cols: &[&Column]) -> Vec<(String, bool)> {
             if shared {
                 for (i, c) in cols.iter().enumerate() {
                     if i > 0 {
-                        out.push((" ".to_string(), false));
+                        out.push((" ".to_string(), Part::Text));
                     }
-                    out.push((c.name.clone(), true));
+                    out.push((c.name.clone(), Part::Name));
                 }
                 let u = unit(cols[0]);
                 if !u.is_empty() {
-                    out.push((format!(" [{u}]"), false));
+                    out.extend(bracket(&u));
                 }
             } else {
                 // dimensionless columns get "[-]" so no unit reads as another's
                 for (i, c) in cols.iter().enumerate() {
                     if i > 0 {
-                        out.push((" ".to_string(), false));
+                        out.push((" ".to_string(), Part::Text));
                     }
                     out.extend(with_unit(&c.name, if c.unit.is_empty() || c.unit == "-" { "-" } else { &c.unit }));
                 }
@@ -263,11 +278,18 @@ fn axis_parts(cols: &[&Column]) -> Vec<(String, bool)> {
 
 /// An axis label: the user's text as is, or the automatic one with the
 /// variable names typeset (see [`crate::varname`]).
-fn axis_text(ctx: &egui::Context, user: &str, auto: &[(String, bool)]) -> egui::WidgetText {
+fn axis_text(ctx: &egui::Context, user: &str, auto: &[(String, Part)]) -> egui::WidgetText {
     if !user.is_empty() {
         return user.to_string().into();
     }
-    let segs: Vec<Seg> = auto.iter().map(|(t, n)| Seg::of(t, *n)).collect();
+    let segs: Vec<Seg> = auto
+        .iter()
+        .map(|(t, k)| match k {
+            Part::Text => Seg::Text(t),
+            Part::Name => Seg::Name(t),
+            Part::Unit => Seg::Unit(t),
+        })
+        .collect();
     varname::widget_text(ctx, &segs, egui::TextStyle::Body.resolve(&ctx.global_style()))
 }
 
@@ -1279,6 +1301,9 @@ impl PlotsUi {
         ui.vertical_centered(|ui| ui.heading(title));
         let xl = if def.x_label.is_empty() { format!("{} [{}]", key_name(xk), data.x_unit) } else { def.x_label.clone() };
         let yl = if def.y_label.is_empty() { format!("{} [{}]", key_name(yk), data.y_unit) } else { def.y_label.clone() };
+        let body = egui::TextStyle::Body.resolve(ui.style());
+        let auto = |user: &str, l: String| if user.is_empty() { varname::widget_text(ui.ctx(), &varname::head_segs(&l), body.clone()) } else { l.into() };
+        let (xl, yl) = (auto(&def.x_label, xl), auto(&def.y_label, yl));
         let mut plot = Plot::new(("prop", def.name.as_str())).x_axis_label(xl).y_axis_label(yl).show_grid(def.grid).x_axis_formatter(axis_fmt(lx)).y_axis_formatter(axis_fmt(ly));
         plot = with_log_grids(plot, lx, ly);
         if def.legend {
