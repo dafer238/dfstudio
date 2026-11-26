@@ -622,12 +622,76 @@ fn classify(base: &str, ctx: Option<&UnitCtx>, strict: bool) -> Result<Token, St
     Ok(Token::Custom { factor, root })
 }
 
+/// Unit symbols that may be written together with others (`kgK`, `m2K`,
+/// `Nm`), spelled exactly so. Other tokens that are not built-in units are
+/// custom units (`ct`, `pax`, `tCO2`), so the list is kept to common symbols.
+const JOINABLE: &[&str] = &[
+    "kg", "g", "t", "mol", "kmol", "m", "cm", "mm", "km", "s", "min", "h", "K", "C", "R", "F", "J", "kJ", "MJ", "W", "kW", "MW", "N", "kN", "Pa", "kPa", "MPa", "bar", "L", "lbm",
+    "lbf", "ft", "in", "Btu",
+];
+
+/// A piece of a joined token: a [`JOINABLE`] symbol, maybe with a power
+/// (`m2`).
+fn joinable(piece: &str) -> Option<Atom> {
+    let base = piece.trim_end_matches(|c: char| c.is_ascii_digit());
+    if JOINABLE.contains(&base) {
+        lookup_atom(piece)
+    } else {
+        None
+    }
+}
+
+/// Pieces of a token made of unit names written together (`kgK` → `kg`,
+/// `K`; `m2K` → `m2`, `K`), when the token is not a unit itself: the split
+/// with the fewest pieces, and of those the one with the longest first
+/// piece. Each piece is a common symbol ([`JOINABLE`], case-sensitive) and
+/// no two pieces have the same dimension, so `kgg` stays a typo of `kg`.
+/// `None` for a unit name or a token that does not split.
+pub fn split_joined(tok: &str) -> Option<Vec<&str>> {
+    if tok.is_empty() || lookup_atom(tok).is_some() {
+        return None;
+    }
+    let cuts: Vec<usize> = tok.char_indices().map(|(i, _)| i).chain(std::iter::once(tok.len())).collect();
+    let n = cuts.len() - 1;
+    // best[i]: fewest pieces for tok[cuts[i]..], with the next cut index
+    let mut best: Vec<Option<(usize, usize)>> = vec![None; n + 1];
+    best[n] = Some((0, n));
+    for i in (0..n).rev() {
+        // longest piece first, so that ties keep the longest first piece
+        for j in (i + 1..=n).rev() {
+            let piece = &tok[cuts[i]..cuts[j]];
+            if let (Some((k, _)), true) = (best[j], joinable(piece).is_some()) {
+                if best[i].is_none_or(|(b, _)| k + 1 < b) {
+                    best[i] = Some((k + 1, j));
+                }
+            }
+        }
+    }
+    let (count, _) = best[0]?;
+    if count < 2 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let j = best[i]?.1;
+        out.push(&tok[cuts[i]..cuts[j]]);
+        i = j;
+    }
+    let dims: Vec<Dim> = out.iter().map(|p| joinable(p).map(|a| a.dim.si_part())).collect::<Option<_>>()?;
+    if dims.iter().enumerate().any(|(i, d)| dims[..i].contains(d)) {
+        return None;
+    }
+    Some(out)
+}
+
 /// Split a unit expression into (factor text, exponent) pairs, the exponent
-/// negative in the denominator.
-fn factors(text: &str) -> Result<Vec<(String, i32)>, String> {
+/// negative in the denominator. `**` is a power, as `^`; unit names written
+/// together that are not a `declared` custom unit are split ([`split_joined`]).
+fn factors(text: &str, declared: Option<&BTreeSet<String>>) -> Result<Vec<(String, i32)>, String> {
     let t = text.trim();
     // protect negative exponents (m^-1) from the '-' factor separator
-    let cleaned: String = t.replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
+    let cleaned: String = t.replace("**", "^").replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
     let mut parts = cleaned.splitn(2, '/');
     let num = parts.next().unwrap_or("");
     let den = parts.next().unwrap_or("");
@@ -642,7 +706,18 @@ fn factors(text: &str) -> Result<Vec<(String, i32)>, String> {
                 Some((b, e)) => (b, e.replace('~', "-").parse::<i32>().map_err(|_| format!("bad exponent in '{f}'"))?),
                 None => (f, 1),
             };
-            out.push((base.to_string(), exp * sign));
+            // unit names written together (kJ/kgK): each is a factor, the
+            // exponent goes with the last one; a declared custom unit is
+            // never split
+            let pieces = match split_joined(base) {
+                Some(ps) if !declared.is_some_and(|d| d.contains(base)) => ps,
+                _ => vec![base],
+            };
+            let last = pieces.len() - 1;
+            for (k, p) in pieces.into_iter().enumerate() {
+                let e = if k == last { exp } else { 1 };
+                out.push((p.to_string(), e * sign));
+            }
         }
     }
     Ok(out)
@@ -651,11 +726,12 @@ fn factors(text: &str) -> Result<Vec<(String, i32)>, String> {
 /// The custom tokens of a unit expression as written (`MEUR/yr` → `MEUR`),
 /// given the `$CustomUnits` declarations.
 pub fn custom_tokens(text: &str, declared: &BTreeSet<String>) -> Vec<String> {
-    let Ok(fs) = factors(text) else { return Vec::new() };
+    let Ok(fs) = factors(text, Some(declared)) else { return Vec::new() };
     fs.into_iter().map(|(b, _)| b).filter(|b| declared.contains(b) || (lookup_atom(b).is_none() && is_custom_token(b))).collect()
 }
 
-/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`.
+/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`
+/// (`**` is a power too, as in Python: `m**3/kg`; `kJ/kgK` is `kJ/(kg K)`).
 /// EES convention: everything after the first `/` is in the denominator and
 /// `-`, `*`, `·` or blanks separate factors.
 ///
@@ -682,7 +758,7 @@ fn parse_with(text: &str, strict: bool) -> Result<Unit, String> {
     let mut dim = Dim::NONE;
     let mut nfactors = 0;
     let mut single: Option<f64> = None;
-    for (base, exp) in factors(t)? {
+    for (base, exp) in factors(t, ctx.as_deref().map(|c| &c.declared))? {
         let (f, o, d) = match classify(&base, ctx.as_deref(), strict)? {
             Token::Builtin(a) => (a.factor, a.offset, a.dim),
             Token::Custom { factor, root } => (factor, 0.0, Dim::custom(&root)),
@@ -1012,6 +1088,33 @@ mod tests {
         assert!((f.to_si(32.0) - 273.15).abs() < 1e-9);
         // delta-C inside compound unit has no offset
         assert_eq!(parse_unit("kJ/kg-C").unwrap().offset, 0.0);
+        // everything after the first `/` is in the denominator: kJ/kg/K
+        // is kJ/(kg K); unit names written together are a product: kgK
+        for u in ["kJ/kg/K", "kJ/kgK", "kJ/kg*K", "kJ/(kg K)"] {
+            let x = parse_unit(u).unwrap();
+            assert_eq!(x.dim, Dim::SPEC_ENTROPY, "{u}");
+            assert!((x.factor - 1000.0).abs() < 1e-9, "{u}");
+        }
+        assert_eq!(split_joined("kgK"), Some(vec!["kg", "K"]));
+        assert_eq!(split_joined("kJkg"), Some(vec!["kJ", "kg"]));
+        assert_eq!(split_joined("kg"), None);
+        assert_eq!(split_joined("qqq"), None);
+        assert_eq!(split_joined("Nm"), Some(vec!["N", "m"]));
+        assert_eq!(split_joined("m2K"), Some(vec!["m2", "K"]));
+        // custom-unit tokens and typos are not split
+        for t in ["ct", "PS", "pt", "pax", "tCO2", "kgCO2", "EUR", "kgg"] {
+            assert_eq!(split_joined(t), None, "{t}");
+        }
+        let w = parse_unit("W/m2K").unwrap();
+        assert_eq!(w.dim, Dim::new([1, 0, -3, -1, 0, 0, 0]));
+        assert!(parse_unit_known("kJ/zzz").is_err());
+        // `**` is a power, as `^`
+        for (a, b) in [("m**3/kg", "m^3/kg"), ("W/m**2-K", "W/m^2-K"), ("kg*m**-1", "kg*m^-1"), ("1/s**2", "1/s^2")] {
+            let (ua, ub) = (parse_unit(a).unwrap(), parse_unit(b).unwrap());
+            assert_eq!(ua.dim, ub.dim, "{a}");
+            assert!((ua.factor - ub.factor).abs() < 1e-12 * ub.factor.abs(), "{a}");
+            assert_eq!(ua.symbol, a, "the symbol stays as written");
+        }
     }
     #[test]
     fn delta_temperature() {

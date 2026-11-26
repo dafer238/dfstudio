@@ -1635,13 +1635,15 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
                     ui.label(st.k.to_string());
                     ui.label(st.fluid.clone().unwrap_or_else(|| "—".into()));
                     for (v, unit) in [(st.m, "kg/s"), (st.t - 273.15, "C"), (st.p / 1e5, "bar"), (st.h / 1e3, "kJ/kg"), (st.s / 1e3, "kJ/kg-K")] {
-                        ui.label(RichText::new(if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() }).monospace());
+                        let t = if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() };
+                        crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace(), None);
                     }
                     let (xq, dt) = st.phase().cells();
                     ui.label(RichText::new(xq).monospace());
                     ui.label(RichText::new(dt).monospace());
                     for (v, unit) in [(st.derived(Key::D), "kg/m3"), (st.derived(Key::Cp) / 1e3, "kJ/kg-K")] {
-                        ui.label(RichText::new(if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() }).monospace());
+                        let t = if v.is_finite() { format!("{} {unit}", fmt_sig(v)) } else { "—".into() };
+                        crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace(), None);
                     }
                     ui.end_row();
                 }
@@ -1666,7 +1668,9 @@ pub fn show_report(ui: &mut egui::Ui, r: &Report, view: Option<usize>, diag: &mu
         egui::Grid::new(("sec", i, salt)).striped(true).num_columns(3).spacing([18.0, 6.0]).show(ui, |ui| {
             for row in &sec.rows {
                 ui.label(&row.label);
-                ui.label(RichText::new(format!("{} {}", row.value, row.unit)).monospace().strong());
+                let t = format!("{} {}", row.value, row.unit);
+                let c = ui.visuals().strong_text_color();
+                crate::varname::line_label(ui, &crate::varname::value_segs(&t), RichText::new(&t).monospace().strong(), Some(c));
                 ui.label(RichText::new(&row.note).small().weak());
                 ui.end_row();
             }
@@ -1715,8 +1719,8 @@ fn chart(ui: &mut egui::Ui, ch: &Chart, salt: impl std::hash::Hash + std::fmt::D
     };
     let mut plot = Plot::new(("chart", salt))
         .height(if fill { (ui.available_height() - 8.0).max(320.0) } else { 320.0 })
-        .x_axis_label(ch.x_label.clone())
-        .y_axis_label(ch.y_label.clone())
+        .x_axis_label(crate::varname::widget_text(ui.ctx(), &crate::varname::head_segs(&ch.x_label), egui::TextStyle::Body.resolve(ui.style())))
+        .y_axis_label(crate::varname::widget_text(ui.ctx(), &crate::varname::head_segs(&ch.y_label), egui::TextStyle::Body.resolve(ui.style())))
         .show_x(false)
         .show_y(false);
     if ch.bars.is_empty() {

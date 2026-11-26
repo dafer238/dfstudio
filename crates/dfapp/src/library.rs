@@ -756,7 +756,7 @@ impl Library {
                 let unit = Key::from_input(k).map(|k| us.unit_for(k.dim()).symbol).unwrap_or_default();
                 ui.monospace(format!("{k}="));
                 ui.label(*d);
-                ui.label(unit);
+                crate::varname::line_label(ui, &[crate::varname::Seg::Unit(&unit)], RichText::new(&unit), None);
                 if ui.small_button("Insert").clicked() {
                     act = Some(Action::Insert(format!("{k}=")));
                 }
@@ -808,7 +808,7 @@ impl Library {
             });
             ui.end_row();
         });
-        ui.label(RichText::new("Compound units are written with / and - (or *): kJ/kg-K, W/m^2-K.").small().weak());
+        ui.label(RichText::new("Compound units are written with / and - (or *), powers with ^ or **: kJ/kg-K, W/m^2-K, m**3/kg.").small().weak());
         act
     }
 }

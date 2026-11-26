@@ -7,6 +7,16 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
+- Units written without a separator are read as a product: `kJ/kgK` and
+  `W/m2K` are kJ/(kg K) and W/(m² K), as `kJ/kg/K` already was. Only
+  common symbols of different dimensions are split (`kg`, `K`, `m`, `N`,
+  `kJ`, ...), so `ct`, `pax` or `tCO2` stay custom units and `kgg` still
+  gets *did you mean 'kg'*.
+- Units accept `**` for powers, as in Python (`m**3/kg`, `W/m**2-K`), as
+  well as `^`.
+- Units are shown with exponents (`kJ/kg-K` → kJ kg⁻¹ K⁻¹, thin spaces
+  between factors) in unit columns, headers, the cycle diagram, the PDF
+  report and plots. *View > Units > As written* restores `kJ/kg`.
 - Variable names are typeset outside the editor, following EES's formatted
   equations: Greek letters (`eta_th` → η with subscript th), subscripts
   (`_`, several at one level or nested with `__`), superscripts (`|`,
