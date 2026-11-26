@@ -165,6 +165,8 @@ impl Worker {
 pub(crate) fn run(req: Request) -> Analysis {
     let t0 = Instant::now();
     let mut model = compile(&req.text, &req.opts);
+    // unit text (Initial values, warm start) is read with the model's custom units
+    let _units = dfcore::units::enter_ctx(&model.units.clone());
     apply_init(&mut model, &req.init);
     let compile_ms = t0.elapsed().as_secs_f64() * 1e3;
     let t1 = Instant::now();

@@ -23,6 +23,7 @@ mod studies_ui;
 mod support;
 mod templates;
 mod units_ui;
+mod varname;
 
 /// `dfstudio --report project.df report.pdf`: solve a project and write its
 /// cycle-diagram report without opening a window.
@@ -51,6 +52,7 @@ fn report(args: &[String]) -> std::process::ExitCode {
         init: Default::default(),
     });
     let converged = a.solution.as_ref().is_some_and(|x| x.converged);
+    let _units = dfcore::units::enter_ctx(&a.model.units);
     let bytes = cycle::report_pdf(&s.cycle, &cycle::CycleInputs { analysis: &a, display_units: &s.units_for(&a.model), script: &s.text });
     if let Err(e) = std::fs::write(out, bytes) {
         eprintln!("{out}: {e}");

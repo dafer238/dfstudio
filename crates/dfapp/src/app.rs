@@ -6,7 +6,7 @@ use crate::deps::{DepAction, Deps, GraphState};
 use crate::editor::{fmt_num, status_color, Editor, EditorContext, Focus};
 use crate::plots::{PlotInputs, PlotsState, PlotsUi};
 use crate::studies_ui::{GoalForm, OptForm, ParamTable, StudiesUi};
-use crate::units_ui::{choices, effective_units, DisplayPreset, UnitPrefs, QUANTITIES};
+use crate::units_ui::{choices, choices_for, custom_key, effective_units, DisplayPreset, UnitPrefs, QUANTITIES};
 use dfcore::dffile::{Artifact, DfFile, Meta};
 use dfcore::locale::Separators;
 use dfcore::units::parse_unit;
@@ -161,6 +161,17 @@ pub struct Settings {
     /// settings are moved to the current defaults once.
     #[serde(default)]
     pub defaults_rev: u32,
+    /// View > Variable names: typeset (Greek letters, sub- and
+    /// superscripts) or as written.
+    #[serde(default)]
+    pub var_names: crate::varname::NameStyle,
+    /// View > Variable names > Show raw names too: an extra column in the
+    /// Variables sidebar and the Solution variables.
+    #[serde(default)]
+    pub var_names_both: bool,
+    /// View > Units: with exponents (kJ kg⁻¹, the default) or as written.
+    #[serde(default)]
+    pub unit_style: crate::varname::UnitStyle,
 }
 
 fn yes() -> bool {
@@ -228,6 +239,9 @@ impl Default for Settings {
             format_on_blur: true,
             completion_rows: completion_rows(),
             defaults_rev: DEFAULTS_REV,
+            var_names: Default::default(),
+            var_names_both: false,
+            unit_style: Default::default(),
         }
     }
 }
@@ -904,15 +918,12 @@ impl DfApp {
     /// Choose the display unit of a quantity (`None`: back to the preset's).
     /// Every variable of that quantity follows, also those with a unit of
     /// their own.
-    fn set_quantity_unit(&mut self, key: &str, unit: Option<String>) {
-        let Some(q) = QUANTITIES.iter().find(|q| q.key == key) else {
-            return;
-        };
+    fn set_quantity_unit(&mut self, key: &str, dim: dfcore::units::Dim, unit: Option<String>) {
         match unit {
             Some(u) => self.s.unit_prefs.quantities.insert(key.to_string(), u),
             None => self.s.unit_prefs.quantities.remove(key),
         };
-        self.s.display_units.retain(|_, u| parse_unit(u).map_or(true, |x| x.dim != q.dim));
+        self.s.display_units.retain(|_, u| parse_unit(u).map_or(true, |x| x.dim != dim));
     }
 
     fn reset_display_units(&mut self) {
@@ -934,7 +945,7 @@ impl DfApp {
             }
         }
         ui.label(RichText::new("Applies to every variable of the quantity; a preset resets these.").small().weak());
-        let mut change: Option<(&'static str, Option<String>)> = None;
+        let mut change: Option<(String, dfcore::units::Dim, Option<String>)> = None;
         for q in QUANTITIES {
             let n = count.get(&q.dim).copied().unwrap_or(0);
             let chosen = self.s.unit_prefs.chosen(q).map(str::to_string);
@@ -957,12 +968,12 @@ impl DfApp {
                     None => "As in the script".into(),
                 };
                 if ui.radio(chosen.is_none(), preset).clicked() {
-                    change = Some((q.key, None));
+                    change = Some((q.key.to_string(), q.dim, None));
                 }
                 ui.separator();
                 for o in choices(q.dim) {
                     if ui.radio(chosen.as_deref() == Some(o), o).clicked() {
-                        change = Some((q.key, Some(o.to_string())));
+                        change = Some((q.key.to_string(), q.dim, Some(o.to_string())));
                     }
                 }
                 if !q.note.is_empty() {
@@ -974,8 +985,34 @@ impl DfApp {
                 r.response.on_hover_text(q.note);
             }
         }
-        if let Some((k, u)) = change {
-            self.set_quantity_unit(k, u);
+        // quantities with custom units (EUR, EUR/yr, ...) found in the model
+        if let Some(a) = &a {
+            let mut customs: Vec<(dfcore::units::Dim, usize)> = count.iter().filter(|(d, _)| d.has_custom()).map(|(d, n)| (*d, *n)).collect();
+            customs.sort_by_key(|(d, _)| d.to_string());
+            if !customs.is_empty() {
+                ui.separator();
+                ui.label(RichText::new("Custom units").small().weak());
+            }
+            for (dim, n) in customs {
+                let key = custom_key(dim);
+                let chosen = self.s.unit_prefs.unit_for(dim, &model_us);
+                let title = format!("{}: {}  ({n})", dim, chosen.clone().unwrap_or_else(|| "script".into()));
+                let text = if chosen.is_some() { RichText::new(title).strong() } else { RichText::new(title) };
+                ui.menu_button(text, |ui| {
+                    if ui.radio(chosen.is_none(), "As in the script").clicked() {
+                        change = Some((key.clone(), dim, None));
+                    }
+                    ui.separator();
+                    for o in choices_for(&a.model, dim) {
+                        if ui.radio(chosen.as_deref() == Some(o.as_str()), &o).clicked() {
+                            change = Some((key.clone(), dim, Some(o)));
+                        }
+                    }
+                });
+            }
+        }
+        if let Some((k, d, u)) = change {
+            self.set_quantity_unit(&k, d, u);
         }
         let n_var = self.s.display_units.len();
         if n_var > 0 {
@@ -995,21 +1032,21 @@ impl DfApp {
 
     fn unit_combo_in(&mut self, ui: &mut egui::Ui, a: &Analysis, i: usize, current: &str, salt: &str) {
         let Some(dim) = a.model.var_dim(i as u32) else {
-            ui.label(current);
+            crate::varname::line_label(ui, &[crate::varname::Seg::Unit(current)], RichText::new(current), None);
             return;
         };
-        let mut opts = choices(dim);
-        if !opts.iter().any(|o| *o == current) && !current.is_empty() {
-            opts.insert(0, Box::leak(current.to_string().into_boxed_str()));
+        let mut opts = choices_for(&a.model, dim);
+        if !opts.iter().any(|o| o == current) && !current.is_empty() {
+            opts.insert(0, current.to_string());
         }
         if opts.len() <= 1 {
-            ui.label(current);
+            crate::varname::line_label(ui, &[crate::varname::Seg::Unit(current)], RichText::new(current), None);
             return;
         }
         let mut sel = current.to_string();
-        egui::ComboBox::from_id_salt(("unit", i, salt)).selected_text(current).width(90.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(("unit", i, salt)).selected_text(crate::varname::unit_text(ui, current)).width(90.0).show_ui(ui, |ui| {
             for o in &opts {
-                ui.selectable_value(&mut sel, o.to_string(), *o);
+                ui.selectable_value(&mut sel, o.clone(), o);
             }
         });
         if sel != current {
@@ -1090,14 +1127,19 @@ impl DfApp {
         let mut jump: Option<u32> = None;
         let mut pick: Option<Option<u32>> = None;
         let focus = self.focus_id(a);
+        // View > Variable names > Show raw names too: a column with the name as written
+        let both = crate::varname::both();
         ui.push_id(salt, |ui| {
-            TableBuilder::new(ui)
+            let mut tb = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .column(Column::exact(14.0))
                 .column(Column::exact(48.0))
-                .column(Column::initial(130.0).at_least(60.0).clip(true))
-                .column(Column::initial(120.0).at_least(60.0))
+                .column(Column::initial(130.0).at_least(60.0).clip(true));
+            if both {
+                tb = tb.column(Column::initial(110.0).at_least(50.0).clip(true));
+            }
+            tb.column(Column::initial(120.0).at_least(60.0))
                 .column(Column::remainder().at_least(70.0))
                 .header(20.0, |mut h| {
                     h.col(|_| {});
@@ -1107,6 +1149,11 @@ impl DfApp {
                     h.col(|ui| {
                         ui.strong("Variable");
                     });
+                    if both {
+                        h.col(|ui| {
+                            ui.strong("Raw name").on_hover_text("The name as written in the script");
+                        });
+                    }
                     h.col(|ui| {
                         ui.strong("Value");
                     });
@@ -1133,8 +1180,7 @@ impl DfApp {
                         });
                         row.col(|ui| {
                             let sel = focus == Some(i as u32);
-                            if ui
-                                .selectable_label(sel, RichText::new(&v.display).monospace())
+                            if crate::varname::selectable(ui, sel, &v.display, RichText::new(&v.display).monospace())
                                 .on_hover_text(format!("line {} · {:?}\nclick: highlight its equations and study its dependencies (click again to clear)", v.line, s))
                                 .clicked()
                             {
@@ -1144,6 +1190,11 @@ impl DfApp {
                                 }
                             }
                         });
+                        if both {
+                            row.col(|ui| {
+                                ui.label(RichText::new(&v.display).monospace().weak());
+                            });
+                        }
                         let (val, unit) = match &a.solution {
                             Some(sol) if sol.known[i] => {
                                 let (d, u) = self.display(a, i, sol.x[i]);
@@ -1288,7 +1339,7 @@ impl DfApp {
                         let ent = init.get(&v.name);
                         let in_unit = |x: f64, e: &InitEntry| convert_sym(x, &e.unit, &unit);
                         row.col(|ui| {
-                            ui.label(RichText::new(&v.display).monospace());
+                            crate::varname::label(ui, &v.display, RichText::new(&v.display).monospace(), None);
                         });
                         row.col(|ui| {
                             if let (Some(x), Some(src)) = (a.start.get(i), a.start_src.get(i)) {
@@ -1342,14 +1393,14 @@ impl DfApp {
                             let before = unit.clone();
                             let mut sel = before.clone();
                             if let Some(dim) = m.var_dim(i as u32) {
-                                let mut opts = choices(dim);
+                                let mut opts = choices_for(m, dim);
                                 if !opts.iter().any(|o| *o == before) && !before.is_empty() {
-                                    opts.insert(0, Box::leak(before.clone().into_boxed_str()));
+                                    opts.insert(0, before.clone());
                                 }
                                 if opts.len() > 1 {
-                                    egui::ComboBox::from_id_salt(("init_unit", i)).selected_text(&before).width(90.0).show_ui(ui, |ui| {
+                                    egui::ComboBox::from_id_salt(("init_unit", i)).selected_text(crate::varname::unit_text(ui, &before)).width(90.0).show_ui(ui, |ui| {
                                         for o in &opts {
-                                            ui.selectable_value(&mut sel, o.to_string(), *o);
+                                            ui.selectable_value(&mut sel, o.clone(), o);
                                         }
                                     });
                                 } else {
@@ -1531,8 +1582,8 @@ impl DfApp {
                     let unit = idxs.iter().find_map(|k| cell.get(&(b.clone(), *k))).map(|&i| self.display(&a, i, 0.0).1).unwrap_or_default();
                     h.col(|ui| {
                         ui.vertical(|ui| {
-                            ui.strong(&disp[b]);
-                            ui.label(RichText::new(unit).small().weak());
+                            crate::varname::label(ui, &disp[b], RichText::new(&disp[b]).strong(), Some(ui.visuals().strong_text_color()));
+                            crate::varname::unit_label(ui, &unit);
                         });
                     });
                 }
@@ -1684,6 +1735,26 @@ impl DfApp {
                     self.editor.jump_to_line = Some(eq.span.line);
                 }
             }
+            if !a.model.undeclared_units.is_empty() {
+                any = true;
+                let names = a.model.undeclared_units.clone();
+                let line = format!("$CustomUnits {}", names.join(" "));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("custom units: {}", names.join(", "))).color(Color32::GRAY));
+                    if ui
+                        .small_button(format!("Add `{line}`"))
+                        .on_hover_text("Declare them in the script: the notes go away, and a declared name takes precedence over a built-in unit")
+                        .clicked()
+                    {
+                        let t = crate::units_ui::declare_custom_units(&self.s.text, &names);
+                        let ctx = self.ctx.clone();
+                        self.editor.checkpoint(&ctx, &self.s.text);
+                        self.s.text = t;
+                        self.dirty = true;
+                        self.last_edit = Some(Instant::now());
+                    }
+                });
+            }
             for e in &a.model.unit_conflicts {
                 any = true;
                 let eq = &a.model.eqs[*e as usize];
@@ -1709,6 +1780,7 @@ impl eframe::App for DfApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.editor.completion_rows = self.s.completion_rows;
+        crate::varname::set_style(self.s.var_names, self.s.var_names_both, self.s.unit_style);
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1720,6 +1792,8 @@ impl eframe::App for DfApp {
                 self.analysis = Some(Arc::new(a));
             }
         }
+        // unit text on this thread is read with the custom units of the model on screen
+        dfcore::units::set_ctx(self.analysis.as_ref().map(|a| a.model.units.clone()));
         self.refresh_units();
         self.studies.poll(&mut self.s.tables);
         // debounce live analysis
@@ -1902,6 +1976,24 @@ impl eframe::App for DfApp {
                     }
                     ui.checkbox(&mut self.show_diag, "Problems panel");
                     ui.separator();
+                    ui.label("Variable names");
+                    {
+                        use crate::varname::NameStyle;
+                        ui.radio_value(&mut self.s.var_names, NameStyle::Formatted, "Formatted")
+                            .on_hover_text("Greek letters, subscripts (_), superscripts (|) and accents (_dot, _bar...) as in EES's formatted equations");
+                        ui.radio_value(&mut self.s.var_names, NameStyle::Raw, "As written");
+                        ui.add_enabled(self.s.var_names == NameStyle::Formatted, egui::Checkbox::new(&mut self.s.var_names_both, "Show raw names too"))
+                            .on_hover_text("Adds a column with the name as written to the Variables sidebar and the Solution variables");
+                    }
+                    ui.separator();
+                    ui.label("Units");
+                    {
+                        use crate::varname::UnitStyle;
+                        ui.radio_value(&mut self.s.unit_style, UnitStyle::Exponents, "With exponents (kJ kg^-1)")
+                            .on_hover_text("kJ/kg-K is shown as kJ kg^-1 K^-1 with the exponents as superscripts, everywhere except text boxes, lists and exported files");
+                        ui.radio_value(&mut self.s.unit_style, UnitStyle::Raw, "As written (kJ/kg)");
+                    }
+                    ui.separator();
                     ui.label("Theme");
                     let cur = ui.ctx().options(|o| o.theme_preference);
                     ui.horizontal(|ui| {
@@ -2018,7 +2110,8 @@ impl eframe::App for DfApp {
                         if let Some(v) = self.focus_id(a) {
                             ui.separator();
                             ui.label("Focus:");
-                            ui.label(RichText::new(&a.model.vars[v as usize].display).monospace().strong());
+                            let n = &a.model.vars[v as usize].display;
+                            crate::varname::label(ui, n, RichText::new(n).monospace().strong(), Some(ui.visuals().strong_text_color()));
                             if ui.small_button("clear").on_hover_text("clear the focus (Esc)").clicked() {
                                 self.focus = None;
                             }
@@ -2187,6 +2280,10 @@ fn set_unit(e: &mut InitEntry, unit: &str) {
 }
 
 pub fn display_in(units: &HashMap<String, String>, a: &Analysis, i: usize, x: f64) -> (f64, String) {
+    a.model.with_units(|| display_in_model(units, a, i, x))
+}
+
+fn display_in_model(units: &HashMap<String, String>, a: &Analysis, i: usize, x: f64) -> (f64, String) {
     let m = &a.model;
     if let Some(u) = units.get(&m.vars[i].name) {
         if let Ok(du) = parse_unit(u) {

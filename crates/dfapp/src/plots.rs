@@ -6,6 +6,7 @@
 use crate::analysis::Analysis;
 use crate::editor::fmt_num;
 use crate::studies_ui::{conv, ParamTable, StudiesUi};
+use crate::varname::{self, Seg};
 use dfcore::diagrams;
 use dfcore::props::{backend, coolprop_fluid, Key, PROPERTY_FUNCTIONS};
 use eframe::egui::{self, Color32, Pos2, RichText, Stroke, Vec2};
@@ -222,22 +223,74 @@ impl Series {
 /// or the names separated by spaces followed by the unit when they share it
 /// (`W_net W_c [kW]`), else each name with its unit (`eta_th [-] W_net [MW]`).
 fn axis_label(cols: &[&Column]) -> String {
+    axis_parts(cols).into_iter().map(|p| p.0).collect()
+}
+
+/// Kind of a piece of an axis label.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Part {
+    Text,
+    Name,
+    Unit,
+}
+
+/// [`axis_label`] in pieces.
+fn axis_parts(cols: &[&Column]) -> Vec<(String, Part)> {
+    let unit = |c: &Column| if c.unit == "-" { String::new() } else { c.unit.clone() };
+    let bracket = |u: &str| vec![(" [".to_string(), Part::Text), (u.to_string(), Part::Unit), ("]".to_string(), Part::Text)];
+    let with_unit = |name: &str, u: &str| {
+        let mut v = vec![(name.to_string(), Part::Name)];
+        if !u.is_empty() {
+            v.extend(bracket(u));
+        }
+        v
+    };
     match cols {
-        [] => String::new(),
-        [one] => one.header(),
+        [] => Vec::new(),
+        [one] => with_unit(&one.name, if one.unit == "-" { "" } else { &one.unit }),
         _ => {
-            let unit = |c: &Column| if c.unit == "-" { String::new() } else { c.unit.clone() };
             let shared = cols.iter().all(|c| unit(c) == unit(cols[0]));
+            let mut out = Vec::new();
             if shared {
-                let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
-                let u = Column { name: names.join(" "), unit: unit(cols[0]), values: Vec::new() };
-                u.header()
+                for (i, c) in cols.iter().enumerate() {
+                    if i > 0 {
+                        out.push((" ".to_string(), Part::Text));
+                    }
+                    out.push((c.name.clone(), Part::Name));
+                }
+                let u = unit(cols[0]);
+                if !u.is_empty() {
+                    out.extend(bracket(&u));
+                }
             } else {
                 // dimensionless columns get "[-]" so no unit reads as another's
-                cols.iter().map(|c| if c.unit.is_empty() || c.unit == "-" { format!("{} [-]", c.name) } else { c.header() }).collect::<Vec<_>>().join(" ")
+                for (i, c) in cols.iter().enumerate() {
+                    if i > 0 {
+                        out.push((" ".to_string(), Part::Text));
+                    }
+                    out.extend(with_unit(&c.name, if c.unit.is_empty() || c.unit == "-" { "-" } else { &c.unit }));
+                }
             }
+            out
         }
     }
+}
+
+/// An axis label: the user's text as is, or the automatic one with the
+/// variable names typeset (see [`crate::varname`]).
+fn axis_text(ctx: &egui::Context, user: &str, auto: &[(String, Part)]) -> egui::WidgetText {
+    if !user.is_empty() {
+        return user.to_string().into();
+    }
+    let segs: Vec<Seg> = auto
+        .iter()
+        .map(|(t, k)| match k {
+            Part::Text => Seg::Text(t),
+            Part::Name => Seg::Name(t),
+            Part::Unit => Seg::Unit(t),
+        })
+        .collect();
+    varname::widget_text(ctx, &segs, egui::TextStyle::Body.resolve(&ctx.global_style()))
 }
 
 /// Property-diagram state mapping: array bases holding T, P, h, s, v.
@@ -1036,7 +1089,9 @@ impl PlotsUi {
         let xc = find(&cols, &def.x);
         let (lx, ly) = (def.log_x, def.log_y);
         let x_label = if def.x_label.is_empty() { xc.map(|c| c.header()).unwrap_or_default() } else { def.x_label.clone() };
-        let y_label = if def.y_label.is_empty() { axis_label(&axis_cols(def, &cols, false)) } else { def.y_label.clone() };
+        let ctx = ui.ctx().clone();
+        let x_text = axis_text(&ctx, &def.x_label, &xc.map(|c| axis_parts(&[c])).unwrap_or_default());
+        let y_label = axis_text(&ctx, &def.y_label, &axis_parts(&axis_cols(def, &cols, false)));
         if !def.title.is_empty() {
             ui.vertical_centered(|ui| ui.heading(&def.title));
         }
@@ -1064,10 +1119,10 @@ impl PlotsUi {
         };
         let has_y2 = def.series.iter().any(|s| s.y2);
         let y2_names: Vec<String> = def.series.iter().filter(|s| s.y2).filter_map(|s| find(&cols, &s.y).map(|c| series_name(s, c, true))).collect();
-        let y2_label = if def.y2_label.is_empty() { axis_label(&axis_cols(def, &cols, true)) } else { def.y2_label.clone() };
+        let y2_label = axis_text(&ctx, &def.y2_label, &axis_parts(&axis_cols(def, &cols, true)));
         let x_name = x_label.split(" [").next().unwrap_or("x").to_string();
         // the hover read-out replaces egui_plot's coordinate label
-        let mut plot = Plot::new(("xy", def.name.as_str())).x_axis_label(x_label).show_grid(def.grid).x_axis_formatter(axis_fmt(lx)).show_x(false).show_y(false);
+        let mut plot = Plot::new(("xy", def.name.as_str())).x_axis_label(x_text).show_grid(def.grid).x_axis_formatter(axis_fmt(lx)).show_x(false).show_y(false);
         plot = with_log_grids(plot, lx, ly);
         if has_y2 {
             let right = move |g: GridMark, _r: &RangeInclusive<f64>| {
@@ -1080,7 +1135,12 @@ impl PlotsUi {
         } else {
             plot = plot.y_axis_label(y_label).y_axis_formatter(axis_fmt(ly));
         }
-        if def.legend {
+        // typeset names: egui_plot's legend takes plain strings, so the plot
+        // draws its own (click an entry to hide its series)
+        let own_legend = def.legend && varname::formatted();
+        let hidden_id = ui.scope_id().with(("xy_hidden", def.name.as_str()));
+        let hidden: std::collections::HashSet<String> = if own_legend { ui.data(|d| d.get_temp(hidden_id)).unwrap_or_default() } else { Default::default() };
+        if def.legend && !own_legend {
             plot = plot.legend(Legend::default());
         }
         plot = plot.label_formatter(move |h| {
@@ -1106,6 +1166,9 @@ impl PlotsUi {
                 let raw: Vec<[f64; 2]> = xc.values.iter().zip(&yc.values).map(|(x, y)| [*x, if s.y2 { a2 + b2 * *y } else { *y }]).collect();
                 let p = pts(&raw, lx, ly && !s.y2);
                 let name = series_name(s, yc, has_y2);
+                if hidden.contains(&name) {
+                    continue;
+                }
                 if s.line != LineKind::None {
                     pu.line(Line::new(name.clone(), p.clone()).color(s.color32()).width(s.width).style(s.line.egui()));
                 }
@@ -1133,9 +1196,20 @@ impl PlotsUi {
                 .collect();
             Some((fmt_num(if lx { 10f64.powf(x) } else { x }), rows))
         });
+        let frame = *r.transform.frame();
         if let Some((x, rows)) = r.inner {
             if r.response.hovered() {
                 hover_tooltip(r.response, format!("{} = {x}", x_name), &rows);
+            }
+        }
+        if own_legend {
+            let entries: Vec<(String, &Series)> = def.series.iter().filter_map(|s| find(&cols, &s.y).map(|yc| (series_name(s, yc, has_y2), s))).collect();
+            if let Some(name) = legend(ui, frame, &entries, &hidden) {
+                let mut h = hidden;
+                if !h.remove(&name) {
+                    h.insert(name);
+                }
+                ui.data_mut(|d| d.insert_temp(hidden_id, h));
             }
         }
     }
@@ -1227,6 +1301,9 @@ impl PlotsUi {
         ui.vertical_centered(|ui| ui.heading(title));
         let xl = if def.x_label.is_empty() { format!("{} [{}]", key_name(xk), data.x_unit) } else { def.x_label.clone() };
         let yl = if def.y_label.is_empty() { format!("{} [{}]", key_name(yk), data.y_unit) } else { def.y_label.clone() };
+        let body = egui::TextStyle::Body.resolve(ui.style());
+        let auto = |user: &str, l: String| if user.is_empty() { varname::widget_text(ui.ctx(), &varname::head_segs(&l), body.clone()) } else { l.into() };
+        let (xl, yl) = (auto(&def.x_label, xl), auto(&def.y_label, yl));
         let mut plot = Plot::new(("prop", def.name.as_str())).x_axis_label(xl).y_axis_label(yl).show_grid(def.grid).x_axis_formatter(axis_fmt(lx)).y_axis_formatter(axis_fmt(ly));
         plot = with_log_grids(plot, lx, ly);
         if def.legend {
@@ -1782,7 +1859,7 @@ fn draw3d(painter: egui::Painter, rect: egui::Rect, data: &[[f64; 3]], labels: &
         }
         let mut q = base;
         q[k] = 0.0;
-        painter.text(proj(q).0 + outward(q, 0.32), egui::Align2::CENTER_CENTER, &labels[k], egui::FontId::proportional(12.5), text);
+        varname::paint(&painter, proj(q).0 + outward(q, 0.32), egui::Align2::CENTER_CENTER, &varname::head_segs(&labels[k]), egui::FontId::proportional(12.5), text);
     }
     // colour bar
     let bar = egui::Rect::from_min_size(egui::pos2(rect.right() - 110.0, rect.top() + 40.0), Vec2::new(14.0, rect.height() * 0.5));
@@ -2051,13 +2128,51 @@ pub fn hover_readout(pu: &mut PlotUi, series: &[HoverSeries], keys: &[f64]) -> O
     Some((x, snapped, rows))
 }
 
+/// Legend of an x-y plot with typeset names, in the top-right corner of the
+/// plot frame like egui_plot's; returns the series clicked (to hide or show).
+fn legend(ui: &mut egui::Ui, frame: egui::Rect, entries: &[(String, &Series)], hidden: &std::collections::HashSet<String>) -> Option<String> {
+    if entries.is_empty() {
+        return None;
+    }
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let painter = ui.painter_at(frame);
+    let shaped: Vec<varname::Shaped> = entries.iter().map(|(n, _)| varname::shape(&painter, &varname::head_segs(n), &font, Color32::PLACEHOLDER)).collect();
+    let icon = font.size;
+    let (pad, gap) = (6.0, 4.0);
+    let rh = shaped.iter().map(|s| s.size.y).fold(icon, f32::max);
+    let w = shaped.iter().map(|s| s.size.x).fold(0.0, f32::max) + icon + gap + 2.0 * pad;
+    let bx = egui::Rect::from_min_size(egui::Pos2::new(frame.max.x - w - 6.0, frame.min.y + 6.0), egui::vec2(w, rh * entries.len() as f32 + 2.0 * pad));
+    let v = ui.visuals();
+    painter.rect(bx, 4.0, v.extreme_bg_color.gamma_multiply(0.8), egui::Stroke::new(1.0, v.weak_text_color().gamma_multiply(0.5)), egui::StrokeKind::Inside);
+    let mut clicked = None;
+    for (i, ((name, s), sh)) in entries.iter().zip(&shaped).enumerate() {
+        let row = egui::Rect::from_min_size(egui::Pos2::new(bx.min.x + pad, bx.min.y + pad + rh * i as f32), egui::vec2(w - 2.0 * pad, rh));
+        let resp = ui.interact(row, ui.scope_id().with(("legend_entry", name.as_str())), egui::Sense::click());
+        let off = hidden.contains(name);
+        let tc = if resp.hovered() { v.strong_text_color() } else { v.text_color() };
+        let (tc, kc) = if off { (v.weak_text_color(), v.weak_text_color()) } else { (tc, s.key32()) };
+        let c = egui::Pos2::new(row.min.x + icon / 2.0, row.center().y);
+        if off {
+            painter.circle_stroke(c, icon * 0.3, egui::Stroke::new(1.0, kc));
+        } else {
+            painter.circle_filled(c, icon * 0.3, kc);
+        }
+        sh.paint(&painter, egui::Pos2::new(row.min.x + icon + gap, row.center().y - sh.size.y / 2.0), tc);
+        if resp.clicked() {
+            clicked = Some(name.clone());
+        }
+    }
+    clicked
+}
+
 /// Tooltip for a hover read-out; `fx`/`fy` format x and a series value.
 pub fn hover_tooltip(resp: egui::Response, x: String, rows: &[(String, Color32, String)]) {
     resp.on_hover_ui_at_pointer(|ui| {
-        ui.strong(x);
+        let sc = ui.visuals().strong_text_color();
+        varname::line_label(ui, &varname::line_segs(&x), RichText::new(&x).strong(), Some(sc));
         egui::Grid::new("hover_rows").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
             for (n, c, v) in rows {
-                ui.label(RichText::new(n).color(*c));
+                varname::line_label(ui, &varname::head_segs(n), RichText::new(n).color(*c), Some(*c));
                 ui.label(RichText::new(v).monospace());
                 ui.end_row();
             }

@@ -41,6 +41,76 @@ pub fn choices(dim: Dim) -> Vec<&'static str> {
     v.iter().copied().filter(|u| parse_unit(u).map(|p| p.dim == dim).unwrap_or(false)).collect()
 }
 
+/// Display units offered for a variable of dimension `dim` in `model`: the
+/// catalogue for physical quantities; for custom units (`EUR/yr`) every
+/// compatible unit written in the script, the model unit, and their k, M and
+/// G multiples (`kEUR/yr`, `MEUR/yr`).
+pub fn choices_for(model: &Model, dim: Dim) -> Vec<String> {
+    if !dim.has_custom() {
+        return choices(dim).into_iter().map(str::to_string).collect();
+    }
+    model.with_units(|| {
+        let mut seen: Vec<String> = Vec::new();
+        let mut written: Vec<&str> = model.vars.iter().filter_map(|v| v.unit_hint.as_deref()).collect();
+        written.extend(model.display_units.values().map(String::as_str));
+        let mu = model.unit_system.unit_for(dim).symbol;
+        let mut base = vec![mu];
+        base.extend(written.into_iter().map(str::to_string));
+        let fits = |u: &str| parse_unit(u).is_ok_and(|p| p.dim == dim);
+        // a custom unit alone (no SI part): its root name and factor
+        let custom_root = |t: &str| {
+            parse_unit(t).ok().filter(|p| p.dim.si_part().is_none()).and_then(|p| {
+                let mut it = p.dim.1.iter();
+                match (it.next(), it.next()) {
+                    (Some((id, 1)), None) => Some((dfcore::units::custom_name(id), p.factor)),
+                    _ => None,
+                }
+            })
+        };
+        for u in base {
+            let u = u.trim().to_string();
+            if !fits(&u) {
+                continue;
+            }
+            // `kEUR/yr` → `EUR/yr`, then its multiples
+            let first = u.split(['/', '-', '*', ' ', '^']).next().unwrap_or("").to_string();
+            let root = custom_root(&first).map(|(r, _)| format!("{r}{}", &u[first.len()..]));
+            for v in [Some(u.clone()), root.clone()].into_iter().flatten() {
+                if fits(&v) && !seen.contains(&v) {
+                    seen.push(v);
+                }
+            }
+            if let Some(r) = root {
+                for p in ["k", "M", "G"] {
+                    let v = format!("{p}{r}");
+                    if fits(&v) && !seen.contains(&v) {
+                        seen.push(v);
+                    }
+                }
+            }
+        }
+        seen
+    })
+}
+
+/// Declare custom units in a script: append them to its `$CustomUnits` line,
+/// or add one after the leading directives (`$UnitSystem`, ...).
+pub fn declare_custom_units(text: &str, names: &[String]) -> String {
+    if names.is_empty() {
+        return text.to_string();
+    }
+    let add = names.join(" ");
+    let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    if let Some(l) = lines.iter_mut().find(|l| l.trim_start().to_lowercase().starts_with("$customunits")) {
+        let keep = l.trim_end_matches('\r').trim_end().to_string();
+        *l = format!("{keep} {add}");
+        return lines.join("\n");
+    }
+    let at = lines.iter().take_while(|l| l.trim_start().starts_with('$')).count();
+    lines.insert(at, format!("$CustomUnits {add}"));
+    lines.join("\n")
+}
+
 /// A physical quantity whose display unit can be chosen for all the
 /// variables of that dimension at once.
 pub struct Quantity {
@@ -86,6 +156,12 @@ pub const QUANTITIES: &[Quantity] = &[
     Quantity { key: "length", label: "Length", dim: Dim::LENGTH, note: "" },
     Quantity { key: "time", label: "Time", dim: Dim::TIME, note: "" },
 ];
+
+/// Key in [`UnitPrefs::quantities`] of a quantity with custom units, e.g.
+/// `custom:EUR/s` (the dimension in model base units).
+pub fn custom_key(dim: Dim) -> String {
+    format!("custom:{dim}")
+}
 
 /// The catalogue entry of a dimension.
 pub fn quantity_of(dim: Dim) -> Option<&'static Quantity> {
@@ -159,6 +235,10 @@ impl UnitPrefs {
         if dim.is_none() {
             return None;
         }
+        if dim.has_custom() {
+            // presets do not know custom units: only a choice for the quantity applies
+            return self.quantities.get(&custom_key(dim)).filter(|u| parse_unit(u).is_ok_and(|p| p.dim == dim)).cloned();
+        }
         if let Some(u) = quantity_of(dim).and_then(|q| self.chosen(q)) {
             return Some(u.to_string());
         }
@@ -171,6 +251,10 @@ impl UnitPrefs {
 /// Display unit of every variable: the per-variable choices over the
 /// per-quantity ones (see the module documentation for the order).
 pub fn effective_units(model: &Model, per_var: &HashMap<String, String>, prefs: &UnitPrefs) -> HashMap<String, String> {
+    model.with_units(|| effective_units_in(model, per_var, prefs))
+}
+
+fn effective_units_in(model: &Model, per_var: &HashMap<String, String>, prefs: &UnitPrefs) -> HashMap<String, String> {
     if prefs.is_empty() {
         return per_var.clone();
     }
@@ -201,6 +285,40 @@ mod tests {
     fn shown(a: &crate::analysis::Analysis, units: &HashMap<String, String>, name: &str) -> (f64, String) {
         let i = a.model.var(name).unwrap() as usize;
         display_in(units, a, i, a.solution.as_ref().unwrap().x[i])
+    }
+
+    #[test]
+    fn declare_line() {
+        let n = vec!["EUR".to_string(), "pax".to_string()];
+        assert_eq!(declare_custom_units("$UnitSystem SI\nx = 1 [EUR]", &n), "$UnitSystem SI\n$CustomUnits EUR pax\nx = 1 [EUR]");
+        assert_eq!(declare_custom_units("x = 1\n$CustomUnits USD\n", &n), "x = 1\n$CustomUnits USD EUR pax\n");
+    }
+
+    /// Custom units: the dropdown offers the script's spellings and their
+    /// multiples; a choice for the quantity applies to all its variables.
+    #[test]
+    fn custom_quantities() {
+        let a = analyse("C = 12 [MEUR]\nc_om = 300 [kEUR/yr]\nOM = c_om*20 [yr]\nTotal = C + OM {EUR}\nn = 4 [pax]\n");
+        assert!(a.solution.as_ref().unwrap().converged);
+        let m = &a.model;
+        let d = m.var_dim(m.var("Total").unwrap()).unwrap();
+        let c = choices_for(m, d);
+        for u in ["EUR", "MEUR", "kEUR", "GEUR"] {
+            assert!(c.iter().any(|x| x == u), "{u} not in {c:?}");
+        }
+        let d2 = m.var_dim(m.var("c_om").unwrap()).unwrap();
+        let c2 = choices_for(m, d2);
+        assert!(c2.iter().any(|x| x == "kEUR/yr") && c2.iter().any(|x| x == "MEUR/yr"), "{c2:?}");
+        // presets leave custom quantities alone, a quantity choice applies
+        let mut prefs = UnitPrefs::default();
+        prefs.set_preset(DisplayPreset::SI);
+        assert_eq!(prefs.unit_for(d, &m.unit_system), None);
+        prefs.quantities.insert(custom_key(d), "MEUR".into());
+        let du = effective_units(m, &HashMap::new(), &prefs);
+        let (x, u) = shown(&a, &du, "Total");
+        assert_eq!(u, "MEUR");
+        assert!((x - 18.0).abs() < 1e-9, "{x}");
+        assert_eq!(shown(&a, &du, "n").1, "pax");
     }
 
     #[test]

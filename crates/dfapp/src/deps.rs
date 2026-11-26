@@ -13,6 +13,7 @@
 
 use crate::analysis::Analysis;
 use crate::editor::status_color;
+use crate::varname::Seg;
 use dfcore::VarStatus;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -426,7 +427,7 @@ pub fn graph(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, focus: Option<u32>,
             painter.rect_filled(rr, 3.0 * z, bg);
             painter.rect(rr, 3.0 * z, fill, stroke, egui::StrokeKind::Inside);
             let tc = if ro == 0 { weak.gamma_multiply(0.5) } else { ui.visuals().text_color() };
-            painter.text(rr.center(), egui::Align2::CENTER_CENTER, &m.vars[v as usize].display, font.clone(), tc);
+            crate::varname::paint(&painter, rr.center(), egui::Align2::CENTER_CENTER, &[crate::varname::Seg::Name(&m.vars[v as usize].display)], font.clone(), tc);
             if hover.is_some_and(|h| rr.contains(h)) {
                 hovered = Some(v);
             }
@@ -501,10 +502,13 @@ pub fn info(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, v: u32, value: &dyn 
         let xs = st.var_status[x as usize];
         ui.horizontal(|ui| {
             crate::app::dot(ui, status_color(xs, dark));
-            if ui.link(RichText::new(&m.vars[x as usize].display).monospace()).on_hover_text("focus this variable").clicked() {
+            let n = &m.vars[x as usize].display;
+            if crate::varname::link(ui, &[Seg::Name(n)], RichText::new(n).monospace()).on_hover_text("focus this variable").clicked() {
                 *act = Some(DepAction::Focus(Some(x)));
             }
-            ui.label(RichText::new(value(x)).monospace().weak());
+            let val = value(x);
+            let c = ui.visuals().weak_text_color();
+            crate::varname::line_label(ui, &crate::varname::value_segs(&val), RichText::new(&val).monospace().weak(), Some(c));
         });
     };
     let eq_link = |ui: &mut egui::Ui, e: u32, act: &mut Option<DepAction>| {
@@ -521,8 +525,10 @@ pub fn info(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, v: u32, value: &dyn 
         });
     };
     ui.horizontal(|ui| {
-        ui.heading(RichText::new(&vi.display).monospace());
-        ui.label(RichText::new(value(v)).monospace().strong());
+        crate::varname::heading(ui, &vi.display, RichText::new(&vi.display).monospace().heading());
+        let val = value(v);
+        let c = ui.visuals().strong_text_color();
+        crate::varname::line_label(ui, &crate::varname::value_segs(&val), RichText::new(&val).monospace().strong(), Some(c));
     });
     ui.horizontal(|ui| {
         crate::app::dot(ui, status_color(s, dark));
@@ -626,12 +632,21 @@ pub fn info(ui: &mut egui::Ui, a: &Arc<Analysis>, d: &Deps, v: u32, value: &dyn 
                         if bl.vars.len() > 4 {
                             break;
                         }
-                        if ui.link(RichText::new(&m.vars[*x as usize].display).monospace()).clicked() {
+                        let n = &m.vars[*x as usize].display;
+                        if crate::varname::link(ui, &[Seg::Name(n)], RichText::new(n).monospace()).clicked() {
                             act = Some(DepAction::Focus(Some(*x)));
                         }
                     }
                     if bl.vars.len() > 4 {
-                        if ui.link(RichText::new(format!("{}{more}", names.join(", "))).monospace()).clicked() {
+                        let mut segs: Vec<Seg> = Vec::new();
+                        for (i, n) in names.iter().enumerate() {
+                            if i > 0 {
+                                segs.push(Seg::Text(", "));
+                            }
+                            segs.push(Seg::Name(n));
+                        }
+                        segs.push(Seg::Text(&more));
+                        if crate::varname::link(ui, &segs, RichText::new(format!("{}{more}", names.join(", "))).monospace()).clicked() {
                             act = Some(DepAction::Focus(Some(bl.vars[0])));
                         }
                     }

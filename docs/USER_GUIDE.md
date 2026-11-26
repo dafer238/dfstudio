@@ -143,6 +143,44 @@ folder of the source tree (`dfstudio --write-examples DIR`).
 The Equations tab has two sub-views: **Editor** and **Dependencies**
 (section 6.3).
 
+### 3.1 Variable names (View > Variable names)
+
+Outside the editor, variable names are typeset as in EES's formatted
+equations: `eta_th` shows as η with subscript th, `m_dot` as ṁ, `T[1]` as T
+with subscript 1. This applies to the Variables panel, the Solution tab
+(variables and arrays), Initial values, the Dependencies graph and panel,
+parametric table headers, study results, the cycle diagram and its PDF
+report, and plot axes, legends and read-outs. Text boxes, drop-down lists
+and selectors keep the names as written.
+
+| Written | Shown | Rule |
+|---|---|---|
+| `T_sat` | T with subscript sat | `_` starts a subscript |
+| `eta_is_t` | η with subscript is,t | further `_` parts join the same subscript |
+| `T_c__1` | T, subscript c, which has its own subscript 1 | `__` goes one level deeper (`___` two, ...) |
+| `x\|2`, `h\|o_f` | x², h° with subscript f | `\|` starts a superscript; a lone `o` is the degree sign; super- and subscripts of one symbol are stacked |
+| `eta`, `Delta_P` | η, Δ with subscript P | a part that is exactly a Greek letter's name; capitals only where they differ from Latin letters (`Nu` stays Nu) |
+| `m_dot`, `x_ddot`, `v_bar`, `u_hat`, `a_tilde`, `F_vec` | ṁ, ẍ, v̄, û, ã, F⃗ | accents on the symbol they follow (also inside a script: `W_c__dot`) |
+| `T_star`, `c_prime`, `T_infinity` | T*, c′, T with subscript ∞ | |
+| `T[1]`, `T_in[1,2]` | T₁, T with subscript in,1,2 | array indices are subscripts |
+
+*View > Variable names > As written* shows every name exactly as in the
+script, as before. *Show raw names too* adds a column with the name as
+written to the Variables panel and the Solution variables. Copied tables and
+CSV files always use the names as written.
+
+### 3.2 Units with exponents (View > Units)
+
+Compound units are shown with exponents instead of `/`, with a thin space
+between factors (as in the SI Brochure): `kJ/kg` as kJ kg⁻¹, `kJ/kg-K` as
+kJ kg⁻¹ K⁻¹, `W/(m^2*K)` as W m⁻² K⁻¹, `m^3/kg` as m³ kg⁻¹. Simple units
+(`kW`, `bar`, `C`) do not change. This applies wherever a unit is shown:
+unit columns and the closed unit drop-downs, column headers, value labels
+of the cycle diagram and the PDF report, plot axes, legends and read-outs.
+Open drop-down lists, text boxes, copied tables, CSV and Python exports keep
+the units as written, and units are always typed the usual way.
+*View > Units > As written* shows `kJ/kg` everywhere, as before.
+
 ## 4. Writing equations
 
 The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:
@@ -330,6 +368,56 @@ mass is in kg/kmol, so `h*molarmass(...)` is in kJ/kmol and
 
 The structural check also flags equations whose terms have different
 dimensions (Problems panel, grey "unit check" entries).
+
+### 5.2 Custom units (currencies, people, emissions, ...)
+
+Any unit name that is not a built-in unit is a **custom unit**: `EUR`,
+`USD`, `pax`, `CO2`, `trips`. DeltaF Studio does not interpret it; each
+custom unit is a dimension of its own, combined with the physical units as
+usual:
+
+```
+C_inv = 12 [MEUR]
+c_om  = 300 [kEUR/yr]
+OM    = c_om*20 [yr]
+Total = C_inv + OM [EUR]          // 18e6 EUR
+c_el  = 0.25 [EUR/kWh]
+Cost  = c_el*P*t                  // P in kW, t in h: EUR
+e_CO2 = 0.2 [kg-CO2/kWh]           // converts to t-CO2/MWh
+```
+
+* **Prefixes.** `k`, `M`, `G`, `m`, ... (all SI prefixes, case-sensitive)
+  are read on a custom unit when the rest of the name is also used in the
+  script, directly or with another prefix: with `EUR` or `kEUR` somewhere,
+  `MEUR` is 10⁶ EUR and `mEUR` 10⁻³ EUR. Otherwise the name is a unit of its
+  own, so `pax` is never pico-`ax`.
+* **Model unit.** Values are held in the custom unit without prefix, times
+  the model unit of the physical part: `[MEUR/yr]` is held in EUR/s,
+  `[EUR/kWh]` in EUR/kJ (kJ systems). A plain number without a unit is in
+  that model unit, as for physical quantities.
+* **Unit checking** treats custom units like physical ones: adding `EUR` to
+  `EUR/yr` or to `USD` is flagged. There are no conversion factors between
+  different custom units (EUR and USD are unrelated).
+* **Notes and typos.** The first use of each custom unit gets an info note
+  in the problems list, with a button that adds a
+  `$CustomUnits EUR pax` line to the script; declared units have no note. A
+  name one letter away from a built-in unit gets a warning instead (`kgg`:
+  *did you mean 'kg'?*).
+* **Names of built-in units.** Built-in units win: `a` is the ampere, `t`
+  the tonne, `d` a day. Declare a name with `$CustomUnits a b` to use it as a
+  custom unit in that script. A number is never a unit, and digits at the
+  end belong to the name (`CO2`), unlike `m3` for built-in units.
+* **Display units.** The unit column of the Variables panel and the Initial
+  values table offer, for a custom quantity, every compatible unit written in
+  the script plus its k, M and G multiples (`EUR/yr`, `kEUR/yr`,
+  `MEUR/yr`). *Units > Units per quantity* lists each custom quantity of the
+  model under *Custom units*. Display presets leave custom units as they
+  are.
+* A `{MEUR}` comment sets the display unit only with a custom unit the
+  script already uses in `[...]` (so `{inlet}` stays a comment).
+
+Built-in units also take the usual prefixes when the name is not in the
+table: `Mt`, `kt`, `hPa`, `kbar`, `nm`, `mA`.
 
 ## 6. Solving, and understanding why a model does not solve
 
@@ -571,8 +659,9 @@ title, *Export PDF report…*, *Fit view*).
   component it snaps (within 15 px) so that a port lines up with the port it
   connects to, which gives straight streams.
 * Select a stream to set its **state number**, **colour** (fluid presets)
-  and **fluid** (auto: from the colour preset or the model's main fluid; or
-  a CoolProp name; or *none / mixture*).
+  and **fluid** (auto: the fluid the script evaluates that state with, as in
+  `enthalpy(Air, T=T[4], P=P[4])`, also inside `Duplicate`; else the colour
+  preset or the model's main fluid; or a CoolProp name; or *none / mixture*).
 * *Stream labels*, two styles:
   * **cross** (default, the usual heat-balance layout): four numbers around a cross,
     P | T over m | h, with the state number just above and a unit legend
@@ -671,7 +760,10 @@ Process paths are evaluated with CoolProp:
 
 A chart opened in its own tab of the Components view fills the panel.
 
-The saturation dome is drawn with 240 points. These profiles show what
+The saturation dome is drawn with 240 points, and only when the process is
+near it: the dome is left out when it lies farther from the process than the
+process's own extent on either axis (air compressed from 15 to 200 °C, dome
+below −140 °C), so the axes fit the process. These profiles show what
 happens inside the component, so an internal pinch or a temperature cross
 is visible even when the end temperatures look fine.
 Streams without a known fluid (e.g. a gas mixture defined by your own

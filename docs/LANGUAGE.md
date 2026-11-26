@@ -20,6 +20,13 @@ a = 1; b = 2                  // ';' separates equations on one line
 
 Operators: `+ - * / ^` (also `**`), comparisons `< <= > >= <>`, `and`, `or`, `not`.
 
+Unit symbols: after the first `/` everything is in the denominator
+(`kJ/kg/K` is `kJ/(kg K)`); `-`, `*`, `·` or blanks separate factors, unit
+common unit names written together are a product too (`kJ/kgK`, `W/m2K`,
+`Nm`; a power then belongs to the last name, and a token that does not split
+into common symbols of different dimensions is a custom unit), and `^` or `**` raise to a power (`kJ/kg-K`,
+`W/m^2-K`, `m**3/kg`).
+
 Units after an equation: a `[unit]` at the end of an equation, preceded by a
 space, is the unit of the variable that equation computes (found from the
 structure of the model, the same matching the Dependencies view shows). It
@@ -292,8 +299,14 @@ $UnitSystem Eng            // or SI | Imperial | custom: SI C bar kJ  (also K kP
 $Guess h[2] = 300, T[5] = 400
 $Bounds x = 0 .. 1
 $Units T[*] = C, P[*] = bar, W_net = MW
+$CustomUnits EUR pax a          // custom units (optional; needed for names of built-in units, here `a`)
 $Control vary P[7] to make T_gas[2] = 333       // control loop (phase 4)
 ```
+
+Custom units: a unit name that is not built in (`[EUR/yr]`, `[MEUR]`,
+`[kg-CO2/MWh]`) is a custom unit, a dimension of its own, with SI prefixes
+when the unprefixed name (or another prefixed form) is also used. See the
+User guide, section 5.2.
 
 `MOLAR` in `$UnitSystem` gives the specific properties of the property
 functions per amount of substance, as in EES: h, u in kJ/kmol (J/mol in J
