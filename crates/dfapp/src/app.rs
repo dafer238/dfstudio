@@ -161,6 +161,14 @@ pub struct Settings {
     /// settings are moved to the current defaults once.
     #[serde(default)]
     pub defaults_rev: u32,
+    /// View > Variable names: typeset (Greek letters, sub- and
+    /// superscripts) or as written.
+    #[serde(default)]
+    pub var_names: crate::varname::NameStyle,
+    /// View > Variable names > Show raw names too: an extra column in the
+    /// Variables sidebar and the Solution variables.
+    #[serde(default)]
+    pub var_names_both: bool,
 }
 
 fn yes() -> bool {
@@ -228,6 +236,8 @@ impl Default for Settings {
             format_on_blur: true,
             completion_rows: completion_rows(),
             defaults_rev: DEFAULTS_REV,
+            var_names: Default::default(),
+            var_names_both: false,
         }
     }
 }
@@ -1075,14 +1085,19 @@ impl DfApp {
         let mut jump: Option<u32> = None;
         let mut pick: Option<Option<u32>> = None;
         let focus = self.focus_id(a);
+        // View > Variable names > Show raw names too: a column with the name as written
+        let both = crate::varname::both();
         ui.push_id(salt, |ui| {
-            TableBuilder::new(ui)
+            let mut tb = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .column(Column::exact(14.0))
                 .column(Column::exact(48.0))
-                .column(Column::initial(130.0).at_least(60.0).clip(true))
-                .column(Column::initial(120.0).at_least(60.0))
+                .column(Column::initial(130.0).at_least(60.0).clip(true));
+            if both {
+                tb = tb.column(Column::initial(110.0).at_least(50.0).clip(true));
+            }
+            tb.column(Column::initial(120.0).at_least(60.0))
                 .column(Column::remainder().at_least(70.0))
                 .header(20.0, |mut h| {
                     h.col(|_| {});
@@ -1092,6 +1107,11 @@ impl DfApp {
                     h.col(|ui| {
                         ui.strong("Variable");
                     });
+                    if both {
+                        h.col(|ui| {
+                            ui.strong("Raw name").on_hover_text("The name as written in the script");
+                        });
+                    }
                     h.col(|ui| {
                         ui.strong("Value");
                     });
@@ -1118,8 +1138,7 @@ impl DfApp {
                         });
                         row.col(|ui| {
                             let sel = focus == Some(i as u32);
-                            if ui
-                                .selectable_label(sel, RichText::new(&v.display).monospace())
+                            if crate::varname::selectable(ui, sel, &v.display, RichText::new(&v.display).monospace())
                                 .on_hover_text(format!("line {} · {:?}\nclick: highlight its equations and study its dependencies (click again to clear)", v.line, s))
                                 .clicked()
                             {
@@ -1129,6 +1148,11 @@ impl DfApp {
                                 }
                             }
                         });
+                        if both {
+                            row.col(|ui| {
+                                ui.label(RichText::new(&v.display).monospace().weak());
+                            });
+                        }
                         let (val, unit) = match &a.solution {
                             Some(sol) if sol.known[i] => {
                                 let (d, u) = self.display(a, i, sol.x[i]);
@@ -1273,7 +1297,7 @@ impl DfApp {
                         let ent = init.get(&v.name);
                         let in_unit = |x: f64, e: &InitEntry| convert_sym(x, &e.unit, &unit);
                         row.col(|ui| {
-                            ui.label(RichText::new(&v.display).monospace());
+                            crate::varname::label(ui, &v.display, RichText::new(&v.display).monospace(), None);
                         });
                         row.col(|ui| {
                             if let (Some(x), Some(src)) = (a.start.get(i), a.start_src.get(i)) {
@@ -1516,7 +1540,7 @@ impl DfApp {
                     let unit = idxs.iter().find_map(|k| cell.get(&(b.clone(), *k))).map(|&i| self.display(&a, i, 0.0).1).unwrap_or_default();
                     h.col(|ui| {
                         ui.vertical(|ui| {
-                            ui.strong(&disp[b]);
+                            crate::varname::label(ui, &disp[b], RichText::new(&disp[b]).strong(), Some(ui.visuals().strong_text_color()));
                             ui.label(RichText::new(unit).small().weak());
                         });
                     });
@@ -1713,6 +1737,7 @@ impl eframe::App for DfApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.editor.completion_rows = self.s.completion_rows;
+        crate::varname::set_style(self.s.var_names, self.s.var_names_both);
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1903,6 +1928,16 @@ impl eframe::App for DfApp {
                     }
                     ui.checkbox(&mut self.show_diag, "Problems panel");
                     ui.separator();
+                    ui.label("Variable names");
+                    {
+                        use crate::varname::NameStyle;
+                        ui.radio_value(&mut self.s.var_names, NameStyle::Formatted, "Formatted")
+                            .on_hover_text("Greek letters, subscripts (_), superscripts (|) and accents (_dot, _bar...) as in EES's formatted equations");
+                        ui.radio_value(&mut self.s.var_names, NameStyle::Raw, "As written");
+                        ui.add_enabled(self.s.var_names == NameStyle::Formatted, egui::Checkbox::new(&mut self.s.var_names_both, "Show raw names too"))
+                            .on_hover_text("Adds a column with the name as written to the Variables sidebar and the Solution variables");
+                    }
+                    ui.separator();
                     ui.label("Theme");
                     let cur = ui.ctx().options(|o| o.theme_preference);
                     ui.horizontal(|ui| {
@@ -2019,7 +2054,8 @@ impl eframe::App for DfApp {
                         if let Some(v) = self.focus_id(a) {
                             ui.separator();
                             ui.label("Focus:");
-                            ui.label(RichText::new(&a.model.vars[v as usize].display).monospace().strong());
+                            let n = &a.model.vars[v as usize].display;
+                            crate::varname::label(ui, n, RichText::new(n).monospace().strong(), Some(ui.visuals().strong_text_color()));
                             if ui.small_button("clear").on_hover_text("clear the focus (Esc)").clicked() {
                                 self.focus = None;
                             }
