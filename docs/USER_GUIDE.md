@@ -181,6 +181,33 @@ Open drop-down lists, text boxes, copied tables, CSV and Python exports keep
 the units as written, and units are always typed the usual way.
 *View > Units > As written* shows `kJ/kg` everywhere, as before.
 
+### 3.3 Numbers in result tables (View > Numbers)
+
+Values in result tables have the same number of decimal places, 3 by
+default (*View > Numbers > Decimal places*, 0 to 10), and each column is
+aligned on the decimal point, so that values can be compared at a glance.
+A value is in scientific notation when fixed notation would keep fewer than
+two significant digits (below 0.01 with 3 decimals) or when it is 10⁷ or
+more: `1.234e-8`, `1.235e9`, which can be pasted into a script as it is.
+Exact zero is `0.000`.
+
+For example, a column with 300.15, 101325, 0.005, 0.00000001234 and
+1234567890 is shown as
+
+```text
+   300.150
+101325.000
+     5.000e-3
+     1.234e-8
+     1.235e9
+```
+
+This applies to the Variables sidebar, Solution (variables and arrays),
+parametric tables, the cycle's States table and its PDF report, and the
+streams and results of components. Text boxes, the cycle diagram's labels,
+plot ticks and read-outs keep their own formats, and copied tables, CSV and
+Python exports keep full precision.
+
 ## 4. Writing equations
 
 The full syntax is in [LANGUAGE.md](LANGUAGE.md). In short:

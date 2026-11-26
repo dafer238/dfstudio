@@ -1077,7 +1077,13 @@ impl StateTable {
     }
 }
 
+/// The state table with the numbers of the result tables (View > Numbers).
 pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
+    state_table_with(d, inp, crate::numfmt::fmt)
+}
+
+/// The state table with numbers written by `num`.
+pub fn state_table_with(d: &CycleDiagram, inp: &CycleInputs, num: fn(f64) -> String) -> StateTable {
     use crate::components::{bases, state, stream_fluid_ex, FluidGuess, Phase};
     use dfcore::props::Key;
     use dfcore::units::Dim;
@@ -1100,7 +1106,7 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
     let shown = |base: &str| d.state_vars.iter().any(|v| v.eq_ignore_ascii_case(base));
     let model_col = |base: &str| -> (String, String, Vec<String>) {
         let unit = states.iter().find_map(|k| inp.value(&format!("{base}[{k}]"))).map(|v| v.2).unwrap_or_default();
-        let vals = states.iter().map(|k| inp.value(&format!("{base}[{k}]")).map(|v| fmt_sig(v.1)).unwrap_or_else(|| "—".into())).collect();
+        let vals = states.iter().map(|k| inp.value(&format!("{base}[{k}]")).map(|v| num(v.1)).unwrap_or_else(|| "—".into())).collect();
         (inp.base_display(base), unit, vals)
     };
     let mut cols: Vec<(String, String, Vec<String>)> = d.state_vars.iter().map(|v| model_col(v)).collect();
@@ -1110,7 +1116,7 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
     let any_fluid = sts.iter().any(|s| s.fluid.is_some());
     let cp_col = |name: &str, key: Key, f: &dyn Fn(&crate::components::St) -> f64| -> (String, String, Vec<String>) {
         let u = us.unit_for(key.dim());
-        let vals = sts.iter().map(|s| if s.fluid.is_some() { f(s) } else { f64::NAN }).map(|x| if x.is_finite() { fmt_sig(u.from_si(x)) } else { "—".into() }).collect();
+        let vals = sts.iter().map(|s| if s.fluid.is_some() { f(s) } else { f64::NAN }).map(|x| if x.is_finite() { num(u.from_si(x)) } else { "—".into() }).collect();
         (name.to_string(), if u.symbol == "-" { String::new() } else { u.symbol.clone() }, vals)
     };
     match b.s.as_ref() {
@@ -1121,7 +1127,7 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
             for (i, st) in sts.iter().enumerate() {
                 if c.2[i] == "—" && st.fluid.is_some() && st.h_off == 0.0 && c.1 == u.symbol {
                     if let Some(x) = st.s_cp() {
-                        c.2[i] = fmt_sig(u.from_si(x));
+                        c.2[i] = num(u.from_si(x));
                     }
                 }
             }
@@ -1136,7 +1142,7 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
             let vals = phases
                 .iter()
                 .map(|p| match p {
-                    Phase::TwoPhase(x) => format!("{x:.4}"),
+                    Phase::TwoPhase(x) => num(*x),
                     Phase::Subcooled(_) => "liquid".into(),
                     Phase::Superheated(_) => "vapour".into(),
                     Phase::Supercritical => "supercritical".into(),
@@ -1151,8 +1157,8 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
         let vals = phases
             .iter()
             .map(|p| match p {
-                Phase::Superheated(dt) => format!("+{}", fmt_sig(dt * f)),
-                Phase::Subcooled(dt) => format!("-{}", fmt_sig(dt * f)),
+                Phase::Superheated(dt) => format!("+{}", num(dt * f)),
+                Phase::Subcooled(dt) => format!("-{}", num(dt * f)),
                 Phase::TwoPhase(_) => "sat".into(),
                 _ => "—".into(),
             })
@@ -1847,6 +1853,7 @@ impl CycleUi {
         du.sort();
         du.hash(&mut h);
         inp.script.hash(&mut h);
+        crate::numfmt::decimals().hash(&mut h);
         let key = h.finish();
         if let Some((k, t)) = &self.table_cache {
             if *k == key {
@@ -1866,7 +1873,7 @@ impl CycleUi {
         }
         ui.horizontal(|ui| {
             if ui.button("Copy table (TSV)").on_hover_text("Paste into Excel or a text editor").clicked() {
-                ui.ctx().copy_text(t.tsv());
+                ui.ctx().copy_text(state_table_with(d, inp, crate::studies_ui::fmt_full).tsv());
             }
             ui.label(RichText::new("x, dT_sat, rho, cp: CoolProp at (P, h)").small().weak())
                 .on_hover_text("dT_sat > 0: degree of superheating, T - T_dew; < 0: degree of subcooling, T_bubble - T (at the stream pressure)");
@@ -1881,10 +1888,13 @@ impl CycleUi {
                     });
                 }
                 ui.end_row();
-                for (k, r) in &t.rows {
+                // each column aligned on the decimal point
+                let cols: Vec<Vec<String>> =
+                    (0..t.heads.len()).map(|j| crate::numfmt::align(&t.rows.iter().map(|r| r.1.get(j).map_or("", |v| v.as_str())).collect::<Vec<_>>())).collect();
+                for (i, (k, r)) in t.rows.iter().enumerate() {
                     ui.label(k.to_string());
-                    for v in r {
-                        ui.label(RichText::new(v).monospace());
+                    for j in 0..r.len() {
+                        ui.label(RichText::new(&cols[j][i]).monospace());
                     }
                     ui.end_row();
                 }
@@ -2894,6 +2904,11 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
             page.line([margin, *y], [margin + 40.0 + col_w * heads.len() as f32, *y], 0.6, black);
         };
         header(page, &mut y);
+        // each column aligned on the decimal point: the widest rest after
+        // the integer part, in points
+        let tails: Vec<f32> = (0..heads.len())
+            .map(|j| tab.rows.iter().filter_map(|r| r.1.get(j).and_then(|v| crate::numfmt::split(v))).map(|(_, t)| pdf::text_width(t, fs, false)).fold(0.0, f32::max))
+            .collect();
         let mut new_page_needed = false;
         let mut remaining: &[(i64, Vec<String>)] = &tab.rows;
         while !remaining.is_empty() {
@@ -2908,7 +2923,10 @@ pub fn report_pdf(d: &CycleDiagram, inp: &CycleInputs) -> Vec<u8> {
                 y += row_h;
                 page.text(margin + 20.0, y, fs, &k.to_string(), true, Align::Right, black);
                 for (i, v) in vals.iter().enumerate() {
-                    let x = margin + 40.0 + col_w * (i as f32 + 1.0) - 6.0;
+                    let mut x = margin + 40.0 + col_w * (i as f32 + 1.0) - 6.0;
+                    if let Some((_, t)) = crate::numfmt::split(v) {
+                        x -= tails[i] - pdf::text_width(t, fs, false);
+                    }
                     page.text(x, y, fs, if v == "—" { "–" } else { v }, false, Align::Right, black);
                 }
             }

@@ -437,6 +437,11 @@ impl StudiesUi {
         let unit_of = |name: &str| m.var(name).map(|v| conv(m, du, v).1.symbol).unwrap_or_default();
         let mut remove_in: Option<usize> = None;
         let mut remove_out: Option<usize> = None;
+        // output columns aligned on the decimal point (empty while a run
+        // has no value)
+        let outs: Vec<Vec<String>> = (0..t.outputs.len())
+            .map(|k| crate::numfmt::align(&t.results.iter().map(|v| v.as_ref().and_then(|v| v.get(k)).map(|x| crate::numfmt::fmt(*x)).unwrap_or_default()).collect::<Vec<_>>()))
+            .collect();
         egui::ScrollArea::horizontal().show(ui, |ui| {
             let mut tb = TableBuilder::new(ui).striped(true).column(Column::exact(44.0));
             for _ in 0..t.inputs.len() + t.outputs.len() {
@@ -495,8 +500,8 @@ impl StudiesUi {
                     for k in 0..t.outputs.len() {
                         row.col(|ui| {
                             // a run finishing after a column was added has fewer values
-                            if let Some(x) = t.results.get(i).and_then(|v| v.as_ref()).and_then(|v| v.get(k)) {
-                                ui.label(RichText::new(fmt_num(*x)).monospace());
+                            if let Some(c) = outs[k].get(i).filter(|c| !c.is_empty()) {
+                                ui.label(RichText::new(c).monospace());
                             }
                         });
                     }

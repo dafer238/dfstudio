@@ -172,6 +172,13 @@ pub struct Settings {
     /// View > Units: with exponents (kJ kg⁻¹, the default) or as written.
     #[serde(default)]
     pub unit_style: crate::varname::UnitStyle,
+    /// View > Numbers: decimal places of the values in result tables.
+    #[serde(default = "default_decimals")]
+    pub decimals: u8,
+}
+
+fn default_decimals() -> u8 {
+    crate::numfmt::DEFAULT_DECIMALS
 }
 
 fn yes() -> bool {
@@ -242,6 +249,7 @@ impl Default for Settings {
             var_names: Default::default(),
             var_names_both: false,
             unit_style: Default::default(),
+            decimals: default_decimals(),
         }
     }
 }
@@ -1129,6 +1137,18 @@ impl DfApp {
         let focus = self.focus_id(a);
         // View > Variable names > Show raw names too: a column with the name as written
         let both = crate::varname::both();
+        // values in display units, aligned on the decimal point
+        let (vals, units): (Vec<String>, Vec<String>) = idx
+            .iter()
+            .map(|&i| match &a.solution {
+                Some(sol) if sol.known[i] => {
+                    let (d, u) = self.display(a, i, sol.x[i]);
+                    (crate::numfmt::fmt(d), u)
+                }
+                _ => ("—".to_string(), self.display(a, i, 0.0).1),
+            })
+            .unzip();
+        let vals = crate::numfmt::align(&vals);
         ui.push_id(salt, |ui| {
             let mut tb = TableBuilder::new(ui)
                 .striped(true)
@@ -1163,7 +1183,8 @@ impl DfApp {
                 })
                 .body(|body| {
                     body.rows(22.0, idx.len(), |mut row| {
-                        let i = idx[row.index()];
+                        let r = row.index();
+                        let i = idx[r];
                         let v = &a.model.vars[i];
                         let s = st.var_status[i];
                         row.col(|ui| {
@@ -1195,18 +1216,11 @@ impl DfApp {
                                 ui.label(RichText::new(&v.display).monospace().weak());
                             });
                         }
-                        let (val, unit) = match &a.solution {
-                            Some(sol) if sol.known[i] => {
-                                let (d, u) = self.display(a, i, sol.x[i]);
-                                (fmt_num(d), u)
-                            }
-                            _ => ("—".to_string(), self.display(a, i, 0.0).1),
-                        };
                         row.col(|ui| {
-                            ui.label(RichText::new(val).monospace());
+                            ui.label(RichText::new(&vals[r]).monospace());
                         });
                         row.col(|ui| {
-                            self.unit_combo(ui, a, i, &unit);
+                            self.unit_combo(ui, a, i, &units[r]);
                         });
                     });
                 });
@@ -1568,6 +1582,22 @@ impl DfApp {
         if let Some(st) = status {
             self.status = st;
         }
+        // each column in display units, aligned on the decimal point (empty
+        // where an array has no such index)
+        let cols: Vec<Vec<String>> = bases
+            .iter()
+            .map(|b| {
+                let c: Vec<String> = idxs
+                    .iter()
+                    .map(|k| match (cell.get(&(b.clone(), *k)), &a.solution) {
+                        (Some(&i), Some(sol)) if sol.known[i] => crate::numfmt::fmt(self.display(&a, i, sol.x[i]).0),
+                        (Some(_), _) => "—".into(),
+                        (None, _) => String::new(),
+                    })
+                    .collect();
+                crate::numfmt::align(&c)
+            })
+            .collect();
         egui::ScrollArea::horizontal().show(ui, |ui| {
             let mut tb = TableBuilder::new(ui).striped(true).column(Column::exact(50.0));
             for _ in &bases {
@@ -1590,18 +1620,15 @@ impl DfApp {
             })
             .body(|body| {
                 body.rows(20.0, idxs.len(), |mut row| {
-                    let k = idxs[row.index()];
+                    let r = row.index();
+                    let k = idxs[r];
                     row.col(|ui| {
                         ui.label(k.to_string());
                     });
-                    for b in &bases {
+                    for c in &cols {
                         row.col(|ui| {
-                            if let Some(&i) = cell.get(&(b.clone(), k)) {
-                                let txt = match &a.solution {
-                                    Some(sol) if sol.known[i] => fmt_num(self.display(&a, i, sol.x[i]).0),
-                                    _ => "—".into(),
-                                };
-                                ui.label(RichText::new(txt).monospace());
+                            if !c[r].is_empty() {
+                                ui.label(RichText::new(&c[r]).monospace());
                             }
                         });
                     }
@@ -1781,6 +1808,7 @@ impl eframe::App for DfApp {
         let ctx = ui.ctx().clone();
         self.editor.completion_rows = self.s.completion_rows;
         crate::varname::set_style(self.s.var_names, self.s.var_names_both, self.s.unit_style);
+        crate::numfmt::set_decimals(self.s.decimals);
         if let Some(a) = self.worker.poll() {
             if a.gen == self.gen || a.explicit_solve || self.analysis.is_none() {
                 if a.explicit_solve {
@@ -1993,6 +2021,19 @@ impl eframe::App for DfApp {
                             .on_hover_text("kJ/kg-K is shown as kJ kg^-1 K^-1 with the exponents as superscripts, everywhere except text boxes, lists and exported files");
                         ui.radio_value(&mut self.s.unit_style, UnitStyle::Raw, "As written (kJ/kg)");
                     }
+                    ui.separator();
+                    ui.label("Numbers");
+                    ui.horizontal(|ui| {
+                        ui.label("Decimal places");
+                        ui.add(egui::DragValue::new(&mut self.s.decimals).range(0..=crate::numfmt::MAX_DECIMALS))
+                    })
+                    .inner
+                    .on_hover_text(
+                        "Values in result tables (Variables, Solution, Arrays, Initial values, parametric tables, States and the PDF report) \
+                         have this many decimals, aligned on the decimal point. Values that would keep fewer than two significant \
+                         digits (below 0.01 with 3 decimals) or from 1e7 on are in scientific notation, such as 1.234e-8. \
+                         Copied tables and exports keep full precision.",
+                    );
                     ui.separator();
                     ui.label("Theme");
                     let cur = ui.ctx().options(|o| o.theme_preference);

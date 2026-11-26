@@ -6,6 +6,15 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- Result tables show values with the same number of decimal places (3 by
+  default, *View > Numbers*) and align each column on the decimal point:
+  Variables sidebar, Solution variables and arrays, parametric tables, the
+  cycle's States table and PDF report, component streams and results.
+  Values that would keep fewer than two significant digits, and values from
+  1e7 on, are in scientific notation (`1.234e-8`). Copying the States table
+  now keeps full precision.
+
 ## [1.5.0] - 2026-11-26
 
 ### Added
