@@ -1050,6 +1050,11 @@ impl<'a> Ctx<'a> {
                     self.replace(span.start, line_end, brace(&format!("{text}: see the $UnitSystem line at the top")));
                     return;
                 }
+                if name == "customunits" {
+                    // EES takes any unit text: nothing to declare
+                    self.replace(span.start, line_end, brace(&text));
+                    return;
+                }
                 let why = match name.as_str() {
                     "guess" => "set these guess values in the Variable Information window",
                     "bounds" | "limits" => "set these limits in the Variable Information window",
@@ -1123,6 +1128,8 @@ pub fn export(src: &str, us: &UnitSystem) -> Export {
     let src: &str = &norm;
     let opts = crate::CompileOptions { unit_system: Some(us.clone()), check_fluids: false, files: Default::default() };
     let model = crate::compile(src, &opts);
+    // custom units (`MEUR`) are read as in the model
+    let _units = crate::units::enter_ctx(&model.units);
     let pr = crate::parser::parse(src);
     let mut c = Ctx {
         src,
