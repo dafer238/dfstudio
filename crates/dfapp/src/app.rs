@@ -291,6 +291,8 @@ pub struct DfApp {
     /// what it was computed from.
     units: HashMap<String, String>,
     units_src: Option<(Option<Arc<Analysis>>, UnitPrefs, HashMap<String, String>)>,
+    /// File > Open recent.
+    recent: crate::recent::Recent,
 }
 
 impl DfApp {
@@ -358,9 +360,12 @@ impl DfApp {
             init_filter: String::new(),
             init_all: false,
             init_edit: None,
+            recent: cc.storage.and_then(|st| eframe::get_value(st, crate::recent::KEY)).unwrap_or_default(),
         };
         match file {
-            Some(f) => app.load_path(PathBuf::from(f)),
+            Some(f) => {
+                app.load_path(PathBuf::from(f));
+            }
             None => {
                 // a restored session without a file is work from scratch
                 app.fresh = app.s.path.is_none();
@@ -537,6 +542,28 @@ impl DfApp {
         }
     }
 
+    /// Entries of File > Open recent, newest first. A file no longer on
+    /// disk is shown dimmed and cannot be clicked.
+    fn recent_menu(&mut self, ui: &mut egui::Ui) {
+        let mut pick = None;
+        for (p, label) in self.recent.files.iter().zip(self.recent.labels()) {
+            let exists = p.is_file();
+            let r = ui.add_enabled(exists, egui::Button::new(label));
+            let r = if exists { r.on_hover_text(p.display().to_string()) } else { r.on_disabled_hover_text(format!("Not found: {}", p.display())) };
+            if r.clicked() {
+                pick = Some(p.clone());
+            }
+        }
+        ui.separator();
+        if ui.button("Clear recent files").clicked() {
+            self.recent.files.clear();
+            ui.close();
+        }
+        if let Some(p) = pick {
+            self.open_recent(p);
+        }
+    }
+
     /// Pick a model in the examples folder (next to the executable, in the
     /// source tree or in the working directory); without one, load the
     /// built-in Rankine example.
@@ -582,12 +609,12 @@ impl DfApp {
     }
 
     /// Open a `.df` project (recognised by its signature) or a text script.
-    pub fn load_path(&mut self, p: PathBuf) {
+    pub fn load_path(&mut self, p: PathBuf) -> bool {
         let bytes = match std::fs::read(&p) {
             Ok(b) => b,
             Err(e) => {
                 self.status = format!("Cannot open {}: {e}", p.display());
-                return;
+                return false;
             }
         };
         if dfcore::dffile::is_df(&bytes) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("df")) {
@@ -607,7 +634,7 @@ impl DfApp {
                 }
                 Err(e) => {
                     self.status = format!("Cannot open {}: {e}", p.display());
-                    return;
+                    return false;
                 }
             }
         } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ees")) {
@@ -631,7 +658,7 @@ impl DfApp {
                 }
                 Err(err) => {
                     self.status = format!("Cannot open {}: {err}", p.display());
-                    return;
+                    return false;
                 }
             }
         } else {
@@ -642,6 +669,7 @@ impl DfApp {
             self.meta = Meta::default();
             self.status = format!("Opened {}", p.display());
         }
+        self.recent.push(&p);
         self.s.path = Some(p);
         self.dirty = false;
         self.analysis = None;
@@ -651,6 +679,15 @@ impl DfApp {
         self.fresh = false;
         self.saved_hash = self.state_hash();
         self.submit(self.s.live_solve);
+        true
+    }
+
+    /// File > Open recent: open a listed file; one that cannot be opened
+    /// (moved, deleted, unreadable) leaves the list.
+    fn open_recent(&mut self, p: PathBuf) {
+        if !self.load_path(p.clone()) {
+            self.recent.remove(&p);
+        }
     }
 
     fn save(&mut self, as_new: bool) {
@@ -685,6 +722,7 @@ impl DfApp {
         match r {
             Ok(()) => {
                 self.status = format!("Saved {}", p.display());
+                self.recent.push(&p);
                 self.s.path = Some(p);
                 self.dirty = false;
                 if self.fresh {
@@ -1665,6 +1703,7 @@ impl eframe::App for DfApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.s.font_size = self.editor.font_size;
         eframe::set_value(storage, "dfstudio", &self.s);
+        eframe::set_value(storage, crate::recent::KEY, &self.recent);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -1731,6 +1770,11 @@ impl eframe::App for DfApp {
                     if crate::icons::menu_item(ui, "open", "Open…", "Ctrl+O").clicked() {
                         self.open();
                     }
+                    ui.add_enabled_ui(!self.recent.files.is_empty(), |ui| {
+                        ui.menu_image_text_button(crate::icons::image(ui, "open", 14.0), "Open recent", |ui| self.recent_menu(ui))
+                            .response
+                            .on_disabled_hover_text("No files opened yet");
+                    });
                     if crate::icons::menu_item(ui, "save", "Save", "Ctrl+S").clicked() {
                         self.save(false);
                     }

@@ -6,6 +6,12 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+### Added
+- *File > Open recent*, under *Open…*: the last 10 files opened or saved
+  (`.df`, `.dfs`, `.ees`), newest first, with their full path on hover.
+  Files no longer on disk are dimmed, and *Clear recent files* empties the
+  list. The list is kept between sessions.
+
 ### Fixed
 - Hiding a left sidebar now slides it smoothly into its thin strip, as on
   the right; before, the sidebar vanished halfway and the strip popped in
