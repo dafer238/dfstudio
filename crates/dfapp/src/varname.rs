@@ -316,29 +316,43 @@ pub fn unit_factors(unit: &str) -> Option<Vec<(String, i32)>> {
     let (num, den) = cleaned.split_once('/').unwrap_or((&cleaned, ""));
     let mut out = Vec::new();
     let mut structured = t.contains(['/', '^', '*', '·']) || t[1..].contains('-');
+    // trailing digits of a unit name are a power: m3, s2
+    let digit_power = |f: &str, structured: &mut bool| -> Option<(String, i32)> {
+        let digits = f.len() - f.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        if digits > 0 && digits < f.len() && f.chars().any(|c| c.is_alphabetic()) {
+            *structured = true;
+            Some((f[..f.len() - digits].to_string(), f[f.len() - digits..].parse::<i32>().ok()?))
+        } else {
+            Some((f.to_string(), 1))
+        }
+    };
     for (part, sign) in [(num, 1), (den, -1)] {
         for f in part.split(['-', '*', '·', ' ', '/', '.']) {
             let f = f.trim();
             if f.is_empty() || f == "1" {
                 continue;
             }
-            let (base, exp) = match f.split_once('^') {
-                Some((b, e)) => (b.to_string(), e.replace('~', "-").parse::<i32>().ok()?),
-                None => {
-                    // trailing digits of a unit name are a power: m3, s2
-                    let digits = f.len() - f.trim_end_matches(|c: char| c.is_ascii_digit()).len();
-                    if digits > 0 && digits < f.len() && f.chars().any(|c| c.is_alphabetic()) {
-                        structured = true;
-                        (f[..f.len() - digits].to_string(), f[f.len() - digits..].parse::<i32>().ok()?)
-                    } else {
-                        (f.to_string(), 1)
-                    }
-                }
+            let (head, exp) = match f.split_once('^') {
+                Some((b, e)) => (b, Some(e.replace('~', "-").parse::<i32>().ok()?)),
+                None => (f, None),
             };
-            if base.is_empty() {
+            if head.is_empty() {
                 return None;
             }
-            out.push((base, exp * sign));
+            // unit names written together (kgK): one factor each, the
+            // exponent with the last one (as the unit parser reads them)
+            let pieces = dfcore::units::split_joined(head).unwrap_or_else(|| vec![head]);
+            if pieces.len() > 1 {
+                structured = true;
+            }
+            let last = pieces.len() - 1;
+            for (k, p) in pieces.into_iter().enumerate() {
+                let (base, e) = match exp {
+                    Some(e) if k == last => (p.to_string(), e),
+                    _ => digit_power(p, &mut structured)?,
+                };
+                out.push((base, e * sign));
+            }
         }
     }
     (structured && !out.is_empty()).then_some(out)
@@ -1015,6 +1029,9 @@ mod tests {
         assert_eq!(f("kg-m"), Some("kg1 m1".into()));
         assert_eq!(f("W/m**2-K"), Some("W1 m-2 K-1".into()));
         assert_eq!(f("m**-1"), Some("m-1".into()));
+        assert_eq!(f("kJ/kgK"), Some("kJ1 kg-1 K-1".into()));
+        assert_eq!(f("kJ/kg/K"), Some("kJ1 kg-1 K-1".into()));
+        assert_eq!(f("W/m2K"), Some("W1 m-2 K-1".into()));
         for plain in ["kW", "C", "-", "", "bar", "dK"] {
             assert_eq!(f(plain), None, "{plain}");
         }

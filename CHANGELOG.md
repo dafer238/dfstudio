@@ -7,6 +7,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 ## [Unreleased]
 
 ### Added
+- Units written without a separator are read as a product: `kJ/kgK` and
+  `W/m2K` are kJ/(kg K) and W/(m² K), as `kJ/kg/K` already was.
 - Units accept `**` for powers, as in Python (`m**3/kg`, `W/m**2-K`), as
   well as `^`.
 - Units are shown with exponents (`kJ/kg-K` → kJ kg⁻¹ K⁻¹, thin spaces

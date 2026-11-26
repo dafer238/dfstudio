@@ -316,6 +316,44 @@ fn lookup_atom(name: &str) -> Option<Atom> {
     None
 }
 
+/// Pieces of a token made of unit names written together (`kgK` → `kg`,
+/// `K`; `kJkg` → `kJ`, `kg`), when the token is not a unit itself: the
+/// split with the fewest pieces, and of those the one with the longest
+/// first piece. `None` for a unit name or a token that does not split.
+pub fn split_joined(tok: &str) -> Option<Vec<&str>> {
+    if tok.is_empty() || lookup_atom(tok).is_some() {
+        return None;
+    }
+    let cuts: Vec<usize> = tok.char_indices().map(|(i, _)| i).chain(std::iter::once(tok.len())).collect();
+    let n = cuts.len() - 1;
+    // best[i]: fewest pieces for tok[cuts[i]..], with the next cut index
+    let mut best: Vec<Option<(usize, usize)>> = vec![None; n + 1];
+    best[n] = Some((0, n));
+    for i in (0..n).rev() {
+        // longest piece first, so that ties keep the longest first piece
+        for j in (i + 1..=n).rev() {
+            let piece = &tok[cuts[i]..cuts[j]];
+            if let (Some((k, _)), true) = (best[j], lookup_atom(piece).is_some()) {
+                if best[i].is_none_or(|(b, _)| k + 1 < b) {
+                    best[i] = Some((k + 1, j));
+                }
+            }
+        }
+    }
+    let (count, _) = best[0]?;
+    if count < 2 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let j = best[i]?.1;
+        out.push(&tok[cuts[i]..cuts[j]]);
+        i = j;
+    }
+    Some(out)
+}
+
 /// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`
 /// (`**` is a power too, as in Python: `m**3/kg`).
 /// EES convention: everything after the first `/` is in the denominator and
@@ -344,14 +382,24 @@ pub fn parse_unit(text: &str) -> Result<Unit, String> {
                 Some((b, e)) => (b, e.replace('~', "-").parse::<i32>().map_err(|_| format!("bad exponent in '{f}'"))?),
                 None => (f, 1),
             };
-            let a = lookup_atom(base).ok_or_else(|| format!("unknown unit '{base}'"))?;
-            nfactors += 1;
-            factor *= a.factor.powi(exp * sign);
-            dim = dim.mul(a.dim.powi(exp * sign));
-            if nfactors == 1 && exp == 1 && sign == 1 {
-                single = Some(a);
-            } else {
-                single = None;
+            // unit names written together (kJ/kgK): each is a factor, the
+            // exponent goes with the last one
+            let pieces = match lookup_atom(base) {
+                Some(_) => vec![base],
+                None => split_joined(base).ok_or_else(|| format!("unknown unit '{base}'"))?,
+            };
+            let last = pieces.len() - 1;
+            for (k, p) in pieces.into_iter().enumerate() {
+                let e = if k == last { exp } else { 1 };
+                let a = lookup_atom(p).ok_or_else(|| format!("unknown unit '{p}'"))?;
+                nfactors += 1;
+                factor *= a.factor.powi(e * sign);
+                dim = dim.mul(a.dim.powi(e * sign));
+                if nfactors == 1 && e == 1 && sign == 1 {
+                    single = Some(a);
+                } else {
+                    single = None;
+                }
             }
         }
     }
@@ -588,6 +636,20 @@ mod tests {
         assert!((f.to_si(32.0) - 273.15).abs() < 1e-9);
         // delta-C inside compound unit has no offset
         assert_eq!(parse_unit("kJ/kg-C").unwrap().offset, 0.0);
+        // everything after the first `/` is in the denominator: kJ/kg/K
+        // is kJ/(kg K); unit names written together are a product: kgK
+        for u in ["kJ/kg/K", "kJ/kgK", "kJ/kg*K", "kJ/(kg K)"] {
+            let x = parse_unit(u).unwrap();
+            assert_eq!(x.dim, Dim::SPEC_ENTROPY, "{u}");
+            assert!((x.factor - 1000.0).abs() < 1e-9, "{u}");
+        }
+        assert_eq!(split_joined("kgK"), Some(vec!["kg", "K"]));
+        assert_eq!(split_joined("kJkg"), Some(vec!["kJ", "kg"]));
+        assert_eq!(split_joined("kg"), None);
+        assert_eq!(split_joined("qqq"), None);
+        let w = parse_unit("W/m2K").unwrap();
+        assert_eq!(w.dim, Dim([1, 0, -3, -1, 0, 0, 0]));
+        assert!(parse_unit("kJ/zzz").is_err());
         // `**` is a power, as `^`
         for (a, b) in [("m**3/kg", "m^3/kg"), ("W/m**2-K", "W/m^2-K"), ("kg*m**-1", "kg*m^-1"), ("1/s**2", "1/s^2")] {
             let (ua, ub) = (parse_unit(a).unwrap(), parse_unit(b).unwrap());
