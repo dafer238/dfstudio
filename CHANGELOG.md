@@ -6,6 +6,8 @@ All notable changes to DeltaF Studio (formerly DF Studio) are listed here. The f
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-26
+
 ### Added
 - Result tables show values with the same number of decimal places (3 by
   default, *View > Numbers*) and align each column on the decimal point:
@@ -521,7 +523,8 @@ First public release.
   needed for the latter) and portable zip; universal macOS DMG; Linux
   AppImage. Example projects included.
 
-[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/dafer238/dfstudio/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/dafer238/dfstudio/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/dafer238/dfstudio/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/dafer238/dfstudio/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/dafer238/dfstudio/compare/v1.3.0...v1.4.0
