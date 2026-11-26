@@ -357,6 +357,56 @@ mass is in kg/kmol, so `h*molarmass(...)` is in kJ/kmol and
 The structural check also flags equations whose terms have different
 dimensions (Problems panel, grey "unit check" entries).
 
+### 5.2 Custom units (currencies, people, emissions, ...)
+
+Any unit name that is not a built-in unit is a **custom unit**: `EUR`,
+`USD`, `pax`, `CO2`, `trips`. DeltaF Studio does not interpret it; each
+custom unit is a dimension of its own, combined with the physical units as
+usual:
+
+```
+C_inv = 12 [MEUR]
+c_om  = 300 [kEUR/yr]
+OM    = c_om*20 [yr]
+Total = C_inv + OM [EUR]          // 18e6 EUR
+c_el  = 0.25 [EUR/kWh]
+Cost  = c_el*P*t                  // P in kW, t in h: EUR
+e_CO2 = 0.2 [kg-CO2/kWh]           // converts to t-CO2/MWh
+```
+
+* **Prefixes.** `k`, `M`, `G`, `m`, ... (all SI prefixes, case-sensitive)
+  are read on a custom unit when the rest of the name is also used in the
+  script, directly or with another prefix: with `EUR` or `kEUR` somewhere,
+  `MEUR` is 10⁶ EUR and `mEUR` 10⁻³ EUR. Otherwise the name is a unit of its
+  own, so `pax` is never pico-`ax`.
+* **Model unit.** Values are held in the custom unit without prefix, times
+  the model unit of the physical part: `[MEUR/yr]` is held in EUR/s,
+  `[EUR/kWh]` in EUR/kJ (kJ systems). A plain number without a unit is in
+  that model unit, as for physical quantities.
+* **Unit checking** treats custom units like physical ones: adding `EUR` to
+  `EUR/yr` or to `USD` is flagged. There are no conversion factors between
+  different custom units (EUR and USD are unrelated).
+* **Notes and typos.** The first use of each custom unit gets an info note
+  in the problems list, with a button that adds a
+  `$CustomUnits EUR pax` line to the script; declared units have no note. A
+  name one letter away from a built-in unit gets a warning instead (`kgg`:
+  *did you mean 'kg'?*).
+* **Names of built-in units.** Built-in units win: `a` is the ampere, `t`
+  the tonne, `d` a day. Declare a name with `$CustomUnits a b` to use it as a
+  custom unit in that script. A number is never a unit, and digits at the
+  end belong to the name (`CO2`), unlike `m3` for built-in units.
+* **Display units.** The unit column of the Variables panel and the Initial
+  values table offer, for a custom quantity, every compatible unit written in
+  the script plus its k, M and G multiples (`EUR/yr`, `kEUR/yr`,
+  `MEUR/yr`). *Units > Units per quantity* lists each custom quantity of the
+  model under *Custom units*. Display presets leave custom units as they
+  are.
+* A `{MEUR}` comment sets the display unit only with a custom unit the
+  script already uses in `[...]` (so `{inlet}` stays a comment).
+
+Built-in units also take the usual prefixes when the name is not in the
+table: `Mt`, `kt`, `hPa`, `kbar`, `nm`, `mA`.
+
 ## 6. Solving, and understanding why a model does not solve
 
 ### 6.1 What happens when you press Solve
@@ -597,8 +647,9 @@ title, *Export PDF report…*, *Fit view*).
   component it snaps (within 15 px) so that a port lines up with the port it
   connects to, which gives straight streams.
 * Select a stream to set its **state number**, **colour** (fluid presets)
-  and **fluid** (auto: from the colour preset or the model's main fluid; or
-  a CoolProp name; or *none / mixture*).
+  and **fluid** (auto: the fluid the script evaluates that state with, as in
+  `enthalpy(Air, T=T[4], P=P[4])`, also inside `Duplicate`; else the colour
+  preset or the model's main fluid; or a CoolProp name; or *none / mixture*).
 * *Stream labels*, two styles:
   * **cross** (default, the usual heat-balance layout): four numbers around a cross,
     P | T over m | h, with the state number just above and a unit legend
@@ -697,7 +748,10 @@ Process paths are evaluated with CoolProp:
 
 A chart opened in its own tab of the Components view fills the panel.
 
-The saturation dome is drawn with 240 points. These profiles show what
+The saturation dome is drawn with 240 points, and only when the process is
+near it: the dome is left out when it lies farther from the process than the
+process's own extent on either axis (air compressed from 15 to 200 °C, dome
+below −140 °C), so the axes fit the process. These profiles show what
 happens inside the component, so an internal pinch or a temperature cross
 is visible even when the end temperatures look fine.
 Streams without a known fluid (e.g. a gas mixture defined by your own

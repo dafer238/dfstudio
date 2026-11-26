@@ -83,8 +83,8 @@ impl Key {
         match self {
             Key::H | Key::U => Dim::MOLAR_ENERGY,
             Key::S | Key::Cp | Key::Cv => Dim::MOLAR_ENTROPY,
-            Key::D => Dim([0, -3, 0, 0, 1, 0, 0]),
-            Key::V | Key::Vcrit => Dim([0, 3, 0, 0, -1, 0, 0]),
+            Key::D => Dim::new([0, -3, 0, 0, 1, 0, 0]),
+            Key::V | Key::Vcrit => Dim::new([0, 3, 0, 0, -1, 0, 0]),
             k => k.dim(),
         }
     }

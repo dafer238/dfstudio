@@ -8,69 +8,192 @@
 //! are affine (`SI = factor * value + offset`), so they cost one FMA.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
-/// Exponents of the SI base dimensions: M, L, T, Θ, N, I, J.
+/// Exponents of the SI base dimensions (M, L, T, Θ, N, I, J) and of the
+/// user's custom base units (`EUR`, `pax`, ...; see [`Custom`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct Dim(pub [i8; 7]);
+pub struct Dim(pub [i8; 7], #[serde(default, skip_serializing_if = "Custom::is_none")] pub Custom);
+
+/// Most distinct custom base units in one dimension (`EUR/pax-trip` has 3).
+pub const MAX_CUSTOM: usize = 6;
+
+/// Exponents of custom base units: pairs (interned id, exponent), sorted by
+/// id, unused slots `(0, 0)`. A custom base unit is any token that is not a
+/// built-in unit (`EUR`, `USD`, `pax`, `CO2`); it is a dimension of its own,
+/// so `EUR/yr` is EUR·time⁻¹ and converts to `kEUR/day` but not to `USD/yr`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Custom(pub [(u16, i8); MAX_CUSTOM]);
+
+impl Custom {
+    pub const NONE: Custom = Custom([(0, 0); MAX_CUSTOM]);
+    pub fn is_none(&self) -> bool {
+        self.0[0].1 == 0
+    }
+    /// The non-zero (id, exponent) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (u16, i8)> + '_ {
+        self.0.iter().copied().filter(|p| p.1 != 0)
+    }
+    /// A single custom base unit.
+    pub fn base(id: u16) -> Custom {
+        let mut c = Custom::NONE;
+        c.0[0] = (id, 1);
+        c
+    }
+    fn from_map(m: BTreeMap<u16, i32>) -> Custom {
+        let mut c = Custom::NONE;
+        for (k, (id, e)) in m.into_iter().filter(|p| p.1 != 0).take(MAX_CUSTOM).enumerate() {
+            c.0[k] = (id, e as i8);
+        }
+        c
+    }
+    fn combine(self, o: Custom, sign: i32) -> Custom {
+        let mut m: BTreeMap<u16, i32> = BTreeMap::new();
+        for (id, e) in self.iter() {
+            *m.entry(id).or_default() += e as i32;
+        }
+        for (id, e) in o.iter() {
+            *m.entry(id).or_default() += sign * e as i32;
+        }
+        Custom::from_map(m)
+    }
+    fn powi(self, n: i32) -> Custom {
+        Custom::from_map(self.iter().map(|(id, e)| (id, e as i32 * n)).collect())
+    }
+}
+
+/// Serialized by name, since ids are only valid within one process.
+impl Serialize for Custom {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let v: Vec<(String, i8)> = self.iter().map(|(id, e)| (custom_name(id), e)).collect();
+        v.serialize(s)
+    }
+}
+impl<'de> Deserialize<'de> for Custom {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v: Vec<(String, i8)> = Vec::deserialize(d)?;
+        Ok(Custom::from_map(v.into_iter().map(|(n, e)| (custom_id(&n), e as i32)).collect()))
+    }
+}
+
+/// Names by id, and ids by name.
+type Interner = (Vec<String>, HashMap<String, u16>);
+
+fn interner() -> &'static Mutex<Interner> {
+    static I: OnceLock<Mutex<Interner>> = OnceLock::new();
+    I.get_or_init(|| Mutex::new((vec![String::new()], HashMap::new())))
+}
+
+/// Process-wide id of a custom base unit (ids start at 1).
+pub fn custom_id(name: &str) -> u16 {
+    let mut g = interner().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&id) = g.1.get(name) {
+        return id;
+    }
+    let id = g.0.len() as u16;
+    g.0.push(name.to_string());
+    g.1.insert(name.to_string(), id);
+    id
+}
+
+/// Name of a custom base unit.
+pub fn custom_name(id: u16) -> String {
+    let g = interner().lock().unwrap_or_else(|e| e.into_inner());
+    g.0.get(id as usize).cloned().unwrap_or_else(|| "?".into())
+}
 
 impl Dim {
-    pub const NONE: Dim = Dim([0; 7]);
-    pub const MASS: Dim = Dim([1, 0, 0, 0, 0, 0, 0]);
-    pub const LENGTH: Dim = Dim([0, 1, 0, 0, 0, 0, 0]);
-    pub const TIME: Dim = Dim([0, 0, 1, 0, 0, 0, 0]);
-    pub const TEMP: Dim = Dim([0, 0, 0, 1, 0, 0, 0]);
-    pub const AMOUNT: Dim = Dim([0, 0, 0, 0, 1, 0, 0]);
-    pub const PRESSURE: Dim = Dim([1, -1, -2, 0, 0, 0, 0]);
-    pub const ENERGY: Dim = Dim([1, 2, -2, 0, 0, 0, 0]);
-    pub const POWER: Dim = Dim([1, 2, -3, 0, 0, 0, 0]);
-    pub const SPEC_ENERGY: Dim = Dim([0, 2, -2, 0, 0, 0, 0]);
-    pub const SPEC_ENTROPY: Dim = Dim([0, 2, -2, -1, 0, 0, 0]);
-    pub const DENSITY: Dim = Dim([1, -3, 0, 0, 0, 0, 0]);
-    pub const SPEC_VOLUME: Dim = Dim([-1, 3, 0, 0, 0, 0, 0]);
-    pub const VELOCITY: Dim = Dim([0, 1, -1, 0, 0, 0, 0]);
-    pub const VISCOSITY: Dim = Dim([1, -1, -1, 0, 0, 0, 0]);
-    pub const CONDUCTIVITY: Dim = Dim([1, 1, -3, -1, 0, 0, 0]);
-    pub const MOLAR_MASS: Dim = Dim([1, 0, 0, 0, -1, 0, 0]);
-    pub const SURFACE_TENSION: Dim = Dim([1, 0, -2, 0, 0, 0, 0]);
-    pub const MASS_FLOW: Dim = Dim([1, 0, -1, 0, 0, 0, 0]);
+    pub const NONE: Dim = Dim([0; 7], Custom::NONE);
+    pub const MASS: Dim = Dim::new([1, 0, 0, 0, 0, 0, 0]);
+    pub const LENGTH: Dim = Dim::new([0, 1, 0, 0, 0, 0, 0]);
+    pub const TIME: Dim = Dim::new([0, 0, 1, 0, 0, 0, 0]);
+    pub const TEMP: Dim = Dim::new([0, 0, 0, 1, 0, 0, 0]);
+    pub const AMOUNT: Dim = Dim::new([0, 0, 0, 0, 1, 0, 0]);
+    pub const PRESSURE: Dim = Dim::new([1, -1, -2, 0, 0, 0, 0]);
+    pub const ENERGY: Dim = Dim::new([1, 2, -2, 0, 0, 0, 0]);
+    pub const POWER: Dim = Dim::new([1, 2, -3, 0, 0, 0, 0]);
+    pub const SPEC_ENERGY: Dim = Dim::new([0, 2, -2, 0, 0, 0, 0]);
+    pub const SPEC_ENTROPY: Dim = Dim::new([0, 2, -2, -1, 0, 0, 0]);
+    pub const DENSITY: Dim = Dim::new([1, -3, 0, 0, 0, 0, 0]);
+    pub const SPEC_VOLUME: Dim = Dim::new([-1, 3, 0, 0, 0, 0, 0]);
+    pub const VELOCITY: Dim = Dim::new([0, 1, -1, 0, 0, 0, 0]);
+    pub const VISCOSITY: Dim = Dim::new([1, -1, -1, 0, 0, 0, 0]);
+    pub const CONDUCTIVITY: Dim = Dim::new([1, 1, -3, -1, 0, 0, 0]);
+    pub const MOLAR_MASS: Dim = Dim::new([1, 0, 0, 0, -1, 0, 0]);
+    pub const SURFACE_TENSION: Dim = Dim::new([1, 0, -2, 0, 0, 0, 0]);
+    pub const MASS_FLOW: Dim = Dim::new([1, 0, -1, 0, 0, 0, 0]);
     /// Energy per amount of substance (kJ/kmol).
-    pub const MOLAR_ENERGY: Dim = Dim([1, 2, -2, 0, -1, 0, 0]);
+    pub const MOLAR_ENERGY: Dim = Dim::new([1, 2, -2, 0, -1, 0, 0]);
     /// Entropy or heat capacity per amount of substance (kJ/kmol-K).
-    pub const MOLAR_ENTROPY: Dim = Dim([1, 2, -2, -1, -1, 0, 0]);
-    pub const MOLAR_FLOW: Dim = Dim([0, 0, -1, 0, 1, 0, 0]);
+    pub const MOLAR_ENTROPY: Dim = Dim::new([1, 2, -2, -1, -1, 0, 0]);
+    pub const MOLAR_FLOW: Dim = Dim::new([0, 0, -1, 0, 1, 0, 0]);
     /// Kinematic viscosity, thermal diffusivity (m^2/s).
-    pub const DIFFUSIVITY: Dim = Dim([0, 2, -1, 0, 0, 0, 0]);
+    pub const DIFFUSIVITY: Dim = Dim::new([0, 2, -1, 0, 0, 0, 0]);
     /// Isothermal compressibility (1/Pa).
-    pub const INV_PRESSURE: Dim = Dim([-1, 1, 2, 0, 0, 0, 0]);
+    pub const INV_PRESSURE: Dim = Dim::new([-1, 1, 2, 0, 0, 0, 0]);
     /// Volumetric expansion coefficient (1/K).
-    pub const INV_TEMP: Dim = Dim([0, 0, 0, -1, 0, 0, 0]);
+    pub const INV_TEMP: Dim = Dim::new([0, 0, 0, -1, 0, 0, 0]);
 
+    /// A dimension of SI base exponents only.
+    pub const fn new(si: [i8; 7]) -> Dim {
+        Dim(si, Custom::NONE)
+    }
+    /// The dimension of one custom base unit.
+    pub fn custom(name: &str) -> Dim {
+        Dim([0; 7], Custom::base(custom_id(name)))
+    }
     pub fn mul(self, o: Dim) -> Dim {
         let mut r = [0i8; 7];
         for i in 0..7 {
             r[i] = self.0[i] + o.0[i];
         }
-        Dim(r)
+        Dim(r, if self.1.is_none() && o.1.is_none() { Custom::NONE } else { self.1.combine(o.1, 1) })
     }
     pub fn div(self, o: Dim) -> Dim {
         let mut r = [0i8; 7];
         for i in 0..7 {
             r[i] = self.0[i] - o.0[i];
         }
-        Dim(r)
+        Dim(r, if self.1.is_none() && o.1.is_none() { Custom::NONE } else { self.1.combine(o.1, -1) })
     }
     pub fn powi(self, n: i32) -> Dim {
         let mut r = [0i8; 7];
         for i in 0..7 {
             r[i] = (self.0[i] as i32 * n) as i8;
         }
-        Dim(r)
+        Dim(r, if self.1.is_none() { Custom::NONE } else { self.1.powi(n) })
+    }
+    /// Square root of the dimension, if every exponent is even.
+    pub fn half(self) -> Option<Dim> {
+        let mut r = [0i8; 7];
+        for i in 0..7 {
+            if self.0[i] % 2 != 0 {
+                return None;
+            }
+            r[i] = self.0[i] / 2;
+        }
+        let mut m = BTreeMap::new();
+        for (id, e) in self.1.iter() {
+            if e % 2 != 0 {
+                return None;
+            }
+            m.insert(id, e as i32 / 2);
+        }
+        Some(Dim(r, Custom::from_map(m)))
     }
     pub fn is_none(self) -> bool {
         self == Dim::NONE
+    }
+    /// Has custom base units (`EUR`, `pax`, ...).
+    pub fn has_custom(self) -> bool {
+        !self.1.is_none()
+    }
+    /// The SI part of the dimension (custom base units dropped).
+    pub fn si_part(self) -> Dim {
+        Dim(self.0, Custom::NONE)
     }
     /// Human readable name of well-known dimensions.
     pub fn name(self) -> Option<&'static str> {
@@ -113,6 +236,14 @@ fn write_dim(f: &mut impl fmt::Write, d: &Dim, amount: &str) -> fmt::Result {
     let sym: [&str; 7] = ["kg", "m", "s", "K", amount, "A", "cd"];
     let mut num = Vec::new();
     let mut den = Vec::new();
+    for (id, e) in d.1.iter() {
+        let n = custom_name(id);
+        if e > 0 {
+            num.push(if e == 1 { n } else { format!("{n}^{e}") });
+        } else {
+            den.push(if e == -1 { n } else { format!("{n}^{}", -e) });
+        }
+    }
     for i in 0..7 {
         let e = d.0[i];
         if e > 0 {
@@ -206,11 +337,11 @@ fn atoms() -> &'static HashMap<&'static str, (f64, f64, Dim)> {
     static T: OnceLock<HashMap<&'static str, (f64, f64, Dim)>> = OnceLock::new();
     T.get_or_init(|| {
         use Dim as D;
-        let force = Dim([1, 1, -2, 0, 0, 0, 0]);
-        let vol = Dim([0, 3, 0, 0, 0, 0, 0]);
-        let area = Dim([0, 2, 0, 0, 0, 0, 0]);
-        let freq = Dim([0, 0, -1, 0, 0, 0, 0]);
-        let current = Dim([0, 0, 0, 0, 0, 1, 0]);
+        let force = Dim::new([1, 1, -2, 0, 0, 0, 0]);
+        let vol = Dim::new([0, 3, 0, 0, 0, 0, 0]);
+        let area = Dim::new([0, 2, 0, 0, 0, 0, 0]);
+        let freq = Dim::new([0, 0, -1, 0, 0, 0, 0]);
+        let current = Dim::new([0, 0, 0, 0, 0, 1, 0]);
         let mut m: HashMap<&'static str, (f64, f64, Dim)> = HashMap::new();
         let mut add = |names: &[&'static str], f: f64, o: f64, d: Dim| {
             for n in names {
@@ -305,34 +436,202 @@ fn lookup_atom(name: &str) -> Option<Atom> {
     if let Some(&(f, o, d)) = atoms().get(key.as_str()) {
         return Some(Atom { factor: f, offset: o, dim: d });
     }
+    if let Some(a) = prefixed_builtin(name) {
+        return Some(a);
+    }
     // trailing digit exponent: m3, m2, s2
-    let digits: String = key.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
-    if !digits.is_empty() && digits.len() < key.len() {
-        let base = &key[..key.len() - digits.len()];
-        let e: i32 = digits.chars().rev().collect::<String>().parse().ok()?;
+    let ndig = name.chars().rev().take_while(|c| c.is_ascii_digit()).count();
+    if ndig > 0 && ndig < name.len() {
+        let base = &name[..name.len() - ndig];
+        let e: i32 = name[name.len() - ndig..].parse().ok()?;
         let a = lookup_atom(base)?;
         return Some(Atom { factor: a.factor.powi(e), offset: 0.0, dim: a.dim.powi(e) });
     }
     None
 }
 
-/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`.
-/// EES convention: everything after the first `/` is in the denominator and
-/// `-`, `*`, `·` or blanks separate factors.
-pub fn parse_unit(text: &str) -> Result<Unit, String> {
-    let t = text.trim();
-    if t.is_empty() || t == "-" {
-        return Ok(Unit::none());
+/// SI prefixes (case-sensitive), longest first so that `da` wins over `d`.
+const PREFIXES: &[(&str, f64)] = &[
+    ("da", 1e1),
+    ("Q", 1e30),
+    ("R", 1e27),
+    ("Y", 1e24),
+    ("Z", 1e21),
+    ("E", 1e18),
+    ("P", 1e15),
+    ("T", 1e12),
+    ("G", 1e9),
+    ("M", 1e6),
+    ("k", 1e3),
+    ("h", 1e2),
+    ("d", 1e-1),
+    ("c", 1e-2),
+    ("m", 1e-3),
+    ("µ", 1e-6),
+    ("μ", 1e-6),
+    ("u", 1e-6),
+    ("n", 1e-9),
+    ("p", 1e-12),
+    ("f", 1e-15),
+    ("a", 1e-18),
+    ("z", 1e-21),
+    ("y", 1e-24),
+    ("r", 1e-27),
+    ("q", 1e-30),
+];
+
+/// A prefixed built-in unit that is not in the table: `Mt`, `kt`, `hPa`,
+/// `kbar`, `nm`, `mA`. Restricted to avoid surprising readings of short
+/// tokens (`ct` is not centi-tonne, `PS` not peta-second): temperatures and
+/// dimensionless units take no prefix, and a one-letter base only takes the
+/// common prefixes.
+fn prefixed_builtin(name: &str) -> Option<Atom> {
+    const MULT: &[&str] = &["k", "M", "G", "T"];
+    const SUB: &[&str] = &["m", "µ", "μ", "u", "n", "p", "c", "d"];
+    for &(p, f) in PREFIXES {
+        let Some(rest) = name.strip_prefix(p) else { continue };
+        if rest.is_empty() || rest.ends_with(|c: char| c.is_ascii_digit()) {
+            continue;
+        }
+        let r = rest.to_lowercase();
+        let ok = if p == "h" {
+            r == "pa" || r == "l"
+        } else if MULT.contains(&p) {
+            r.chars().count() >= 2 || ["t", "g", "m", "s", "l", "j", "w", "n", "a"].contains(&r.as_str())
+        } else if SUB.contains(&p) {
+            r.chars().count() >= 2 || ["m", "s", "g", "l"].contains(&r.as_str()) || (r == "a" && ["m", "µ", "μ", "u", "n"].contains(&p))
+        } else {
+            matches!(p, "P" | "E") && r.chars().count() >= 2
+        };
+        if !ok {
+            continue;
+        }
+        if let Some(&(af, ao, ad)) = atoms().get(r.as_str()) {
+            if ao == 0.0 && !ad.is_none() && ad != Dim::TEMP {
+                return Some(Atom { factor: af * f, offset: 0.0, dim: ad });
+            }
+        }
     }
+    None
+}
+
+// ------------------------------------------------------------------ custom units
+
+/// The custom units of a model: every unit token of the script that is not
+/// a built-in unit, and the tokens declared with `$CustomUnits` (which take
+/// precedence over built-in units of the same name).
+///
+/// It decides how a custom token is read: `MEUR` is 1e6 `EUR` when `EUR` (or
+/// another prefixed form such as `kEUR`) is also a token of the model, and a
+/// base unit of its own otherwise (so `pax` is never pico-`ax` unless `ax` is
+/// used too). Tokens are case-sensitive.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UnitCtx {
+    /// Custom tokens written in the script (with their prefixes).
+    pub tokens: BTreeSet<String>,
+    /// Tokens declared with `$CustomUnits`.
+    pub declared: BTreeSet<String>,
+}
+
+thread_local! {
+    static CTX: RefCell<Option<Arc<UnitCtx>>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with the custom units of a model in effect for [`parse_unit`] on
+/// this thread.
+pub fn with_ctx<R>(ctx: &Arc<UnitCtx>, f: impl FnOnce() -> R) -> R {
+    let _g = enter_ctx(ctx);
+    f()
+}
+
+/// Put the custom units of a model in effect on this thread until the
+/// returned guard is dropped.
+pub fn enter_ctx(ctx: &Arc<UnitCtx>) -> CtxGuard {
+    CtxGuard(CTX.with(|c| c.borrow_mut().replace(ctx.clone())))
+}
+
+/// Restores the previous custom units when dropped (see [`enter_ctx`]).
+pub struct CtxGuard(Option<Arc<UnitCtx>>);
+
+impl Drop for CtxGuard {
+    fn drop(&mut self) {
+        let prev = self.0.take();
+        CTX.with(|c| *c.borrow_mut() = prev);
+    }
+}
+
+/// Set the custom units in effect on this thread (the app's UI thread
+/// follows the model on screen).
+pub fn set_ctx(ctx: Option<Arc<UnitCtx>>) {
+    CTX.with(|c| *c.borrow_mut() = ctx);
+}
+
+/// The custom units in effect on this thread.
+pub fn current_ctx() -> Option<Arc<UnitCtx>> {
+    CTX.with(|c| c.borrow().clone())
+}
+
+/// Could `t` name a custom unit? It must start with a letter, `_` or a
+/// currency sign (not a digit: `1000` is no unit).
+pub fn is_custom_token(t: &str) -> bool {
+    t.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || "$€£¥₹".contains(c)) && !t.contains(['=', ',', ';', '[', ']', '{', '}', '"', '\'', '(', ')'])
+}
+
+/// (factor, root) of a custom token: `MEUR` → (1e6, `EUR`) when `EUR` is a
+/// token of the model. `strict`: unknown tokens are an error instead of a
+/// new base unit.
+fn resolve_custom(t: &str, ctx: Option<&UnitCtx>, strict: bool) -> Result<(f64, String), String> {
+    let Some(c) = ctx else {
+        return if strict { Err(format!("unknown unit '{t}'")) } else { Ok((1.0, t.to_string())) };
+    };
+    // `rest` is a base unit when it is written itself, or when another
+    // token is a prefixed form of it too (`kEUR` and `MEUR` share `EUR`)
+    let known = |s: &str| c.tokens.contains(s) || c.declared.contains(s) || c.tokens.iter().any(|q| q != t && PREFIXES.iter().any(|(p, _)| q.strip_prefix(p) == Some(s)));
+    for &(p, f) in PREFIXES {
+        if let Some(rest) = t.strip_prefix(p) {
+            if !rest.is_empty() && known(rest) {
+                let (g, root) = resolve_custom(rest, ctx, strict)?;
+                return Ok((f * g, root));
+            }
+        }
+    }
+    if known(t) || !strict {
+        Ok((1.0, t.to_string()))
+    } else {
+        Err(format!("unknown unit '{t}'"))
+    }
+}
+
+/// How one factor of a unit expression is read.
+enum Token {
+    Builtin(Atom),
+    Custom { factor: f64, root: String },
+}
+
+fn classify(base: &str, ctx: Option<&UnitCtx>, strict: bool) -> Result<Token, String> {
+    let declared = ctx.is_some_and(|c| c.declared.contains(base));
+    if !declared {
+        if let Some(a) = lookup_atom(base) {
+            return Ok(Token::Builtin(a));
+        }
+    }
+    if !is_custom_token(base) {
+        return Err(format!("unknown unit '{base}'"));
+    }
+    let (factor, root) = resolve_custom(base, ctx, strict)?;
+    Ok(Token::Custom { factor, root })
+}
+
+/// Split a unit expression into (factor text, exponent) pairs, the exponent
+/// negative in the denominator.
+fn factors(text: &str) -> Result<Vec<(String, i32)>, String> {
+    let t = text.trim();
     // protect negative exponents (m^-1) from the '-' factor separator
     let cleaned: String = t.replace("^-", "^~").chars().filter(|c| *c != '(' && *c != ')').collect();
     let mut parts = cleaned.splitn(2, '/');
     let num = parts.next().unwrap_or("");
     let den = parts.next().unwrap_or("");
-    let mut factor = 1.0;
-    let mut dim = Dim::NONE;
-    let mut nfactors = 0;
-    let mut single: Option<Atom> = None;
+    let mut out = Vec::new();
     for (s, sign) in [(num, 1), (den, -1)] {
         for f in s.split(|c: char| c == '-' || c == '*' || c == '·' || c == ' ' || c == '/' || c == '.') {
             let f = f.trim();
@@ -343,23 +642,102 @@ pub fn parse_unit(text: &str) -> Result<Unit, String> {
                 Some((b, e)) => (b, e.replace('~', "-").parse::<i32>().map_err(|_| format!("bad exponent in '{f}'"))?),
                 None => (f, 1),
             };
-            let a = lookup_atom(base).ok_or_else(|| format!("unknown unit '{base}'"))?;
-            nfactors += 1;
-            factor *= a.factor.powi(exp * sign);
-            dim = dim.mul(a.dim.powi(exp * sign));
-            if nfactors == 1 && exp == 1 && sign == 1 {
-                single = Some(a);
-            } else {
-                single = None;
-            }
+            out.push((base.to_string(), exp * sign));
         }
     }
+    Ok(out)
+}
+
+/// The custom tokens of a unit expression as written (`MEUR/yr` → `MEUR`),
+/// given the `$CustomUnits` declarations.
+pub fn custom_tokens(text: &str, declared: &BTreeSet<String>) -> Vec<String> {
+    let Ok(fs) = factors(text) else { return Vec::new() };
+    fs.into_iter().map(|(b, _)| b).filter(|b| declared.contains(b) || (lookup_atom(b).is_none() && is_custom_token(b))).collect()
+}
+
+/// Parse a unit expression such as `kJ/kg-K`, `kJ/(kg*K)`, `m^3/kg`, `W/m^2-K`.
+/// EES convention: everything after the first `/` is in the denominator and
+/// `-`, `*`, `·` or blanks separate factors.
+///
+/// Tokens that are not built-in units are custom units (`EUR/yr`,
+/// `MEUR/yr`, `kg-CO2/MWh`), read with the custom units in effect on this
+/// thread (see [`UnitCtx`]).
+pub fn parse_unit(text: &str) -> Result<Unit, String> {
+    parse_with(text, false)
+}
+
+/// [`parse_unit`], but a custom token must be one of the model's (directly
+/// or with a prefix): used where any text could be a unit, such as comments.
+pub fn parse_unit_known(text: &str) -> Result<Unit, String> {
+    parse_with(text, true)
+}
+
+fn parse_with(text: &str, strict: bool) -> Result<Unit, String> {
+    let t = text.trim();
+    if t.is_empty() || t == "-" {
+        return Ok(Unit::none());
+    }
+    let ctx = current_ctx();
+    let mut factor = 1.0;
+    let mut dim = Dim::NONE;
+    let mut nfactors = 0;
+    let mut single: Option<f64> = None;
+    for (base, exp) in factors(t)? {
+        let (f, o, d) = match classify(&base, ctx.as_deref(), strict)? {
+            Token::Builtin(a) => (a.factor, a.offset, a.dim),
+            Token::Custom { factor, root } => (factor, 0.0, Dim::custom(&root)),
+        };
+        nfactors += 1;
+        factor *= f.powi(exp);
+        dim = dim.mul(d.powi(exp));
+        single = if nfactors == 1 && exp == 1 { Some(o) } else { None };
+    }
     // Affine offset only applies to a lone absolute temperature unit.
-    let offset = match (&single, nfactors) {
-        (Some(a), 1) => a.offset,
+    let offset = match (single, nfactors) {
+        (Some(o), 1) => o,
         _ => 0.0,
     };
     Ok(Unit { symbol: t.to_string(), factor, offset, dim })
+}
+
+/// A built-in unit close to an unknown token (one edit away, ignoring case),
+/// to suggest when a typo may have made a custom unit: `kgg` → `kg`.
+pub fn suggest_builtin(token: &str) -> Option<String> {
+    let t = token.to_lowercase();
+    let tc: Vec<char> = t.chars().collect();
+    if tc.len() < 2 {
+        return None;
+    }
+    let mut best: Option<&str> = None;
+    for k in atoms().keys() {
+        let kc: Vec<char> = k.chars().collect();
+        if kc.len() < 2 || !kc.iter().all(|c| c.is_alphabetic()) {
+            continue;
+        }
+        if edit_distance(&tc, &kc) <= 1 && best.is_none_or(|b| k.len() > b.len() || (k.len() == b.len() && *k < b)) {
+            best = Some(k);
+        }
+    }
+    best.map(pretty_builtin)
+}
+
+/// Usual spelling of a built-in unit key (`kpa` → `kPa`).
+fn pretty_builtin(k: &str) -> String {
+    const P: &[&str] =
+        &["kPa", "MPa", "GPa", "Pa", "kJ", "MJ", "GJ", "J", "kW", "MW", "GW", "W", "Wh", "kWh", "MWh", "GWh", "kN", "N", "K", "C", "F", "R", "Btu", "L", "mL", "Hz", "lbmol"];
+    P.iter().find(|p| p.to_lowercase() == k).map(|p| p.to_string()).unwrap_or_else(|| k.to_string())
+}
+
+fn edit_distance(a: &[char], b: &[char]) -> usize {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j] + (ca != cb) as usize).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 // ------------------------------------------------------------------ unit systems
@@ -460,6 +838,50 @@ impl UnitSystem {
         Ok(us)
     }
 
+    /// Model unit of a dimension with custom base units: each custom base
+    /// unit without prefix (`EUR`) times the model unit of the SI part. A
+    /// purely inverse SI part takes the inverse of its model unit, so that
+    /// `EUR/kWh` is held in EUR/kJ in a kJ system and `c*E` is in EUR.
+    fn custom_unit_for(&self, dim: Dim) -> Unit {
+        let p = dim.si_part();
+        let split = |s: &str| match s.split_once('/') {
+            Some((n, d)) => (n.trim().to_string(), d.trim().to_string()),
+            None => (s.trim().to_string(), String::new()),
+        };
+        let inverse = !p.is_none() && p.name().is_none() && (p.powi(-1).name().is_some() || p.0.iter().all(|e| *e <= 0));
+        let (pn, pd, pf) = if p.is_none() {
+            (String::new(), String::new(), 1.0)
+        } else if inverse {
+            let u = self.unit_for(p.powi(-1));
+            let (n, d) = split(&u.symbol);
+            (d, n, 1.0 / u.factor)
+        } else {
+            let u = self.unit_for(p);
+            let (n, d) = split(&u.symbol);
+            (n, d, u.factor)
+        };
+        let mut num = Vec::new();
+        let mut den = Vec::new();
+        for (id, e) in dim.1.iter() {
+            let n = custom_name(id);
+            match e {
+                1 => num.push(n),
+                -1 => den.push(n),
+                e if e > 0 => num.push(format!("{n}^{e}")),
+                e => den.push(format!("{n}^{}", -e)),
+            }
+        }
+        if !pn.is_empty() && pn != "1" && pn != "-" {
+            num.push(pn);
+        }
+        if !pd.is_empty() {
+            den.insert(0, pd);
+        }
+        let n = if num.is_empty() { "1".to_string() } else { num.join("-") };
+        let symbol = if den.is_empty() { n } else { format!("{n}/{}", den.join("-")) };
+        Unit { symbol, factor: pf, offset: 0.0, dim }
+    }
+
     fn temp_unit(&self) -> Unit {
         let s = match self.temperature {
             TempUnit::K => "K",
@@ -484,6 +906,9 @@ impl UnitSystem {
     /// The unit in which quantities of dimension `dim` are expressed in this
     /// system (used for literals, property calls and default display).
     pub fn unit_for(&self, dim: Dim) -> Unit {
+        if dim.has_custom() {
+            return self.custom_unit_for(dim);
+        }
         if dim == Dim::TEMP {
             return self.temp_unit();
         }
@@ -580,7 +1005,7 @@ mod tests {
         let c = parse_unit("C").unwrap();
         assert!((c.to_si(25.0) - 298.15).abs() < 1e-12);
         let w = parse_unit("W/m^2-K").unwrap();
-        assert_eq!(w.dim, Dim([1, 0, -3, -1, 0, 0, 0]));
+        assert_eq!(w.dim, Dim::new([1, 0, -3, -1, 0, 0, 0]));
         let v = parse_unit("m3/kg").unwrap();
         assert_eq!(v.dim, Dim::SPEC_VOLUME);
         let f = parse_unit("F").unwrap();

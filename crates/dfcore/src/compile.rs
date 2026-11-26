@@ -9,7 +9,7 @@ use crate::lexer::Span;
 use crate::parser::{canon, parse, Diagnostic, Severity};
 use crate::props::{self, Key, PropCall, RawCall, RawKind};
 use crate::tape::{Op, Tape, VarId, F1, F2};
-use crate::units::{parse_unit, Dim, Unit, UnitSystem};
+use crate::units::{parse_unit, parse_unit_known, Dim, Unit, UnitCtx, UnitSystem};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -81,6 +81,12 @@ pub struct Model {
     /// Variables whose entry in `bounds` was set automatically from
     /// `var_kinds` (not by `$Bounds`).
     pub auto_bounds: std::collections::HashSet<VarId>,
+    /// Custom units of the script (see [`UnitCtx`]); unit text about this
+    /// model is parsed with them in effect ([`Model::with_units`]).
+    pub units: Arc<UnitCtx>,
+    /// Custom base units used without a `$CustomUnits` declaration, in order
+    /// of first use (the editor offers to declare them).
+    pub undeclared_units: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +106,17 @@ impl Model {
     /// Unit in which a variable is displayed and the conversion from its
     /// model value.
     pub fn display_unit(&self, v: VarId) -> Option<(Unit, Unit)> {
+        self.with_units(|| self.display_unit_in(v))
+    }
+    /// Run `f` with this model's custom units in effect for `parse_unit`.
+    pub fn with_units<R>(&self, f: impl FnOnce() -> R) -> R {
+        crate::units::with_ctx(&self.units, f)
+    }
+    /// Parse a unit with this model's custom units.
+    pub fn parse_unit(&self, text: &str) -> Result<Unit, String> {
+        self.with_units(|| parse_unit(text))
+    }
+    fn display_unit_in(&self, v: VarId) -> Option<(Unit, Unit)> {
         if let Some(s) = self.display_units.get(&v).or(self.vars[v as usize].unit_hint.as_ref()) {
             if let Ok(du) = parse_unit(s) {
                 let mu = self.unit_system.unit_for(du.dim);
@@ -113,7 +130,7 @@ impl Model {
     /// Dimension of a variable (declared or inferred).
     pub fn var_dim(&self, v: VarId) -> Option<Dim> {
         if let Some(s) = self.display_units.get(&v).or(self.vars[v as usize].unit_hint.as_ref()) {
-            if let Ok(du) = parse_unit(s) {
+            if let Ok(du) = self.parse_unit(s) {
                 return Some(du.dim);
             }
         }
@@ -250,6 +267,79 @@ fn with_includes(src: &str, files: &Files) -> (String, Vec<(String, Span, std::o
 }
 
 pub fn compile_program(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: &CompileOptions) -> Model {
+    let (ctx, found) = custom_units(src, prog);
+    let ctx = Arc::new(ctx);
+    let mut m = crate::units::with_ctx(&ctx, || compile_program_in(src, prog, diags, opts));
+    let mut seen = std::collections::HashSet::new();
+    for (tok, span) in found {
+        if ctx.declared.contains(&tok) || !seen.insert(tok.clone()) {
+            continue;
+        }
+        let root = crate::units::with_ctx(&ctx, || parse_unit(&tok).ok()).and_then(|u| u.dim.1.iter().next().map(|(id, _)| crate::units::custom_name(id))).unwrap_or(tok.clone());
+        match crate::units::suggest_builtin(&tok) {
+            Some(s) => m.diagnostics.push(Diagnostic {
+                msg: format!("'{tok}' is not a built-in unit and is taken as a custom unit; did you mean '{s}'?"),
+                span,
+                severity: Severity::Warning,
+            }),
+            None if !m.undeclared_units.contains(&root) => m.diagnostics.push(Diagnostic {
+                msg: if root == tok {
+                    format!("custom unit '{tok}' (not a built-in unit; declare it with $CustomUnits)")
+                } else {
+                    format!("custom unit '{root}' in '{tok}' (not a built-in unit; declare it with $CustomUnits)")
+                },
+                span,
+                severity: Severity::Info,
+            }),
+            None => {}
+        }
+        if !m.undeclared_units.contains(&root) && !ctx.declared.contains(&root) {
+            m.undeclared_units.push(root);
+        }
+    }
+    m.units = ctx;
+    m
+}
+
+/// The custom units of a script: tokens declared with `$CustomUnits` and the
+/// non-built-in tokens of every unit written in it (`[...]` after numbers
+/// and equations, `$Units`), with where each is first used.
+fn custom_units(src: &str, prog: &Program) -> (UnitCtx, Vec<(String, Span)>) {
+    let mut ctx = UnitCtx::default();
+    for s in &prog.stmts {
+        if let Stmt::Directive { name, args, .. } = s {
+            if name == "customunits" {
+                ctx.declared.extend(args.split(|c: char| c.is_whitespace() || c == ',').filter(|t| !t.is_empty()).map(str::to_string));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    let mut add = |text: &str, span: Span, ctx: &mut UnitCtx| {
+        for t in crate::units::custom_tokens(text, &ctx.declared) {
+            ctx.tokens.insert(t.clone());
+            found.push((t, span));
+        }
+    };
+    for t in crate::lexer::lex(src).tokens {
+        if let crate::lexer::Tok::Unit(u) = &t.tok {
+            add(u, t.span, &mut ctx);
+        }
+    }
+    for s in &prog.stmts {
+        if let Stmt::Directive { name, args, span } = s {
+            if name == "units" {
+                for item in split_top(args) {
+                    if let Some((_, u)) = item.split_once('=') {
+                        add(u.trim(), *span, &mut ctx);
+                    }
+                }
+            }
+        }
+    }
+    (ctx, found)
+}
+
+fn compile_program_in(src: &str, prog: &Program, diags: Vec<Diagnostic>, opts: &CompileOptions) -> Model {
     let mut b = Builder {
         src,
         m: Model::default(),
@@ -682,7 +772,7 @@ impl<'s> Builder<'s> {
                         Expr::Num { unit: Some(u), .. } => Some(u.clone()),
                         _ => comment.and_then(|c| {
                             let c = c.trim();
-                            (!c.is_empty() && c.len() < 24 && parse_unit(c).is_ok()).then(|| c.to_string())
+                            (!c.is_empty() && c.len() < 24 && parse_unit_known(c).is_ok()).then(|| c.to_string())
                         }),
                     };
                     if let Some(h) = hint {
@@ -800,7 +890,7 @@ impl<'s> Builder<'s> {
     // ------------------------------------------------------------ directives
     fn directive(&mut self, name: &str, args: &str, span: Span) {
         match name {
-            "unitsystem" => {}
+            "unitsystem" | "customunits" => {}
             "guess" => {
                 for item in split_top(args) {
                     match self.assign_item(&item, span) {

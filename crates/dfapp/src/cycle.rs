@@ -1078,7 +1078,7 @@ impl StateTable {
 }
 
 pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
-    use crate::components::{bases, main_fluid, state, stream_fluid_ex, Phase};
+    use crate::components::{bases, state, stream_fluid_ex, FluidGuess, Phase};
     use dfcore::props::Key;
     use dfcore::units::Dim;
     let mut states: Vec<i64> = d.links.iter().filter_map(|l| l.state).collect();
@@ -1088,12 +1088,12 @@ pub fn state_table(d: &CycleDiagram, inp: &CycleInputs) -> StateTable {
         return StateTable::default();
     }
     let b = bases(inp);
-    let main = main_fluid(inp.script);
+    let guess = FluidGuess::new(inp);
     let sts: Vec<_> = states
         .iter()
         .map(|k| {
             let l = d.links.iter().find(|l| l.state == Some(*k)).unwrap();
-            state(inp, &b, *k, stream_fluid_ex(l, &main))
+            state(inp, &b, *k, stream_fluid_ex(l, &guess))
         })
         .collect();
     let us = &inp.analysis.model.unit_system;
@@ -1729,14 +1729,14 @@ impl CycleUi {
                     });
                     ui.horizontal(|ui| {
                         ui.label("Fluid");
-                        let auto = crate::components::stream_fluid(&Link { fluid: String::new(), ..l.clone() }, &crate::components::main_fluid(inp.script));
+                        let auto = crate::components::stream_fluid(&Link { fluid: String::new(), ..l.clone() }, &crate::components::FluidGuess::new(inp));
                         let shown = match l.fluid.as_str() {
                             "" => format!("auto ({})", auto.clone().unwrap_or_else(|| "none".into())),
                             "-" => "none / mixture".into(),
                             f => f.to_string(),
                         };
                         egui::ComboBox::from_id_salt(("fluid", id)).selected_text(shown).height(300.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut l.fluid, String::new(), "auto (colour / main fluid)");
+                            ui.selectable_value(&mut l.fluid, String::new(), "auto (script / colour / main fluid)");
                             ui.selectable_value(&mut l.fluid, "-".to_string(), "none / mixture");
                             for f in ["Water", "CO2", "Air", "Nitrogen", "R134a", "R245fa", "Toluene", "Ammonia", "Helium", "Methane", "Propane"] {
                                 ui.selectable_value(&mut l.fluid, f.to_string(), f);
